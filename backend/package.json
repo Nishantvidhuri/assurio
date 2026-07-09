@@ -1,0 +1,50 @@
+{
+  "name": "bg-check-backend",
+  "version": "1.0.0",
+  "description": "NestJS auth backend",
+  "scripts": {
+    "build": "nest build",
+    "start": "nest start",
+    "start:dev": "nest start --watch",
+    "seed:admin": "node scripts/seed-admin.mjs"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1053.0",
+    "@aws-sdk/s3-request-presigner": "^3.1053.0",
+    "@bull-board/api": "^7.1.5",
+    "@bull-board/express": "^7.1.5",
+    "@bull-board/nestjs": "^7.1.5",
+    "@nestjs/bullmq": "^11.0.4",
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/jwt": "^11.0.0",
+    "@nestjs/mongoose": "^11.0.4",
+    "@nestjs/platform-express": "^11.0.0",
+    "@nestjs/throttler": "^6.5.0",
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "@types/pg": "^8.20.0",
+    "bcryptjs": "^2.4.3",
+    "bullmq": "^5.77.3",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.1",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^17.4.2",
+    "ioredis": "^5.10.1",
+    "mongoose": "^9.6.2",
+    "pg": "^8.21.0",
+    "puppeteer-core": "^25.0.4",
+    "razorpay": "^2.9.6",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.0",
+    "@nestjs/schematics": "^11.0.0",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/node": "^22.0.0",
+    "prisma": "^7.8.0",
+    "typescript": "^5.5.0"
+  }
+}

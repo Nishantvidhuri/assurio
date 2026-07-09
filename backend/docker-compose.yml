@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: assurio-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: assurio
+      POSTGRES_PASSWORD: assurio
+      POSTGRES_DB: assurio
+    ports:
+      - "5435:5432"
+    volumes:
+      - assurio_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  assurio_postgres_data:
