@@ -14,7 +14,17 @@ import {
 } from '../../lib/api';
 import { getToken } from '../../lib/session';
 import { doLogout } from '../../lib/logout';
-import Sidebar, { ICONS, type SidebarItem } from '../../components/Sidebar';
+import { ICONS, type SidebarItem } from '../../components/Sidebar';
+import AppShell from '../../components/AppShell';
+import StatCard from '../../components/StatCard';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHeader,
+  TableHeaderCell,
+  TableRow,
+} from '@/shared/components/ui';
 
 // Bull Board is proxied through Next.js rewrites — same port as the app.
 const BULL_BOARD_URL = '/admin/queues';
@@ -108,9 +118,8 @@ export default function OperationsPage() {
   if (!user) return <div className="loading">Loading...</div>;
 
   return (
-    <div className="shell">
-      <Sidebar items={ADMIN_NAV} user={user} onLogout={handleLogout} />
-      <main className="shell-main ops-page">
+    <AppShell nav={ADMIN_NAV} user={user} onLogout={handleLogout}>
+      <div className="ops-page">
         {/* Header */}
         <div className="ops-header">
           <div className="ops-breadcrumb">Operations</div>
@@ -152,160 +161,147 @@ export default function OperationsPage() {
             </div>
 
             {/* Outbox stats */}
-            <div className="ops-outbox-cards">
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               {(
                 [
-                  { label: 'Pending',    key: 'pending',    cls: 'ops-outbox-pending'    },
-                  { label: 'Processing', key: 'processing', cls: 'ops-outbox-processing' },
-                  { label: 'Sent',       key: 'sent',       cls: 'ops-outbox-sent'       },
-                  { label: 'Failed',     key: 'failed',     cls: 'ops-outbox-failed'     },
-                ] as { label: string; key: keyof OutboxStats; cls: string }[]
-              ).map(({ label, key, cls }) => (
-                <div key={key} className={`ops-outbox-card ${cls}`}>
-                  <span className="ops-outbox-count">{data.outboxStats?.[key] ?? 0}</span>
-                  <span className="ops-outbox-label">Outbox · {label}</span>
-                </div>
+                  { label: 'Pending',    key: 'pending',    tone: 'warning' },
+                  { label: 'Processing', key: 'processing', tone: 'neutral' },
+                  { label: 'Sent',       key: 'sent',       tone: 'success' },
+                  { label: 'Failed',     key: 'failed',     tone: 'failure' },
+                ] as { label: string; key: keyof OutboxStats; tone: 'warning' | 'neutral' | 'success' | 'failure' }[]
+              ).map(({ label, key, tone }) => (
+                <StatCard
+                  key={key}
+                  label={`Outbox · ${label}`}
+                  value={data.outboxStats?.[key] ?? 0}
+                  chip={(data.outboxStats?.[key] ?? 0) > 0 && (tone === 'failure' || tone === 'warning') ? 'attention' : undefined}
+                  chipTone={tone}
+                />
               ))}
             </div>
 
             {/* Queue health table */}
             <section className="ops-section">
               <h2 className="ops-section-title">Queue Health</h2>
-              <div className="ops-table-wrap">
-                <table className="ops-table">
-                  <thead>
-                    <tr>
-                      <th>Queue</th>
-                      <th>Health</th>
-                      <th>Waiting</th>
-                      <th>Active</th>
-                      <th>Delayed</th>
-                      <th>Failed</th>
-                      <th>Paused</th>
-                      <th>Oldest waiting</th>
-                      <th>Oldest failed</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+              <Table bordered className="bg-white">
+                <TableHeader>
+                  <TableRow>
+                      <TableHeaderCell label="Queue" />
+                      <TableHeaderCell label="Health" />
+                      <TableHeaderCell label="Waiting" />
+                      <TableHeaderCell label="Active" />
+                      <TableHeaderCell label="Delayed" />
+                      <TableHeaderCell label="Failed" />
+                      <TableHeaderCell label="Paused" />
+                      <TableHeaderCell label="Oldest waiting" />
+                      <TableHeaderCell label="Oldest failed" />
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
                     {data.queues.length === 0 ? (
-                      <tr>
-                        <td colSpan={9} className="ops-empty">No queues found</td>
-                      </tr>
+                      <TableRow>
+                        <TableCell colSpan={9} className="text-center" value={<span className="text-text-placeholder">No queues found</span>} />
+                        </TableRow>
                     ) : (
                       data.queues.map((q: QueueStat) => (
-                        <tr key={q.name}>
-                          <td className="ops-queue-name">
-                            <span>{q.label}</span>
-                            <span className="ops-queue-id">{q.name}</span>
-                          </td>
-                          <td>
-                            <span className={`ops-badge ${healthClass(q.health)}`}>
-                              {q.health}
-                            </span>
-                          </td>
-                          <td>{q.waiting}</td>
-                          <td>{q.active}</td>
-                          <td>{q.delayed}</td>
-                          <td>{q.failed}</td>
-                          <td>{q.paused}</td>
-                          <td className="ops-ts">{q.oldestWaiting ? fmtDate(q.oldestWaiting) : '—'}</td>
-                          <td className="ops-ts">{q.oldestFailed ? fmtDate(q.oldestFailed) : '—'}</td>
-                        </tr>
+                        <TableRow hoverable key={q.name}>
+                          <TableCell value={
+                            <div className="flex flex-col">
+                              <span>{q.label}</span>
+                              <span className="text-body-sm text-text-placeholder">{q.name}</span>
+                            </div>
+                          } />
+                          <TableCell type="status" statusLabel={q.health} statusVariant={q.health === 'HEALTHY' ? 'Success' : q.health === 'DEGRADED' ? 'Warning' : 'Failure'} />
+                          <TableCell value={q.waiting} />
+                          <TableCell value={q.active} />
+                          <TableCell value={q.delayed} />
+                          <TableCell value={q.failed} />
+                          <TableCell value={q.paused} />
+                          <TableCell value={q.oldestWaiting ? fmtDate(q.oldestWaiting) : '—'} />
+                          <TableCell value={q.oldestFailed ? fmtDate(q.oldestFailed) : '—'} />
+                        </TableRow>
                       ))
                     )}
-                  </tbody>
-                </table>
-              </div>
+                </TableBody>
+              </Table>
             </section>
 
             {/* Recent jobs table */}
             <section className="ops-section">
               <h2 className="ops-section-title">Recent Jobs</h2>
-              <div className="ops-table-wrap">
-                <table className="ops-table">
-                  <thead>
-                    <tr>
-                      <th>Queue</th>
-                      <th>Job</th>
-                      <th>Status</th>
-                      <th>Progress</th>
-                      <th>Attempts</th>
-                      <th>Queued</th>
-                      <th>Message</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+              <Table bordered className="bg-white">
+                <TableHeader>
+                  <TableRow>
+                      <TableHeaderCell label="Queue" />
+                      <TableHeaderCell label="Job" />
+                      <TableHeaderCell label="Status" />
+                      <TableHeaderCell label="Progress" />
+                      <TableHeaderCell label="Attempts" />
+                      <TableHeaderCell label="Queued" />
+                      <TableHeaderCell label="Message" />
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
                     {data.recentJobs.length === 0 ? (
-                      <tr>
-                        <td colSpan={7} className="ops-empty">No recent jobs</td>
-                      </tr>
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center" value={<span className="text-text-placeholder">No recent jobs</span>} />
+                        </TableRow>
                     ) : (
                       data.recentJobs.map((job: QueueJob, idx: number) => (
-                        <tr key={idx}>
-                          <td>{job.queue}</td>
-                          <td>{job.name}</td>
-                          <td>
-                            <span className={`ops-badge ${statusClass(job.status)}`}>
-                              {job.status}
-                            </span>
-                          </td>
-                          <td>{job.progress}%</td>
-                          <td>{job.attempts}</td>
-                          <td className="ops-ts">{fmtDate(job.timestamp)}</td>
-                          <td className="ops-msg">{job.failedReason || '—'}</td>
-                        </tr>
+                        <TableRow hoverable key={idx}>
+                          <TableCell value={job.queue} />
+                          <TableCell value={job.name} />
+                          <TableCell type="status" statusLabel={job.status} statusVariant={job.status === 'completed' ? 'Success' : job.status === 'failed' ? 'Failure' : 'Warning'} />
+                          <TableCell value={`${job.progress}%`} />
+                          <TableCell value={job.attempts} />
+                          <TableCell value={fmtDate(job.timestamp)} />
+                          <TableCell value={job.failedReason || '—'} />
+                        </TableRow>
                       ))
                     )}
-                  </tbody>
-                </table>
-              </div>
+                </TableBody>
+              </Table>
             </section>
 
             {/* Outbox events */}
             <section className="ops-section">
               <h2 className="ops-section-title">Outbox Events</h2>
-              <div className="ops-table-wrap">
-                <table className="ops-table">
-                  <thead>
-                    <tr>
-                      <th>Type</th>
-                      <th>Status</th>
-                      <th>Target</th>
-                      <th>Attempts</th>
-                      <th>Created</th>
-                      <th>Processed</th>
-                      <th>Error</th>
-                    </tr>
-                  </thead>
-                  <tbody>
+              <Table bordered className="bg-white">
+                <TableHeader>
+                  <TableRow>
+                      <TableHeaderCell label="Type" />
+                      <TableHeaderCell label="Status" />
+                      <TableHeaderCell label="Target" />
+                      <TableHeaderCell label="Attempts" />
+                      <TableHeaderCell label="Created" />
+                      <TableHeaderCell label="Processed" />
+                      <TableHeaderCell label="Error" />
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
                     {(data.recentOutboxEvents ?? []).length === 0 ? (
-                      <tr>
-                        <td colSpan={7} className="ops-empty">No outbox events yet</td>
-                      </tr>
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center" value={<span className="text-text-placeholder">No outbox events yet</span>} />
+                        </TableRow>
                     ) : (
                       (data.recentOutboxEvents ?? []).map((ev: OutboxEvent) => (
-                        <tr key={ev.id}>
-                          <td className="ops-outbox-type">{ev.eventType}</td>
-                          <td>
-                            <span className={`ops-badge ${statusClass(ev.status)}`}>
-                              {ev.status}
-                            </span>
-                          </td>
-                          <td className="ops-outbox-target">{ev.target}</td>
-                          <td>{ev.attempts}/{ev.maxAttempts}</td>
-                          <td className="ops-ts">{fmtDate(ev.createdAt)}</td>
-                          <td className="ops-ts">{ev.processedAt ? fmtDate(ev.processedAt) : '—'}</td>
-                          <td className="ops-msg">{ev.lastError || '—'}</td>
-                        </tr>
+                        <TableRow hoverable key={ev.id}>
+                          <TableCell value={ev.eventType} />
+                          <TableCell type="status" statusLabel={ev.status} statusVariant={ev.status === 'sent' ? 'Success' : ev.status === 'failed' ? 'Failure' : 'Warning'} />
+                          <TableCell value={ev.target} />
+                          <TableCell value={`${ev.attempts}/${ev.maxAttempts}`} />
+                          <TableCell value={fmtDate(ev.createdAt)} />
+                          <TableCell value={ev.processedAt ? fmtDate(ev.processedAt) : '—'} />
+                          <TableCell value={ev.lastError || '—'} />
+                        </TableRow>
                       ))
                     )}
-                  </tbody>
-                </table>
-              </div>
+                </TableBody>
+              </Table>
             </section>
           </>
         )}
-      </main>
-    </div>
+      </div>
+    </AppShell>
   );
 }

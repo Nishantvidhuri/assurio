@@ -21,6 +21,14 @@ import {
 import { getToken } from '../../../../lib/session';
 import { doLogout } from '../../../../lib/logout';
 import { clearDraft, loadDraft, type ClientDraft } from '../draft';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHeader,
+  TableHeaderCell,
+  TableRow,
+} from '@/shared/components/ui';
 
 const PRICE_INR = 399;
 
@@ -239,26 +247,26 @@ function SuccessPage() {
                   Download
                 </a>
               </div>
-              <table className="inv-table">
-                <thead>
-                  <tr>
-                    <th>Description</th>
-                    <th className="num">Qty</th>
-                    <th className="num">Rate</th>
-                    <th className="num">Amount</th>
-                  </tr>
-                </thead>
-                <tbody>
+              <Table bordered className="bg-white">
+                <TableHeader>
+                  <TableRow>
+                    <TableHeaderCell label="Description" />
+                    <TableHeaderCell label="Qty" type="number" />
+                    <TableHeaderCell label="Rate" type="number" />
+                    <TableHeaderCell label="Amount" type="number" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {invoice.lineItems.map((li, i) => (
-                    <tr key={i}>
-                      <td>{li.description}</td>
-                      <td className="num">{li.quantity}</td>
-                      <td className="num">{fmtINR(li.rate)}</td>
-                      <td className="num">{fmtINR(li.total)}</td>
-                    </tr>
+                    <TableRow key={i}>
+                      <TableCell value={li.description} />
+                      <TableCell type="number" value={li.quantity} />
+                      <TableCell type="number" value={fmtINR(li.rate)} />
+                      <TableCell type="number" value={fmtINR(li.total)} />
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
               <div className="inv-totals">
                 <div className="inv-totals-row">
                   <span>Subtotal</span>

@@ -12,7 +12,6 @@ import { useRouter } from 'next/navigation';
 import { createPortal } from 'react-dom';
 import {
   CheckCircle2,
-  ChevronDown,
   Download,
   Eye,
   MoreHorizontal,
@@ -21,7 +20,6 @@ import {
   Settings,
   Wallet,
   X,
-  XCircle,
 } from 'lucide-react';
 import {
   invoicePrintUrl,
@@ -32,7 +30,21 @@ import {
 } from '../../lib/api';
 import { getToken } from '../../lib/session';
 import { doLogout } from '../../lib/logout';
-import Sidebar, { ICONS, type SidebarItem } from '../../components/Sidebar';
+import { ICONS, type SidebarItem } from '../../components/Sidebar';
+import AppShell from '../../components/AppShell';
+import StatCard from '../../components/StatCard';
+import {
+  Callout,
+  Input,
+  Loader,
+  Table,
+  TableBody,
+  TableCell,
+  TableHeader,
+  TableHeaderCell,
+  TableRow,
+  Tag,
+} from '@/shared/components/ui';
 
 const CLIENT_NAV: SidebarItem[] = [
   { href: '/home', label: 'Dashboard', icon: ICONS.dashboard },
@@ -59,6 +71,14 @@ function fmtDate(d?: string): { date: string; time: string } {
       hour12: true,
     }),
   };
+}
+
+function statusVariant(status: string): 'Success' | 'Warning' | 'Failure' | 'Default' {
+  const s = (status || '').toLowerCase();
+  if (['paid', 'done', 'active', 'completed'].includes(s)) return 'Success';
+  if (['pending', 'in-progress', 'in_progress', 'issued'].includes(s)) return 'Warning';
+  if (['failed', 'flagged', 'cancelled', 'expired'].includes(s)) return 'Failure';
+  return 'Default';
 }
 
 export default function BillingPage() {
@@ -146,72 +166,38 @@ export default function BillingPage() {
     };
   }, [invoices]);
 
-  if (!user) return <div className="loading">Loading...</div>;
+  if (!user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader description="Loading..." />
+      </div>
+    );
+  }
 
   return (
-    <div className="shell">
-      <Sidebar items={CLIENT_NAV} user={user} onLogout={handleLogout} />
-      <main className="shell-main">
-        <div className="bl">
+    <AppShell nav={CLIENT_NAV} user={user} onLogout={handleLogout}>
+        <div className="flex flex-col gap-5">
           {/* Header */}
-          <header className="bl-head">
-            <div>
-              <div className="bl-eyebrow">
-                <Receipt size={12} />
-                Billing
-              </div>
-              <h1 className="bl-title">
-                Your <em>payments</em>
-              </h1>
-              <p className="bl-sub">
-                Every verification you&apos;ve paid for. Receipts available for
-                download anytime.
-              </p>
-            </div>
+          <header>
+            <h1 className="text-xl font-semibold text-text-heading">Your payments</h1>
+            <p className="mt-1 text-body-md text-text-subheading">
+              Every verification you&apos;ve paid for. Receipts available for
+              download anytime.
+            </p>
           </header>
 
           {/* Stats */}
-          <section className="bl-stats">
-            <div className="bl-stat bl-stat-hero">
-              <div className="bl-stat-ico">
-                <Wallet size={15} />
-              </div>
-              <div>
-                <div className="bl-stat-label">Total paid</div>
-                <div className="bl-stat-value">{fmtINR(stats.totalPaid)}</div>
-              </div>
-            </div>
-            <div className="bl-stat">
-              <div className="bl-stat-ico">
-                <Receipt size={15} />
-              </div>
-              <div>
-                <div className="bl-stat-label">Receipts</div>
-                <div className="bl-stat-value">{stats.count}</div>
-              </div>
-            </div>
-            <div className="bl-stat">
-              <div className="bl-stat-ico">
-                <CheckCircle2 size={15} />
-              </div>
-              <div>
-                <div className="bl-stat-label">Avg per check</div>
-                <div className="bl-stat-value">
-                  {stats.avg ? fmtINR(stats.avg) : '—'}
-                </div>
-              </div>
-            </div>
+          <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <StatCard label="Total paid" value={fmtINR(stats.totalPaid)} />
+            <StatCard label="Receipts" value={String(stats.count)} />
+            <StatCard label="Avg per check" value={stats.avg ? fmtINR(stats.avg) : '—'} />
           </section>
 
           {/* Toolbar */}
           {invoices.length > 0 && (
-            <div className="bl-toolbar">
-              <label
-                className={`inv-searchbar ${query ? 'is-filled' : ''}`}
-                htmlFor="bl-q"
-              >
-                <Search size={15} className="inv-searchbar-ico" />
-                <input
+            <div className="flex items-center gap-3">
+              <div className="max-w-md flex-1">
+                <Input
                   id="bl-q"
                   type="search"
                   placeholder="Search invoice number, candidate or payment ref"
@@ -219,94 +205,104 @@ export default function BillingPage() {
                   onChange={(e) => setQuery(e.target.value)}
                   autoComplete="off"
                   spellCheck={false}
+                  leftIcon={<Search size={15} />}
+                  rightIcon={
+                    query ? (
+                      <button
+                        type="button"
+                        onClick={() => setQuery('')}
+                        aria-label="Clear search"
+                        className="inline-flex items-center justify-center text-icon-muted hover:text-text-body"
+                      >
+                        <X size={13} strokeWidth={2.5} />
+                      </button>
+                    ) : undefined
+                  }
                 />
-                {query && (
-                  <button
-                    type="button"
-                    className="inv-searchbar-clear"
-                    onClick={() => setQuery('')}
-                    aria-label="Clear search"
-                  >
-                    <X size={13} strokeWidth={2.5} />
-                  </button>
-                )}
-              </label>
-              <div className="inv-page-count">
-                <span className="inv-page-count-n">{filtered.length}</span>
-                <span className="inv-page-count-l">
-                  {filtered.length === 1 ? 'receipt' : 'receipts'}
-                </span>
+              </div>
+              <div className="shrink-0 text-body-sm font-medium text-text-subheading">
+                <span className="font-bold text-text-body">{filtered.length}</span>{' '}
+                {filtered.length === 1 ? 'receipt' : 'receipts'}
               </div>
             </div>
           )}
 
-          {error && <div className="error">{error}</div>}
+          {error && (
+            <Callout
+              state="Error"
+              title={error}
+              showAction={false}
+              showCloseIcon={false}
+              multiline
+            />
+          )}
 
           {/* Table or empty */}
           {loading ? (
-            <div className="inv-table-wrap">
-              <div className="cd-table-empty" style={{ padding: '48px 16px' }}>
-                Loading…
-              </div>
-            </div>
-          ) : invoices.length === 0 ? (
-            <div className="bl-empty">
-              <div className="bl-empty-ico">
-                <Receipt size={22} />
-              </div>
-              <h2 className="bl-empty-title">No receipts yet</h2>
-              <p className="bl-empty-sub">
-                Once you pay for a candidate verification, the receipt will
-                show up here for download.
-              </p>
+            <div className="rounded-md border border-border-default bg-white py-12">
+              <Loader description="Loading..." />
             </div>
           ) : (
-            <div className="inv-table-wrap">
-              <div className="cd-table-scroll">
-                <table className="cd-table">
-                  <thead>
-                    <tr>
-                      <th>Candidate</th>
-                      <th className="cd-col-hide">Receipt</th>
-                      <th className="cd-col-hide">Date</th>
-                      <th className="cd-col-hide">Status</th>
-                      <th className={`num cd-col-hide`}>Amount</th>
-                      <th className="actions"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="cd-table-empty">
+            <Table bordered>
+              <TableHeader>
+                <TableRow hoverable={false}>
+                  <TableHeaderCell label="Candidate" roundedLeft />
+                  <TableHeaderCell label="Receipt" />
+                  <TableHeaderCell label="Date" />
+                  <TableHeaderCell label="Status" />
+                  <TableHeaderCell type="number" label="Amount" className="text-right" />
+                  <TableHeaderCell type="empty" roundedRight />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {invoices.length === 0 ? (
+                  <TableRow hoverable={false}>
+                    <TableCell
+                      colSpan={6}
+                      value={
+                        <span className="block py-8 text-center text-body-md text-text-subheading">
+                          No receipts yet. Once you pay for a candidate
+                          verification, the receipt will show up here for
+                          download.
+                        </span>
+                      }
+                    />
+                  </TableRow>
+                ) : filtered.length === 0 ? (
+                  <TableRow hoverable={false}>
+                    <TableCell
+                      colSpan={6}
+                      value={
+                        <span className="block py-6 text-center text-body-md text-text-subheading">
                           No receipts match{' '}
-                          <strong>&ldquo;{query}&rdquo;</strong>.
-                        </td>
-                      </tr>
-                    ) : (
-                      filtered.map((inv) => (
-                        <InvoiceRow
-                          key={inv.id}
-                          inv={inv}
-                          isMenuOpen={openMenu === inv.id}
-                          onOpenMenu={() =>
-                            setOpenMenu((cur) =>
-                              cur === inv.id ? null : inv.id,
-                            )
-                          }
-                          onCloseMenu={() => setOpenMenu(null)}
-                        />
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                          <strong className="text-text-body">&ldquo;{query}&rdquo;</strong>.
+                        </span>
+                      }
+                    />
+                  </TableRow>
+                ) : (
+                  filtered.map((inv) => (
+                    <InvoiceRow
+                      key={inv.id}
+                      inv={inv}
+                      isMenuOpen={openMenu === inv.id}
+                      onOpenMenu={() =>
+                        setOpenMenu((cur) =>
+                          cur === inv.id ? null : inv.id,
+                        )
+                      }
+                      onCloseMenu={() => setOpenMenu(null)}
+                    />
+                  ))
+                )}
+              </TableBody>
+            </Table>
           )}
         </div>
-      </main>
-    </div>
+      </AppShell>
   );
 }
+
 
 function InvoiceRow({
   inv,
@@ -319,100 +315,66 @@ function InvoiceRow({
   onOpenMenu: () => void;
   onCloseMenu: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const dt = fmtDate(inv.paidAt);
-  const initial = (inv.customer?.name || '?').charAt(0).toUpperCase();
   const preview = invoicePrintUrl(inv.id);
   const download = preview + '?download=1';
 
   return (
-    <tr className="cd-row">
-      <td>
-        <div className="cd-cell-bio">
-          <span className="cd-cell-avatar">{initial}</span>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div className="cd-cell-name">{inv.customer?.name || '—'}</div>
-            <div className="cd-cell-sub">{inv.customer?.email || '—'}</div>
-            <div className="cd-cell-mobile-row">
-              <span className="inv-number" style={{ fontSize: 11 }}>{inv.invoiceNumber}</span>
-              <span className={`inv-status inv-status-${inv.status}`}>
-                {inv.status === 'paid' ? <CheckCircle2 size={10} /> : <XCircle size={10} />}
-                {inv.status}
-              </span>
-              <span className="inv-amount" style={{ fontSize: 12 }}>{fmtINR(inv.total)}</span>
-              <button
-                type="button"
-                className="cd-expand-btn"
-                onClick={(e) => { e.stopPropagation(); setExpanded((x) => !x); }}
-                aria-label={expanded ? 'Collapse' : 'Expand'}
-              >
-                <ChevronDown size={13} style={{ transition: 'transform 0.18s ease', transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)' }} />
-              </button>
+    <TableRow hoverable>
+      <TableCell
+        type="default"
+        value={
+          <div className="min-w-0">
+            <div className="truncate text-body-md font-medium text-text-body">
+              {inv.customer?.name || '—'}
             </div>
-            {expanded && (
-              <div className="cd-expand-panel">
-                <div className="cd-expand-row">
-                  <span className="cd-expand-label">Receipt</span>
-                  <span className="cd-expand-val">{inv.invoiceNumber}</span>
-                </div>
-                <div className="cd-expand-row">
-                  <span className="cd-expand-label">Date</span>
-                  <span className="cd-expand-val">{dt.date} {dt.time}</span>
-                </div>
-                <div className="cd-expand-row">
-                  <span className="cd-expand-label">Status</span>
-                  <span className="cd-expand-val">
-                    <span className={`inv-status inv-status-${inv.status}`}>
-                      {inv.status === 'paid' ? <CheckCircle2 size={10} /> : <XCircle size={10} />}
-                      {inv.status}
-                    </span>
-                  </span>
-                </div>
-                <div className="cd-expand-row">
-                  <span className="cd-expand-label">Amount</span>
-                  <span className="cd-expand-val">{fmtINR(inv.total)}</span>
-                </div>
-                <div className="cd-expand-row">
-                  <span className="cd-expand-label">Receipt</span>
-                  <span className="cd-expand-val">
-                    <a href={download} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline', fontSize: 12 }}>
-                      Download PDF
-                    </a>
-                  </span>
-                </div>
-              </div>
-            )}
+            <div className="truncate text-body-sm text-text-subheading">
+              {inv.customer?.email || '—'}
+            </div>
           </div>
-        </div>
-      </td>
-      <td className="cd-col-hide">
-        <span className="inv-number">{inv.invoiceNumber}</span>
-      </td>
-      <td className="cd-col-hide">
-        <div className="inv-cell-date">
-          <div>{dt.date}</div>
-          <div className="cd-cell-sub">{dt.time}</div>
-        </div>
-      </td>
-      <td className="cd-col-hide">
-        <span className={`inv-status inv-status-${inv.status}`}>
-          {inv.status === 'paid' ? <CheckCircle2 size={11} /> : <XCircle size={11} />}
-          {inv.status}
-        </span>
-      </td>
-      <td className="num cd-col-hide">
-        <span className="inv-amount">{fmtINR(inv.total)}</span>
-      </td>
-      <td className="actions">
-        <RowMenu
-          isOpen={isMenuOpen}
-          onOpen={onOpenMenu}
-          onClose={onCloseMenu}
-          preview={preview}
-          download={download}
-        />
-      </td>
-    </tr>
+        }
+      />
+      <TableCell
+        type="default"
+        value={
+          <span className="whitespace-nowrap font-mono text-body-sm text-text-body">
+            {inv.invoiceNumber}
+          </span>
+        }
+      />
+      <TableCell
+        type="default"
+        value={
+          <div className="whitespace-nowrap">
+            <div className="text-body-md text-text-body">{dt.date}</div>
+            <div className="text-body-sm text-text-subheading">{dt.time}</div>
+          </div>
+        }
+      />
+      <TableCell
+        type="default"
+        value={<Tag variant={statusVariant(inv.status)} label={inv.status} />}
+      />
+      <TableCell
+        type="number"
+        value={
+          <span className="font-medium text-text-body">{fmtINR(inv.total)}</span>
+        }
+      />
+      <TableCell
+        type="default"
+        className="w-[56px]"
+        value={
+          <RowMenu
+            isOpen={isMenuOpen}
+            onOpen={onOpenMenu}
+            onClose={onCloseMenu}
+            preview={preview}
+            download={download}
+          />
+        }
+      />
+    </TableRow>
   );
 }
 
@@ -483,7 +445,9 @@ function RowMenu({
       <button
         type="button"
         ref={triggerRef}
-        className={`inv-menu-trigger ${isOpen ? 'is-on' : ''}`}
+        className={`inline-flex size-7 items-center justify-center rounded-md text-icon-default transition-colors hover:bg-neutral-200 hover:text-text-body ${
+          isOpen ? 'bg-neutral-200 text-text-body' : ''
+        }`}
         onClick={(e) => {
           e.stopPropagation();
           onOpen();
@@ -500,7 +464,7 @@ function RowMenu({
         createPortal(
           <div
             ref={menuRef}
-            className="inv-menu-pop"
+            className="fixed z-50 w-[180px] rounded-md border border-neutral-500 bg-white py-1 shadow-[0px_3px_10px_0px_rgba(11,26,59,0.1)]"
             role="menu"
             style={{ top: pos.top, left: pos.left }}
           >
@@ -508,7 +472,7 @@ function RowMenu({
               href={preview}
               target="_blank"
               rel="noopener noreferrer"
-              className="inv-menu-item"
+              className="flex items-center gap-2 px-3 py-2 text-body-md font-medium text-text-body transition-colors hover:bg-neutral-200"
               onClick={onClose}
               role="menuitem"
             >
@@ -519,7 +483,7 @@ function RowMenu({
               href={download}
               target="_blank"
               rel="noopener noreferrer"
-              className="inv-menu-item"
+              className="flex items-center gap-2 px-3 py-2 text-body-md font-medium text-text-body transition-colors hover:bg-neutral-200"
               onClick={onClose}
               role="menuitem"
             >

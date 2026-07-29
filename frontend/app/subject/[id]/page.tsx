@@ -34,7 +34,8 @@ import {
 } from '../../lib/api';
 import { getToken } from '../../lib/session';
 import { doLogout } from '../../lib/logout';
-import Sidebar, { ICONS, type SidebarItem } from '../../components/Sidebar';
+import { ICONS, type SidebarItem } from '../../components/Sidebar';
+import AppShell from '../../components/AppShell';
 
 const CLIENT_NAV: SidebarItem[] = [
   { href: '/home', label: 'Dashboard', icon: ICONS.dashboard },
@@ -241,19 +242,21 @@ export default function SubjectReportPage() {
   }
 
   if (loadError) {
-    return (
-      <div className="shell">
-        {user && (
-          <Sidebar items={CLIENT_NAV} user={user} onLogout={handleLogout} />
-        )}
-        <main className="shell-main">
-          <div className="error">{loadError}</div>
-          <Link className="cd-back" href="/home">
-            <ArrowLeft size={14} />
-            Back to dashboard
-          </Link>
-        </main>
-      </div>
+    const errorBody = (
+      <>
+        <div className="error">{loadError}</div>
+        <Link className="cd-back" href="/home">
+          <ArrowLeft size={14} />
+          Back to dashboard
+        </Link>
+      </>
+    );
+    return user ? (
+      <AppShell nav={CLIENT_NAV} user={user} onLogout={handleLogout}>
+        {errorBody}
+      </AppShell>
+    ) : (
+      <div className="p-10">{errorBody}</div>
     );
   }
 
@@ -297,9 +300,7 @@ export default function SubjectReportPage() {
   const hasSeverityData = severityList.length > 0;
 
   return (
-    <div className="shell">
-      <Sidebar items={CLIENT_NAV} user={user} onLogout={handleLogout} />
-      <main className="shell-main">
+    <AppShell nav={CLIENT_NAV} user={user} onLogout={handleLogout}>
         <Link className="cd-back" href="/home">
           <ArrowLeft size={14} />
           All candidates
@@ -521,8 +522,7 @@ export default function SubjectReportPage() {
             )}
           </SectionShell>
         </div>
-      </main>
-    </div>
+      </AppShell>
   );
 }
 

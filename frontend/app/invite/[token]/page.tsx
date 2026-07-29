@@ -11,6 +11,14 @@ import {
 import { saveSession } from '../../lib/session';
 import { Eye, EyeOff } from 'lucide-react';
 import TermsBox from '../../components/TermsBox';
+import Brand from '../../components/Brand';
+import {
+  Button,
+  Callout,
+  Input,
+  InputFieldWrapper,
+  Loader,
+} from '@/shared/components/ui';
 
 export default function InvitePage() {
   const params = useParams<{ token: string }>();
@@ -64,91 +72,125 @@ export default function InvitePage() {
 
   if (loadError) {
     return (
-      <div className="au">
-        <div className="au-card">
-          <div className="au-head">
-            <h1 className="au-title">Invite issue</h1>
-            <p className="au-sub">{loadError}</p>
+      <div className="min-h-screen flex items-center justify-center bg-[#F4F7FC] px-4 py-10">
+        <div className="w-full max-w-md rounded-xl border border-border-default bg-white p-8 shadow-[0px_1px_5px_0px_rgba(11,26,59,0.06)]">
+          <div className="mb-6 flex justify-center [&_.brand]:mb-0">
+            <Brand />
           </div>
-          <Link href="/login" className="au-bottom" style={{ display: 'block' }}>Go to login</Link>
+          <div className="mb-6 text-center">
+            <h1 className="text-xl font-semibold text-text-heading">Invite issue</h1>
+            <p className="mt-1 text-sm text-text-subheading">{loadError}</p>
+          </div>
+          <p className="text-center text-sm">
+            <Link href="/login" className="font-medium text-text-link hover:underline">
+              Go to login
+            </Link>
+          </p>
         </div>
       </div>
     );
   }
 
-  if (!info) return <div className="loading">Loading...</div>;
+  if (!info) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#F4F7FC]">
+        <Loader description="Loading..." />
+      </div>
+    );
+  }
 
   return (
-    <div className="au" style={{ alignItems: 'flex-start', paddingTop: 40, paddingBottom: 40 }}>
-      <div className="au-card" style={{ maxWidth: 560 }}>
-        <div className="au-head">
-          <h1 className="au-title">Welcome, {info.name.split(' ')[0]}</h1>
-          <p className="au-sub">
+    <div className="min-h-screen flex items-start justify-center bg-[#F4F7FC] px-4 py-10">
+      <div className="w-full max-w-[560px] rounded-xl border border-border-default bg-white p-8 shadow-[0px_1px_5px_0px_rgba(11,26,59,0.06)]">
+        <div className="mb-6 flex justify-center [&_.brand]:mb-0">
+          <Brand />
+        </div>
+
+        <div className="mb-6 text-center">
+          <h1 className="text-xl font-semibold text-text-heading">
+            Welcome, {info.name.split(' ')[0]}
+          </h1>
+          <p className="mt-1 text-sm text-text-subheading">
             Before setting your password, please read and accept our Terms &amp; Conditions.
           </p>
         </div>
 
         {/* T&C */}
-        <div style={{ marginBottom: 20 }}>
+        <div className="mb-5">
           <TermsBox agreed={tcAgreed} onAgreedChange={setTcAgreed} />
         </div>
 
         {/* Password form */}
-        {error && <div className="au-error">{error}</div>}
+        {error && (
+          <Callout
+            state="Error"
+            title={error}
+            showAction={false}
+            showCloseIcon={false}
+            multiline
+            className="mb-4"
+          />
+        )}
 
-        <form onSubmit={handleSubmit}>
-          <div className="au-field">
-            <label className="au-label" htmlFor="invite-email">Email</label>
-            <input id="invite-email" className="au-input" value={info.email} disabled />
-          </div>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <InputFieldWrapper label="Email" disabled>
+            <Input id="invite-email" value={info.email} disabled />
+          </InputFieldWrapper>
 
-          <div className="au-field">
-            <label className="au-label" htmlFor="invite-password">Password</label>
-            <div className="au-pass">
-              <input
-                id="invite-password"
-                className="au-input"
-                type={showPw ? 'text' : 'password'}
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder="At least 6 characters"
-                required
-              />
-              <button type="button" className="au-eye" onClick={() => setShowPw(v => !v)} aria-label={showPw ? 'Hide' : 'Show'}>
-                {showPw ? <Eye size={18} strokeWidth={1.7} /> : <EyeOff size={18} strokeWidth={1.7} />}
-              </button>
-            </div>
-          </div>
+          <InputFieldWrapper label="Password">
+            <Input
+              id="invite-password"
+              type={showPw ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="At least 6 characters"
+              required
+              rightIcon={
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center text-icon-muted transition-colors hover:text-text-body"
+                  onClick={() => setShowPw((v) => !v)}
+                  aria-label={showPw ? 'Hide' : 'Show'}
+                >
+                  {showPw ? <Eye size={16} strokeWidth={1.7} /> : <EyeOff size={16} strokeWidth={1.7} />}
+                </button>
+              }
+            />
+          </InputFieldWrapper>
 
-          <div className="au-field">
-            <label className="au-label" htmlFor="invite-confirm">Confirm password</label>
-            <div className="au-pass">
-              <input
-                id="invite-confirm"
-                className="au-input"
-                type={showConfirm ? 'text' : 'password'}
-                value={confirm}
-                onChange={e => setConfirm(e.target.value)}
-                placeholder="Re-enter your password"
-                required
-              />
-              <button type="button" className="au-eye" onClick={() => setShowConfirm(v => !v)} aria-label={showConfirm ? 'Hide' : 'Show'}>
-                {showConfirm ? <Eye size={18} strokeWidth={1.7} /> : <EyeOff size={18} strokeWidth={1.7} />}
-              </button>
-            </div>
-          </div>
+          <InputFieldWrapper label="Confirm password">
+            <Input
+              id="invite-confirm"
+              type={showConfirm ? 'text' : 'password'}
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              placeholder="Re-enter your password"
+              required
+              rightIcon={
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center text-icon-muted transition-colors hover:text-text-body"
+                  onClick={() => setShowConfirm((v) => !v)}
+                  aria-label={showConfirm ? 'Hide' : 'Show'}
+                >
+                  {showConfirm ? <Eye size={16} strokeWidth={1.7} /> : <EyeOff size={16} strokeWidth={1.7} />}
+                </button>
+              }
+            />
+          </InputFieldWrapper>
 
-          <button
-            className="au-btn"
+          <Button
             type="submit"
+            variant="primary"
+            isLoading={loading}
             disabled={loading || !tcAgreed}
-            style={{ opacity: !tcAgreed ? 0.5 : 1, cursor: !tcAgreed ? 'not-allowed' : 'pointer' }}
+            className="w-full"
           >
             {loading ? 'Setting password…' : 'I Agree & Continue'}
-          </button>
+          </Button>
 
           {!tcAgreed && (
-            <p style={{ textAlign: 'center', fontSize: 11.5, color: 'var(--ink-2)', marginTop: 8 }}>
+            <p className="-mt-2 text-center text-xs text-text-subheading">
               You must agree to the Terms &amp; Conditions to proceed.
             </p>
           )}

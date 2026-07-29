@@ -31,7 +31,20 @@ import {
 } from '../../lib/api';
 import { getToken } from '../../lib/session';
 import { doLogout } from '../../lib/logout';
-import Sidebar, { ICONS, type SidebarItem } from '../../components/Sidebar';
+import { ICONS, type SidebarItem } from '../../components/Sidebar';
+import AppShell from '../../components/AppShell';
+import StatCard from '../../components/StatCard';
+import {
+  DialogBox,
+  Pagination,
+  Tag,
+  Table,
+  TableBody,
+  TableCell,
+  TableHeader,
+  TableHeaderCell,
+  TableRow,
+} from '@/shared/components/ui';
 
 const ADMIN_NAV: SidebarItem[] = [
   { href: '/admin', label: 'Dashboard', icon: ICONS.dashboard },
@@ -77,6 +90,21 @@ export default function InvoicesPage() {
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<'invoice' | 'name' | 'amount' | 'date' | null>('date');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [detailsRow, setDetailsRow] = useState<AdminInvoiceRow | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  function toggleSort(key: 'invoice' | 'name' | 'amount' | 'date') {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  }
 
   useEffect(() => {
     const token = getToken();
@@ -157,48 +185,77 @@ export default function InvoicesPage() {
     [filtered],
   );
 
+  const sorted = useMemo(() => {
+    if (!sortKey) return filtered;
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      switch (sortKey) {
+        case 'invoice':
+          return dir * a.invoiceNumber.localeCompare(b.invoiceNumber);
+        case 'name':
+          return dir * (a.candidateName || '').localeCompare(b.candidateName || '');
+        case 'amount':
+          return dir * (a.total - b.total);
+        case 'date':
+          return (
+            dir *
+            (new Date(a.paidAt ?? 0).getTime() - new Date(b.paidAt ?? 0).getTime())
+          );
+        default:
+          return 0;
+      }
+    });
+  }, [filtered, sortKey, sortDir]);
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const paged = useMemo(
+    () => sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [sorted, currentPage, pageSize],
+  );
+
+  const allPagedSelected = paged.length > 0 && paged.every((r) => selected.has(r.id));
+  const somePagedSelected = paged.some((r) => selected.has(r.id));
+
+  function toggleSelectAll(checked: boolean) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const r of paged) {
+        if (checked) next.add(r.id);
+        else next.delete(r.id);
+      }
+      return next;
+    });
+  }
+
+  function toggleSelect(id: string, checked: boolean) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
   if (!user) return <div className="loading">Loading…</div>;
 
   return (
-    <div className="shell">
-      <Sidebar items={ADMIN_NAV} user={user} onLogout={handleLogout} />
-      <main className="shell-main">
+    <AppShell nav={ADMIN_NAV} user={user} onLogout={handleLogout}>
         <div className="inv-page">
-          {/* Header */}
-          <div className="inv-page-head">
-            <div className="inv-page-headline">
-              <div className="inv-page-eyebrow">
-                <FileText size={12} />
-                Invoices
-              </div>
-              <h1 className="inv-page-title">
-                Payments &amp; <em>receipts</em>
-              </h1>
-              <p className="inv-page-sub">
-                Every payment captured through Razorpay, and the checks each
-                one paid for.
-              </p>
-            </div>
-            <div className="inv-page-stats">
-              <div className="inv-page-stat">
-                <div className="inv-page-stat-ico">
-                  <Receipt size={15} />
-                </div>
-                <div>
-                  <div className="inv-page-stat-label">Total invoices</div>
-                  <div className="inv-page-stat-value">{filtered.length}</div>
-                </div>
-              </div>
-              <div className="inv-page-stat">
-                <div className="inv-page-stat-ico">
-                  <CheckCircle2 size={15} />
-                </div>
-                <div>
-                  <div className="inv-page-stat-label">Collected</div>
-                  <div className="inv-page-stat-value">{fmtINR(total)}</div>
-                </div>
-              </div>
-            </div>
+          {/* Header — Verification Queue layout: title/sub, then a full-width
+           * row of summary cards beneath. */}
+          <div className="mb-5">
+            <h1 className="text-xl font-semibold text-text-heading">
+              Payments &amp; receipts
+            </h1>
+            <p className="mt-1 text-body-md text-text-subheading">
+              Every payment captured through Razorpay, and the checks each one
+              paid for.
+            </p>
+          </div>
+          <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <StatCard label="Total invoices" value={filtered.length} />
+            <StatCard label="Collected" value={fmtINR(total)} />
           </div>
 
           {/* Toolbar */}
@@ -240,31 +297,57 @@ export default function InvoicesPage() {
           {error && <div className="error">{error}</div>}
 
           {/* Table */}
-          <div className="inv-table-wrap">
-            <div className="inv-table-scroll">
-              <table className="inv-list">
-                <thead>
-                  <tr>
-                    <th>Candidate</th>
-                    <th className="cd-col-hide">Invoice</th>
-                    <th className="cd-col-hide">Client</th>
-                    <th className="cd-col-hide">Date</th>
-                    <th className="cd-col-hide">Checks</th>
-                    <th className="cd-col-hide">Status</th>
-                    <th className="num cd-col-hide">Amount</th>
-                    <th className="actions" aria-label="Row actions"></th>
-                  </tr>
-                </thead>
-                <tbody>
+          <p className="mb-2 text-body-sm text-text-placeholder">
+            Showing {paged.length} out of {sorted.length}
+          </p>
+          <Table bordered className="bg-white">
+            <TableHeader>
+              <TableRow>
+                <TableHeaderCell
+                  type="checkbox"
+                  checked={allPagedSelected}
+                  indeterminate={!allPagedSelected && somePagedSelected}
+                  onCheckedChange={toggleSelectAll}
+                />
+                <TableHeaderCell
+                  label="Invoice ID"
+                  sortable
+                  sortOrder={sortKey === 'invoice' ? sortDir : null}
+                  onSort={() => toggleSort('invoice')}
+                />
+                <TableHeaderCell
+                  label="Name"
+                  sortable
+                  sortOrder={sortKey === 'name' ? sortDir : null}
+                  onSort={() => toggleSort('name')}
+                />
+                <TableHeaderCell label="Email" className="cd-col-hide" />
+                <TableHeaderCell
+                  label="Amount"
+                  type="number"
+                  sortable
+                  sortOrder={sortKey === 'amount' ? sortDir : null}
+                  onSort={() => toggleSort('amount')}
+                />
+                <TableHeaderCell
+                  label="Date"
+                  className="cd-col-hide"
+                  sortable
+                  sortOrder={sortKey === 'date' ? sortDir : null}
+                  onSort={() => toggleSort('date')}
+                />
+                <TableHeaderCell label="Status" />
+                <TableHeaderCell type="empty" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
                   {loading ? (
-                    <tr>
-                      <td colSpan={8} className="inv-list-empty">
-                        Loading…
-                      </td>
-                    </tr>
-                  ) : filtered.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="inv-list-empty">
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center" value={<span className="text-text-placeholder">Loading…</span>} />
+                    </TableRow>
+                  ) : paged.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center" value={
                         <div className="inv-empty-card">
                           <div className="inv-empty-ico">
                             <Receipt size={22} />
@@ -278,165 +361,230 @@ export default function InvoicesPage() {
                               : 'They show up here the moment a payment is captured.'}
                           </div>
                         </div>
-                      </td>
-                    </tr>
+                      } />
+                    </TableRow>
                   ) : (
-                    filtered.map((r) => (
+                    paged.map((r) => (
                       <InvoiceRow
                         key={r.id}
                         row={r}
+                        checked={selected.has(r.id)}
+                        onCheckedChange={(checked) => toggleSelect(r.id, checked)}
                         isOpen={openMenu === r.id}
                         onOpen={() =>
                           setOpenMenu((cur) => (cur === r.id ? null : r.id))
                         }
                         onClose={() => setOpenMenu(null)}
+                        onDetails={() => setDetailsRow(r)}
                       />
                     ))
                   )}
-                </tbody>
-              </table>
-            </div>
+            </TableBody>
+          </Table>
+          <InvoiceDetailsDialog row={detailsRow} onClose={() => setDetailsRow(null)} />
+          <div className="mt-3">
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={setPage}
+              pageSize={pageSize}
+              onPageSizeChange={(size) => {
+                setPageSize(size);
+                setPage(1);
+              }}
+            />
           </div>
         </div>
-      </main>
-    </div>
+      </AppShell>
   );
 }
 
 function InvoiceRow({
   row,
+  checked,
+  onCheckedChange,
   isOpen,
   onOpen,
   onClose,
+  onDetails,
 }: {
   row: AdminInvoiceRow;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
   isOpen: boolean;
   onOpen: () => void;
   onClose: () => void;
+  onDetails: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const chips = checkChips(row.checks);
   const dt = fmtDate(row.paidAt);
   // Prefer the S3 presigned URL when available; fall back to the backend print renderer.
   const printUrl = invoicePrintUrl(row.id);
   const preview = row.pdfUrl ?? printUrl;
   const download = row.pdfUrl ?? (printUrl + '?download=1');
-  const firstLetter = (row.candidateName || '?').charAt(0).toUpperCase();
 
   return (
-    <tr className="cd-row">
-      <td>
-        <div className="inv-cell-bio">
-          <span className="inv-cell-avatar">{firstLetter}</span>
-          <div className="inv-cell-meta" style={{ minWidth: 0, flex: 1 }}>
-            <div className="inv-cell-name">{row.candidateName}</div>
-            <div className="inv-cell-sub">{row.candidateEmail || '—'}</div>
-            <div className="cd-cell-mobile-row">
-              <span className="inv-number" style={{ fontSize: 11 }}>{row.invoiceNumber}</span>
-              <span className={`inv-status inv-status-${row.status}`}>
-                {row.status === 'paid' ? <CheckCircle2 size={10} /> : <XCircle size={10} />}
-                {row.status}
-              </span>
-              <span className="inv-amount" style={{ fontSize: 12 }}>{fmtINR(row.total)}</span>
-              <button
-                type="button"
-                className="cd-expand-btn"
-                onClick={(e) => { e.stopPropagation(); setExpanded((x) => !x); }}
-                aria-label={expanded ? 'Collapse' : 'Expand'}
-              >
-                <ChevronDown size={13} style={{ transition: 'transform 0.18s ease', transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)' }} />
-              </button>
+    <TableRow hoverable>
+      <TableCell type="checkbox" checked={checked} onCheckedChange={onCheckedChange} />
+      <TableCell
+        type="primary"
+        primaryText={row.invoiceNumber}
+        showSubtext={false}
+        onPrimaryClick={() => window.open(preview, '_blank', 'noopener')}
+      />
+      <TableCell value={row.candidateName} />
+      <TableCell className="cd-col-hide" value={row.candidateEmail || '—'} />
+      <TableCell type="number" value={fmtINR(row.total)} />
+      <TableCell className="cd-col-hide" value={dt.date} />
+      <TableCell
+        type="status"
+        statusLabel={row.status === 'paid' ? 'Paid' : row.status}
+        statusVariant={row.status === 'paid' ? 'Success' : 'Failure'}
+      />
+      <TableCell value={
+        <RowMenu isOpen={isOpen} onOpen={onOpen} onClose={onClose} onDetails={onDetails} download={download} />
+      } />
+    </TableRow>
+  );
+}
+
+
+/* ---------- Recriauth-style invoice details slide-over ---------- */
+
+function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="grid grid-cols-[160px_1fr] gap-4 py-1.5">
+      <span className="text-body-md text-text-placeholder">{label}</span>
+      <span className="text-body-md text-text-body">{value}</span>
+    </div>
+  );
+}
+
+function InvoiceDetailsDialog({
+  row,
+  onClose,
+}: {
+  row: AdminInvoiceRow | null;
+  onClose: () => void;
+}) {
+  if (!row) return null;
+
+  const dt = fmtDate(row.paidAt);
+  // Totals are GST-inclusive (18%) — derive the split the same way the backend does.
+  const subtotal = Math.round((row.total / 1.18) * 100) / 100;
+  const gst = Math.round((row.total - subtotal) * 100) / 100;
+  const checkLabels = [
+    row.checks.pan && 'PAN',
+    row.checks.aadhaar && 'Aadhaar (DigiLocker)',
+    row.checks.crime && 'Criminal records',
+  ].filter(Boolean) as string[];
+  const description =
+    checkLabels.length > 0
+      ? `Background verification (${checkLabels.join(', ')})`
+      : 'Background verification bundle';
+  const printUrl = invoicePrintUrl(row.id);
+  const download = row.pdfUrl ?? (printUrl + '?download=1');
+
+  return (
+    <DialogBox
+      open={Boolean(row)}
+      onClose={onClose}
+      placement="right"
+      className="w-full max-w-[560px]"
+      secondaryAction={{ label: 'Cancel', onClick: onClose }}
+      primaryAction={{
+        label: 'Download Invoice',
+        onClick: () => window.open(download, '_blank', 'noopener'),
+      }}
+    >
+      <div className="flex flex-col gap-6 overflow-y-auto p-6">
+        {/* Title */}
+        <div className="flex items-center gap-3">
+          <h2 className="text-xl font-semibold text-text-heading">
+            #{row.invoiceNumber}
+          </h2>
+          <Tag
+            label={row.status === 'paid' ? 'Paid' : row.status}
+            variant={row.status === 'paid' ? 'Success' : 'Failure'}
+          />
+        </div>
+
+        {/* Invoice meta */}
+        <div>
+          <DetailRow label="Invoice No." value={row.invoiceNumber} />
+          <DetailRow label="Invoice Date" value={dt.date} />
+          <DetailRow label="Payment Reference" value={row.razorpayPaymentId} />
+        </div>
+
+        {/* Billed By / Billed To */}
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+          <div>
+            <div className="mb-1 text-body-sm font-medium text-text-placeholder">Billed By</div>
+            <div className="text-body-md leading-6 text-text-body">
+              Assurio
+              <br />
+              Consent-first background checks
+              <br />
+              assurio.com
             </div>
-            {expanded && (
-              <div className="cd-expand-panel">
-                <div className="cd-expand-row">
-                  <span className="cd-expand-label">Invoice</span>
-                  <span className="cd-expand-val">{row.invoiceNumber}</span>
-                </div>
-                <div className="cd-expand-row">
-                  <span className="cd-expand-label">Client</span>
-                  <span className="cd-expand-val">{row.clientName}</span>
-                </div>
-                <div className="cd-expand-row">
-                  <span className="cd-expand-label">Date</span>
-                  <span className="cd-expand-val">{dt.date} {dt.time}</span>
-                </div>
-                {chips.length > 0 && (
-                  <div className="cd-expand-row">
-                    <span className="cd-expand-label">Checks</span>
-                    <span className="cd-expand-val">
-                      <span className="inv-checks">
-                        {chips.map((c) => (
-                          <span key={c} className="inv-check-chip"><CheckCircle2 size={11} />{c}</span>
-                        ))}
-                      </span>
-                    </span>
-                  </div>
-                )}
-                <div className="cd-expand-row">
-                  <span className="cd-expand-label">Status</span>
-                  <span className="cd-expand-val">
-                    <span className={`inv-status inv-status-${row.status}`}>
-                      {row.status === 'paid' ? <CheckCircle2 size={10} /> : <XCircle size={10} />}
-                      {row.status}
-                    </span>
-                  </span>
-                </div>
-                <div className="cd-expand-row">
-                  <span className="cd-expand-label">Amount</span>
-                  <span className="cd-expand-val">{fmtINR(row.total)}</span>
-                </div>
-              </div>
-            )}
+          </div>
+          <div>
+            <div className="mb-1 text-body-sm font-medium text-text-placeholder">Billed To</div>
+            <div className="text-body-md leading-6 text-text-body">
+              {row.clientName}
+              <br />
+              {row.clientEmail || '—'}
+            </div>
           </div>
         </div>
-      </td>
-      <td className="cd-col-hide">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span className="inv-number">{row.invoiceNumber}</span>
-          {row.pdfUrl && (
-            <span className="inv-pdf-badge" title="PDF stored in cloud">
-              PDF
-            </span>
-          )}
+
+        {/* Whom the verification was performed against */}
+        <div>
+          <div className="mb-1 text-body-sm font-medium text-text-placeholder">
+            Verification Against
+          </div>
+          <div className="text-body-md leading-6 text-text-body">
+            {row.candidateName}
+            <br />
+            {row.candidateEmail || '—'}
+          </div>
         </div>
-      </td>
-      <td className="cd-col-hide">
-        <div className="inv-cell-meta">
-          <div className="inv-cell-name">{row.clientName}</div>
-          <div className="inv-cell-sub">{row.clientEmail || '—'}</div>
+
+        {/* Billing Summary */}
+        <div>
+          <h3 className="mb-2 text-body-lg font-semibold text-text-heading">Billing Summary</h3>
+          <div className="border-t border-border-default">
+            <div className="flex items-center justify-between border-b border-border-default py-2.5">
+              <span className="text-body-sm font-medium text-text-placeholder">Item Description</span>
+              <span className="text-body-sm font-medium text-text-placeholder">Total Amount</span>
+            </div>
+            <div className="flex items-center justify-between border-b border-border-default py-3">
+              <span className="text-body-md text-text-body">{description}</span>
+              <span className="text-body-md text-text-body">{fmtINR(subtotal)}</span>
+            </div>
+            <div className="flex items-center justify-between py-2 pt-3">
+              <span className="text-body-md text-text-placeholder">Subtotal</span>
+              <span className="text-body-md text-text-body">{fmtINR(subtotal)}</span>
+            </div>
+            <div className="flex items-center justify-between border-b border-border-default py-2">
+              <span className="text-body-md text-text-placeholder">GST (18%)</span>
+              <span className="text-body-md text-text-body">{fmtINR(gst)}</span>
+            </div>
+            <div className="flex items-center justify-between py-3">
+              <span className="text-body-lg font-semibold text-text-heading">Total Paid</span>
+              <span className="text-body-lg font-semibold text-text-heading">{fmtINR(row.total)}</span>
+            </div>
+          </div>
         </div>
-      </td>
-      <td className="cd-col-hide">
-        <div className="inv-cell-date">
-          <div>{dt.date}</div>
-          <div className="inv-cell-sub">{dt.time}</div>
+
+        {/* Payment Information */}
+        <div>
+          <h3 className="mb-2 text-body-lg font-semibold text-text-heading">Payment Information</h3>
+          <DetailRow label="Payment Mode" value="Razorpay" />
+          <DetailRow label="Payment ID" value={row.razorpayPaymentId} />
+          <DetailRow label="Payment Date & Time" value={dt.date + (dt.time ? ` | ${dt.time}` : '')} />
         </div>
-      </td>
-      <td className="cd-col-hide">
-        {chips.length === 0 ? (
-          <span className="inv-cell-sub">—</span>
-        ) : (
-          <span className="inv-checks">
-            {chips.map((c) => (
-              <span key={c} className="inv-check-chip"><CheckCircle2 size={11} />{c}</span>
-            ))}
-          </span>
-        )}
-      </td>
-      <td className="cd-col-hide">
-        <span className={`inv-status inv-status-${row.status}`}>
-          {row.status === 'paid' ? <CheckCircle2 size={11} /> : <XCircle size={11} />}
-          {row.status}
-        </span>
-      </td>
-      <td className="num cd-col-hide">
-        <span className="inv-amount">{fmtINR(row.total)}</span>
-      </td>
-      <td className="actions">
-        <RowMenu isOpen={isOpen} onOpen={onOpen} onClose={onClose} preview={preview} download={download} />
-      </td>
-    </tr>
+      </div>
+    </DialogBox>
   );
 }
 
@@ -446,13 +594,13 @@ function RowMenu({
   isOpen,
   onOpen,
   onClose,
-  preview,
+  onDetails,
   download,
 }: {
   isOpen: boolean;
   onOpen: () => void;
   onClose: () => void;
-  preview: string;
+  onDetails: () => void;
   download: string;
 }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -524,31 +672,27 @@ function RowMenu({
         createPortal(
           <div
             ref={menuRef}
-            className="inv-menu-pop"
+            className="min-w-[180px] rounded-lg border border-border-default bg-white py-1 shadow-lg"
             role="menu"
-            style={{ top: pos.top, left: pos.left }}
+            style={{ position: 'fixed', top: pos.top, left: pos.left, zIndex: 60 }}
           >
-            <a
-              href={preview}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inv-menu-item"
-              onClick={onClose}
+            <button
+              type="button"
+              className="block w-full px-4 py-2 text-left text-body-md text-text-body hover:bg-neutral-200"
+              onClick={() => { onClose(); onDetails(); }}
               role="menuitem"
             >
-              <Eye size={14} />
-              Preview
-            </a>
+              More Details
+            </button>
             <a
               href={download}
               target="_blank"
               rel="noopener noreferrer"
-              className="inv-menu-item"
+              className="block w-full px-4 py-2 text-left text-body-md text-text-body hover:bg-neutral-200"
               onClick={onClose}
               role="menuitem"
             >
-              <Download size={14} />
-              Download
+              Download Invoice
             </a>
           </div>,
           document.body,

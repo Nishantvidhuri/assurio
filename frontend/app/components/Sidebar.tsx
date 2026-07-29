@@ -1,10 +1,14 @@
 'use client';
 
-import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
-import { Activity, ExternalLink, FileText, LayoutDashboard, Menu, Receipt, Users, X } from 'lucide-react';
-import Brand from './Brand';
+import { Activity, LayoutDashboard, FileText, LogOut, Menu, Receipt, Users } from 'lucide-react';
+import {
+  Sidebar as RdsSidebar,
+  SidebarItem as RdsSidebarItem,
+} from '@/shared/components/ui';
+import { cn } from '@/shared/lib/utils';
 
 // Proxied through Next.js rewrites — accessible at the same port as the app.
 const BULL_BOARD_URL = '/admin/queues';
@@ -21,6 +25,33 @@ export interface SidebarUser {
   role?: string;
 }
 
+/** User block + logout rendered in the sidebar footer slot. */
+function SidebarFooter({ user, onLogout }: { user: SidebarUser; onLogout: () => void }) {
+  return (
+    <div className="flex flex-col gap-3 border-t border-border-default px-2 pt-3">
+      <div className="flex items-center gap-2.5 overflow-hidden">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-surface-btn-primary text-sm font-semibold text-white">
+          {(user.name || '?').charAt(0).toUpperCase()}
+        </span>
+        <div className="min-w-0">
+          <div className="truncate text-body-md font-medium text-text-heading">{user.name}</div>
+          <div className="truncate text-body-sm text-text-placeholder capitalize">
+            {user.role || 'client'}
+          </div>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onLogout}
+        className="flex items-center gap-2 rounded-md px-2 py-1.5 text-body-md font-medium text-text-body transition-colors hover:bg-neutral-300"
+      >
+        <LogOut className="size-4" />
+        Log out
+      </button>
+    </div>
+  );
+}
+
 export default function Sidebar({
   items,
   user,
@@ -31,7 +62,7 @@ export default function Sidebar({
   onLogout: () => void;
 }) {
   const pathname = usePathname();
-  const [open, setOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   // Pick the single best-matching item:
   //  - exact match wins
@@ -46,122 +77,133 @@ export default function Sidebar({
     return prefix?.href ?? null;
   })();
 
-  const isActive = (href: string) => href === activeHref;
-
   // Close drawer on route change
   useEffect(() => {
-    setOpen(false);
+    setMobileOpen(false);
   }, [pathname]);
 
   // Lock body scroll while drawer is open
   useEffect(() => {
-    if (open) {
+    if (mobileOpen) {
       const prev = document.body.style.overflow;
       document.body.style.overflow = 'hidden';
       return () => {
         document.body.style.overflow = prev;
       };
     }
-  }, [open]);
+  }, [mobileOpen]);
 
-  const nav = (
+  const renderNavItems = (onItemClick?: () => void) => (
     <>
-      <div className="sb-brand">
-        <Brand />
-      </div>
-
-      <nav className="sb-nav">
-        {items.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={`sb-link ${isActive(item.href) ? 'is-active' : ''}`}
-          >
-            <span className="sb-link-icon">{item.icon}</span>
-            <span>{item.label}</span>
-          </Link>
-        ))}
-
-        {user.role === 'admin' && (
-          <>
-            <div className="sb-nav-sep" />
-            <a
-              href={BULL_BOARD_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="sb-link sb-link-external"
-            >
-              <span className="sb-link-icon"><Activity size={18} strokeWidth={1.7} /></span>
-              <span>Queues</span>
-              <ExternalLink size={12} strokeWidth={1.7} className="sb-link-ext-icon" />
-            </a>
-          </>
-        )}
-      </nav>
-
-      <div className="sb-foot">
-        <div className="sb-user">
-          <span className="sb-avatar">
-            {(user.name || '?').charAt(0).toUpperCase()}
-          </span>
-          <div className="sb-user-meta">
-            <div className="sb-user-name">{user.name}</div>
-            <div className="sb-user-role">{user.role || 'client'}</div>
-          </div>
-        </div>
-        <button className="link-btn sb-logout" onClick={onLogout}>
-          Log out
-        </button>
-      </div>
+      {items.map((item) => (
+        <RdsSidebarItem
+          key={item.href}
+          icon={item.icon}
+          label={item.label}
+          href={item.href}
+          active={item.href === activeHref}
+          onItemClick={onItemClick}
+        />
+      ))}
+      {user.role === 'admin' && (
+        <RdsSidebarItem
+          icon={<Activity />}
+          label="Queues"
+          onItemClick={() => window.open(BULL_BOARD_URL, '_blank', 'noopener')}
+        />
+      )}
     </>
+  );
+
+  // Compact brand row for the sidebar header — deliberately NOT <Brand />,
+  // whose auth-page margin-bottom overflows (and clips inside) the fixed-height
+  // RDS sidebar header.
+  const logoFull = (
+    <span className="flex items-center gap-2">
+      <Image src="/logo-mark.png" alt="" width={24} height={24} aria-hidden="true" />
+      <span className="font-[family-name:var(--font-logo)] text-[17px] leading-none text-text-heading">
+        Assurio
+      </span>
+    </span>
+  );
+
+  const logoIcon = (
+    <Image src="/logo-mark.png" alt="" width={24} height={24} aria-hidden="true" />
   );
 
   return (
     <>
-      {/* Mobile top bar */}
-      <header className="sb-mobile-bar" role="banner">
+      {/* ── Mobile top bar (below lg) ─────────────────────────── */}
+      <header className="fixed inset-x-0 top-0 z-40 flex h-14 items-center gap-3 border-b border-border-default bg-white px-4 lg:hidden">
         <button
           type="button"
-          className="sb-burger"
-          aria-label={open ? 'Close menu' : 'Open menu'}
-          aria-expanded={open}
-          onClick={() => setOpen((v) => !v)}
+          aria-label="Open menu"
+          onClick={() => setMobileOpen(true)}
+          className="flex h-9 w-9 items-center justify-center rounded-md text-text-body hover:bg-neutral-300"
         >
-          {open ? <X size={20} /> : <Menu size={20} />}
+          <Menu className="size-5" />
         </button>
-        <div className="sb-mobile-brand">
-          <Brand />
-        </div>
-        <span className="sb-mobile-avatar" title={user.name}>
+        {logoFull}
+        <span className="ml-auto flex h-8 w-8 items-center justify-center rounded-md bg-surface-btn-primary text-sm font-semibold text-white">
           {(user.name || '?').charAt(0).toUpperCase()}
         </span>
       </header>
+      {/* Spacer so page content clears the fixed mobile bar */}
+      <div className="h-14 lg:hidden" aria-hidden="true" />
 
-      {/* Desktop sidebar */}
-      <aside className="sb sb-desktop">{nav}</aside>
+      {/* ── Desktop rail (lg and up) ──────────────────────────── */}
+      <RdsSidebar
+        className="hidden lg:flex"
+        logo={logoFull}
+        logoIcon={logoIcon}
+        logoHref={items[0]?.href ?? '/'}
+        footer={<SidebarFooter user={user} onLogout={onLogout} />}
+      >
+        {renderNavItems()}
+      </RdsSidebar>
 
-      {/* Mobile drawer */}
+      {/* ── Mobile drawer — kept mounted for open/close animation ── */}
       <div
-        className={`sb-drawer ${open ? 'is-open' : ''}`}
-        aria-hidden={!open}
+        className={cn(
+          'fixed inset-0 z-50 lg:hidden',
+          mobileOpen ? 'pointer-events-auto' : 'pointer-events-none',
+        )}
+        aria-hidden={!mobileOpen}
       >
         <button
           type="button"
-          className="sb-drawer-scrim"
           aria-label="Close menu"
-          onClick={() => setOpen(false)}
+          tabIndex={mobileOpen ? 0 : -1}
+          onClick={() => setMobileOpen(false)}
+          className={cn(
+            'absolute inset-0 bg-[rgba(11,26,59,0.45)] transition-opacity duration-300 ease-in-out',
+            mobileOpen ? 'opacity-100' : 'opacity-0',
+          )}
         />
-        <aside className="sb sb-panel">{nav}</aside>
+        <div
+          className={cn(
+            'absolute inset-y-0 left-0 flex transition-transform duration-300 ease-in-out',
+            mobileOpen ? 'translate-x-0' : '-translate-x-full',
+          )}
+        >
+          <RdsSidebar
+            logoHref={items[0]?.href ?? '/'}
+            onClose={() => setMobileOpen(false)}
+            footer={<SidebarFooter user={user} onLogout={onLogout} />}
+          >
+            {renderNavItems(() => setMobileOpen(false))}
+          </RdsSidebar>
+        </div>
       </div>
     </>
   );
 }
 
-/* Common nav icons (lucide). Sized to 18px to match prior visual weight. */
+/* Common nav icons (lucide). RDS SidebarItem sizes them to 16px itself. */
 export const ICONS = {
-  dashboard: <LayoutDashboard size={18} strokeWidth={1.7} />,
-  billing: <Receipt size={18} strokeWidth={1.7} />,
-  clients: <Users size={18} strokeWidth={1.7} />,
-  invoices: <FileText size={18} strokeWidth={1.7} />,
-  operations: <Activity size={18} strokeWidth={1.7} />,
+  dashboard: <LayoutDashboard />,
+  billing: <Receipt />,
+  clients: <Users />,
+  invoices: <FileText />,
+  operations: <Activity />,
 };

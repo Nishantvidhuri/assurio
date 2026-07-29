@@ -27,7 +27,8 @@ import {
 import { me, type AuthUser } from '../../lib/api';
 import { getToken } from '../../lib/session';
 import { doLogout } from '../../lib/logout';
-import Sidebar, { ICONS, type SidebarItem } from '../../components/Sidebar';
+import { ICONS, type SidebarItem } from '../../components/Sidebar';
+import AppShell from '../../components/AppShell';
 import { saveDraft, type CandidateDraft } from './draft';
 import TermsBox from '../../components/TermsBox';
 import DobPicker from '../../components/DobPicker';
@@ -169,9 +170,7 @@ export default function AddCandidatePage() {
   if (!user) return <div className="loading">Loading…</div>;
 
   return (
-    <div className="shell">
-      <Sidebar items={CLIENT_NAV} user={user} onLogout={handleLogout} />
-      <main className="shell-main">
+    <AppShell nav={CLIENT_NAV} user={user} onLogout={handleLogout}>
         <div className="ac">
           <div className="ac-progress">
             <Link href="/home" className="ac-back">
@@ -494,8 +493,7 @@ export default function AddCandidatePage() {
             </>
           )}
         </div>
-      </main>
-    </div>
+      </AppShell>
   );
 }
 

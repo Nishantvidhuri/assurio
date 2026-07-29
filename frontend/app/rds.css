@@ -1,0 +1,902 @@
+@import 'tailwindcss';
+
+/* ── Hide browser-native password toggle (Edge / Chromium) ───────────────
+ * NOTE: do NOT add `::-webkit-textfield-decoration-container` here. Unlike
+ * the targeted pseudo-elements below, that one is the input's structural
+ * editable-decoration container — `display:none` on it makes the field
+ * uneditable on iOS Safari (no placeholder, taps don't open the keyboard).
+ */
+input::-ms-reveal,
+input::-ms-clear,
+input::-webkit-credentials-auto-fill-button {
+  display: none !important;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+}
+input[type="password"]::-ms-reveal {
+  display: none !important;
+}
+
+/* Manrope (the product's primary sans-serif, variable weight 200–800) is
+ * self-hosted via next/font/local in app/layout.tsx, which generates the
+ * @font-face and exposes the family through --font-manrope on <html>. */
+
+@font-face {
+  font-family: 'Meow Script';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('/fonts/meow-script/meow-script-latin-400-normal.woff2')
+    format('woff2');
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Design System Theme
+ *
+ * All tokens below are sourced from the Recrivio Design System (RDS) Figma
+ * file. The default Tailwind theme is fully replaced (--*: initial) so that
+ * only RDS tokens generate utility classes.
+ *
+ * Variable collections from Figma:
+ *   Color    → --color-*   (palettes + semantic groups)
+ *   Typography → --text-*, --font-*, --font-weight-*, --tracking-*, --leading-*
+ *   Spacing  → --spacing   (base unit for numeric utilities)
+ *   Corner Radius → --radius-*
+ *   Border-stroke  → kept as :root CSS vars (no Tailwind namespace)
+ *   Scale    → not mapped (internal Figma use only)
+ * ────────────────────────────────────────────────────────────────────────── */
+@theme {
+  --*: initial;
+
+  /* ── Font Family ─────────────────────────────────────────────────────── */
+  --font-sans: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    'Liberation Mono', 'Courier New', monospace;
+
+  /* ── Font Weights ────────────────────────────────────────────────────── */
+  --font-weight-light: 200;
+  --font-weight-normal: 300;
+  --font-weight-medium: 400;
+  --font-weight-semibold: 500;
+  --font-weight-bold: 600;
+  --font-weight-extrabold: 700;
+
+  /* ── Font Sizes & Line Heights ───────────────────────────────────────── */
+
+  /* Standard Tailwind-compatible names (used by shadcn components) */
+  --text-xs: 12px;
+  --text-xs--line-height: 20px;
+  --text-sm: 14px;
+  --text-sm--line-height: 22px;
+  --text-base: 16px;
+  --text-base--line-height: 24px;
+  --text-lg: 20px;
+  --text-lg--line-height: 28px;
+  --text-xl: 24px;
+  --text-xl--line-height: 31px;
+  --text-2xl: 28px;
+  --text-2xl--line-height: 34px;
+  --text-3xl: 32px;
+  --text-3xl--line-height: 38px;
+  --text-4xl: 36px;
+  --text-4xl--line-height: 42px;
+  --text-5xl: 40px;
+  --text-5xl--line-height: 46px;
+
+  /* RDS semantic names (Figma "Typography / Fontsize" collection) */
+  --text-display-1: 40px;
+  --text-display-1--line-height: 46px;
+  --text-display-2: 36px;
+  --text-display-2--line-height: 42px;
+  --text-h1: 32px;
+  --text-h1--line-height: 38px;
+  --text-h2: 28px;
+  --text-h2--line-height: 34px;
+  --text-h3: 24px;
+  --text-h3--line-height: 31px;
+  --text-h4: 20px;
+  --text-h4--line-height: 28px;
+  --text-body-lg: 16px;
+  --text-body-lg--line-height: 24px;
+  --text-body-md: 14px;
+  --text-body-md--line-height: 22px;
+  --text-body-sm: 12px;
+  --text-body-sm--line-height: 20px;
+
+  /* ── Additional Typography Tokens (px -> rem uses /16) ───────────── */
+  /* Subtitle (subtitle.md / subtitle.sm) */
+  --text-subtitle-md: 16px;
+  --text-subtitle-md--line-height: 24px;
+  --text-subtitle-sm: 14px;
+  --text-subtitle-sm--line-height: 20px;
+
+  /* Link / Caption / Input Label */
+  --text-link: 14px;
+  --text-link--line-height: 20px;
+  --text-caption: 12px;
+  --text-caption--line-height: 20px;
+  --text-input-label: 12px;
+  --text-input-label--line-height: 20px;
+
+  /* Placeholder */
+  --text-placeholder: 14px;
+  --text-placeholder--line-height: 20px;
+
+  /* ── Letter Spacing ──────────────────────────────────────────────────── */
+
+  /* Standard names */
+  --tracking-tighter: -0.05em;
+  --tracking-tight: -0.025em;
+  --tracking-normal: 0em;
+  --tracking-wide: 0.025em;
+  --tracking-wider: 0.05em;
+  --tracking-widest: 0.1em;
+
+  /* RDS semantic names (Figma "Typography / Letter Spacing" collection) */
+  --tracking-display-1: -0.4px;
+  --tracking-display-2: -0.35px;
+  --tracking-h1: -0.3px;
+  --tracking-h2: -0.25px;
+  --tracking-h3: -0.25px;
+  --tracking-h4: 0px;
+  --tracking-body-lg: 0px;
+  --tracking-body-md: 0px;
+  --tracking-body-sm: 0.25px;
+
+  /* Additional letter-spacing tokens */
+  --tracking-subtitle-md: 0px;
+  --tracking-subtitle-sm: 0px;
+  --tracking-link: 0px;
+  --tracking-caption: 0.25px;
+  --tracking-input-label: 0.25px;
+  --tracking-placeholder: 0px;
+
+  /* ── Line Height ─────────────────────────────────────────────────────── */
+  --leading-none: 1;
+  --leading-tight: 1.25;
+  --leading-snug: 1.375;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.625;
+  --leading-loose: 2;
+
+  /* ── Spacing ─────────────────────────────────────────────────────────── */
+  /* Base unit: p-1 = 4px. Figma spacing "s" = 4px = p-1.
+   *   Figma → Tailwind mapping:
+   *   3xs=0→p-0 | 2xs=1px→p-px | xs=2px→p-0.5 | s=4px→p-1
+   *   m=8px→p-2 | l=12px→p-3 | xl=16px→p-4 | 2xl=20px→p-5
+   *   3xl=24px→p-6 | 4xl=32px→p-8 | 5xl=40px→p-10 | 6xl=48px→p-12
+   *   7xl=56px→p-14 */
+  --spacing: 4px;
+
+  /* ── Breakpoints ─────────────────────────────────────────────────────── */
+  --breakpoint-sm: 640px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1101px;
+  --breakpoint-xl: 1280px;
+  --breakpoint-2xl: 1536px;
+  --breakpoint-3xl: 1920px;
+
+  /* ── Container / Max-Width ───────────────────────────────────────────── */
+  --container-xs: 320px;
+  --container-sm: 384px;
+  --container-md: 448px;
+  --container-lg: 512px;
+  --container-xl: 576px;
+  --container-2xl: 672px;
+  --container-3xl: 768px;
+  --container-4xl: 896px;
+  --container-5xl: 1024px;
+  --container-6xl: 1152px;
+  --container-7xl: 1280px;
+
+  /* ── Border Radius (Figma "Corner Radius" collection) ────────────────── */
+  --radius-none: 0px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 24px;
+  --radius-full: 9999px;
+
+  /* ── Shadows ─────────────────────────────────────────────────────────── */
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1),
+    0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1),
+    0 8px 10px -6px rgb(0 0 0 / 0.1);
+  --shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.25);
+
+  /* ── Transition Easing ───────────────────────────────────────────────── */
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ── Animations ──────────────────────────────────────────────────────── */
+  --animate-spin: spin 1s linear infinite;
+  --animate-pulse: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @keyframes pulse {
+    50% {
+      opacity: 0.5;
+    }
+  }
+  @keyframes menuSlideIn {
+    from {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes menuSlideOut {
+    from {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    to {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+  }
+
+  @keyframes tooltipSlideUp {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes tooltipSlideDown {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes tooltipSlideLeft {
+    from { opacity: 0; transform: translateX(6px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  @keyframes tooltipSlideRight {
+    from { opacity: 0; transform: translateX(-6px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  @keyframes dialogOverlayIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes dialogContentIn {
+    from {
+      opacity: 0;
+      transform: translate(-50%, -50%) scale(0.95);
+    }
+    to {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+    }
+  }
+
+  @keyframes stepCheckPop {
+    0% {
+      opacity: 0;
+      transform: scale(0);
+    }
+    60% {
+      transform: scale(1.2);
+    }
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+
+  /* ── Aspect Ratios ───────────────────────────────────────────────────── */
+  --aspect-video: 16 / 9;
+
+  /* ═══════════════════════════════════════════════════════════════════════
+   * COLORS
+   *
+   * Organized by Figma variable collection:
+   *   1. Base palette  — raw color scales (blue, navy, green, red, yellow, neutral)
+   *   2. Data viz      — chart / visualization palette
+   *   3. Semantic      — primary, accent, success, failure, warning
+   *   4. Contextual    — text, surface, border, icon
+   * ═════════════════════════════════════════════════════════════════════ */
+
+  --color-black: #000000;
+  --color-white: #ffffff;
+
+  /* ── Blue (Brand) ────────────────────────────────────────────────────── */
+  --color-blue-100: #f9fbff;
+  --color-blue-200: #e8edf8;
+  --color-blue-300: #94acdd;
+  --color-blue-400: #6486cd;
+  --color-blue-500: #456ec4;
+  --color-blue-600: #174ab5;
+  --color-blue-700: #1543a5;
+  --color-blue-800: #103581;
+  --color-blue-900: #0d2964;
+  --color-blue-1000: #0a1f4c;
+
+  /* ── Navy ─────────────────────────────────────────────────────────────── */
+  --color-navy-100: #e7e9ed;
+  --color-navy-200: #dbdee4;
+  --color-navy-300: #b4bac7;
+  --color-navy-400: #0e204a;
+  --color-navy-500: #0d1d43;
+  --color-navy-600: #0b1a3b;
+  --color-navy-700: #0b1838;
+  --color-navy-800: #08132c;
+
+  /* ── Green ────────────────────────────────────────────────────────────── */
+  --color-green-100: #eaf7ef;
+  --color-green-200: #bfe5cd;
+  --color-green-300: #9fd8b4;
+  --color-green-400: #74c792;
+  --color-green-500: #59bc7d;
+  --color-green-600: #2fab5d;
+  --color-green-700: #2b9c55;
+  --color-green-800: #217942;
+  --color-green-900: #1a5e33;
+  --color-green-1000: #144827;
+
+  /* ── Red ──────────────────────────────────────────────────────────────── */
+  --color-red-100: #fcebeb;
+  --color-red-200: #f6c2c2;
+  --color-red-300: #f2a4a4;
+  --color-red-400: #ec7a7a;
+  --color-red-500: #e96161;
+  --color-red-600: #e33939;
+  --color-red-700: #cf3434;
+  --color-red-800: #a12828;
+  --color-red-900: #7d1f1f;
+  --color-red-1000: #5f1818;
+
+  /* ── Yellow ───────────────────────────────────────────────────────────── */
+  --color-yellow-100: #fff9ec;
+  --color-yellow-200: #ffebc4;
+  --color-yellow-300: #ffe2a8;
+  --color-yellow-400: #ffd580;
+  --color-yellow-500: #ffcd68;
+  --color-yellow-600: #ffb522;
+  --color-yellow-700: #e8af3c;
+  --color-yellow-800: #b5882f;
+  --color-yellow-900: #8c6a24;
+  --color-yellow-1000: #6b511c;
+
+  /* ── Neutral ──────────────────────────────────────────────────────────── */
+  --color-neutral-100: #ffffff;
+  --color-neutral-200: #f9fbff;
+  --color-neutral-300: #f3f4f7;
+  --color-neutral-400: #eeeff0;
+  --color-neutral-500: #e2e8f0;
+  --color-neutral-600: #a5acb6;
+  --color-neutral-700: #828d9d;
+  --color-neutral-800: #374150;
+  --color-neutral-900: #0e1321;
+
+  /* ── Data Visualization ──────────────────────────────────────────────── */
+  --color-dataviz-100: #4b6cd6;
+  --color-dataviz-200: #ff8c3c;
+  --color-dataviz-300: #2dd4bf;
+  --color-dataviz-400: #a855f7;
+  --color-dataviz-500: #fb7185;
+  --color-dataviz-600: #38bdf8;
+  --color-dataviz-700: #b2586e;
+  --color-dataviz-800: #7c3aed;
+
+  /* ── Semantic: Primary ───────────────────────────────────────────────── */
+  --color-primary-bg: #f9fbff;
+  --color-primary-200: #e8edf8;
+  --color-primary-300: #94acdd;
+  --color-primary-400: #6486cd;
+  --color-primary-500: #456ec4;
+  --color-primary: #174ab5;
+  --color-primary-700: #1543a5;
+  --color-primary-800: #103581;
+  --color-primary-900: #0d2964;
+  --color-primary-1000: #0a1f4c;
+
+  /* ── Semantic: Accent (Navy) ─────────────────────────────────────────── */
+  --color-accent-100: #e7e9ed;
+  --color-accent-200: #dbdee4;
+  --color-accent-300: #b4bac7;
+  --color-accent-400: #0e204a;
+  --color-accent-500: #0d1d43;
+  --color-accent: #0b1a3b;
+  --color-accent-700: #0b1838;
+  --color-accent-800: #08132c;
+
+  /* ── Semantic: Success ───────────────────────────────────────────────── */
+  --color-success-100: #eaf7ef;
+  --color-success-200: #bfe5cd;
+  --color-success-300: #9fd8b4;
+  --color-success-400: #74c792;
+  --color-success-500: #59bc7d;
+  --color-success: #2fab5d;
+  --color-success-700: #2b9c55;
+  --color-success-800: #217942;
+  --color-success-900: #1a5e33;
+  --color-success-1000: #144827;
+
+  /* ── Semantic: Failure ───────────────────────────────────────────────── */
+  --color-failure-100: #fcebeb;
+  --color-failure-200: #f6c2c2;
+  --color-failure-300: #f2a4a4;
+  --color-failure-400: #ec7a7a;
+  --color-failure-500: #e96161;
+  --color-failure: #e33939;
+  --color-failure-700: #cf3434;
+  --color-failure-800: #a12828;
+  --color-failure-900: #7d1f1f;
+  --color-failure-1000: #5f1818;
+
+  /* ── Semantic: Warning ───────────────────────────────────────────────── */
+  --color-warning-100: #fff9ec;
+  --color-warning-200: #ffebc4;
+  --color-warning-300: #ffe2a8;
+  --color-warning-400: #ffd580;
+  --color-warning-500: #ffcd68;
+  --color-warning: #ffb522;
+  --color-warning-700: #e8af3c;
+  --color-warning-800: #b5882f;
+  --color-warning-900: #8c6a24;
+  --color-warning-1000: #6b511c;
+
+  /* ── Contextual: Text ────────────────────────────────────────────────── */
+  --color-text-heading: #0e1321;
+  --color-text-subheading: #828d9d;
+  --color-text-body: #374150;
+  --color-text-disabled: #a5acb6;
+  --color-text-white: #ffffff;
+  --color-text-link: #174ab5;
+  --color-text-link-hover: #0b1838;
+  --color-text-info: #174ab5;
+  --color-text-error: #e33939;
+  --color-text-warning: #ffb522;
+  --color-text-success: #2fab5d;
+
+  /* ── Contextual: Surface ─────────────────────────────────────────────── */
+  --color-surface-primary: #174ab5;
+  --color-surface-page: #ffffff;
+  --color-surface-nav: #f9fbff;
+  --color-surface-success: #eaf7ef;
+  --color-surface-error: #fcebeb;
+  --color-surface-warning: #fff9ec;
+  --color-surface-disabled: #eeeff0;
+  --color-surface-info: #f9fbff;
+  --color-surface-btn-primary: #0e204a;
+  --color-surface-btn-primary-hover: #0d2964;
+  --color-surface-btn-secondary: #ffffff;
+  --color-surface-btn-secondary-hover: #f9fbff;
+  --color-surface-tooltip: #08132c;
+
+  /* ── Contextual: Border ──────────────────────────────────────────────── */
+  --color-border-default: #eeeff0;
+  --color-border-hover: #e2e8f0;
+  --color-border-disabled: #f3f4f7;
+  --color-border-focused: #174ab5;
+  --color-border-pressed: #e2e8f0;
+  --color-border-active: #456ec4;
+  --color-border-success: #2fab5d;
+  --color-border-failure: #e33939;
+  --color-border-warning: #ffb522;
+  --color-border-info: #174ab5;
+
+  /* ── Contextual: Icon ────────────────────────────────────────────────── */
+  --color-icon-default: #374150;
+  --color-icon-muted: #828d9d;
+  --color-icon-disabled: #a5acb6;
+  --color-icon-white: #ffffff;
+  --color-icon-success: #2fab5d;
+  --color-icon-warning: #ffb522;
+  --color-icon-failure: #e33939;
+  --color-icon-info: #174ab5;
+  --color-icon-link: #174ab5;
+
+  /* ── shadcn/ui compatibility aliases ─────────────────────────────────── */
+  --color-background: #ffffff;
+  --color-foreground: #0e1321;
+  --color-muted: #f3f4f7;
+  --color-muted-foreground: #828d9d;
+  --color-popover: #ffffff;
+  --color-popover-foreground: #0e1321;
+  --color-card: #ffffff;
+  --color-card-foreground: #0e1321;
+  --color-destructive: #e33939;
+  --color-destructive-foreground: #ffffff;
+  --color-secondary: #f3f4f7;
+  --color-secondary-foreground: #0e1321;
+  --color-input: #eeeff0;
+  --color-ring: #174ab5;
+}
+
+/* Tailwind v4 drops user CSS placed in `@layer components { ... }`, so these
+   rules are intentionally unlayered. */
+.wavy-feedback-pill {
+  border-radius: 900px;
+  border: 1px solid rgba(109, 94, 244, 0.78);
+  background-image: linear-gradient(
+    -45deg,
+    #174ab5,
+    #7b61ff,
+    #5b3bff,
+    #7b61ff,
+    #174ab5
+  );
+  background-size: 400% 400%;
+  background-position: 0% 50%;
+  background-repeat: no-repeat;
+  box-shadow:
+    0 -1px 60px 0 rgba(96, 90, 234, 0.1),
+    -1px 5px 20px 0 rgba(111, 95, 246, 0.25);
+  animation: wavyFeedbackPill 8s ease-in-out infinite;
+}
+.wavy-feedback-pill:hover {
+  box-shadow:
+    0 -1px 60px 0 rgba(96, 90, 234, 0.16),
+    -1px 5px 24px 0 rgba(111, 95, 246, 0.35);
+}
+.wavy-feedback-pill.wavy-static {
+  animation: none;
+  background-image: linear-gradient(
+    92deg,
+    #174ab5 -17.02%,
+    #7b61ff 126.9%
+  );
+  background-size: 100% 100%;
+  background-position: 0% 0%;
+}
+
+@keyframes wavyFeedbackPill {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wavy-feedback-pill {
+    animation: none;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Border Stroke Widths (Figma "Border-stroke" collection)
+ * Not in a Tailwind namespace — use with border-[var(--stroke-*)] or classes.
+ * ────────────────────────────────────────────────────────────────────────── */
+:root {
+  --stroke-none: 0px;
+  --stroke-sm: 1px;
+  --stroke-md: 2px;
+  accent-color: var(--color-primary);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Base Resets
+ * ────────────────────────────────────────────────────────────────────────── */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  /* Ensure Manrope is used across the entire app */
+  font-family: var(--font-sans);
+  /* Force grayscale antialiasing. WebKit (iOS/macOS Safari) defaults to
+   * subpixel antialiasing, which renders glyphs noticeably thicker — so
+   * the same font weight looks "bold" on iPhone vs. Android/Chrome.
+   * These two declarations make every browser render text the same. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.hide-scrollbar {
+  -ms-overflow-style: none; /* IE / Edge */
+  scrollbar-width: none; /* Firefox */
+}
+.hide-scrollbar::-webkit-scrollbar {
+  display: none; /* Chrome / Safari */
+}
+
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #A5ACB6 transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: #A5ACB6;
+  border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: #828d9d;
+}
+
+button:hover:not(:disabled):not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+
+/* Auth-page toasts (see `credential-flow-form.tsx`): Sonner renders toasts
+   at viewport-level "top-center". The right hero column of `AuthLayout` is
+   48% wide at ≥ 1080 px, which makes the true center of the form column
+   land LEFT of the viewport center. Shift the toast horizontally so it
+   reads as centered over the form column. Below 1080 px the hero column
+   is hidden and the toast naturally sits over the full-width form, so
+   no shift is needed. `max(…, -400px)` caps the shift once the hero
+   column hits its `max-w-[779px]` ceiling (~1622 px viewport and up). */
+@media (min-width: 1080px) {
+  .auth-toast {
+    margin-left: max(calc(-24vw - 10px), -400px);
+  }
+}
+
+@layer base {
+  :focus-visible {
+    outline: 1px solid #174ab5;
+  }
+
+  :focus:not(:focus-visible) {
+    outline: none;
+  }
+}
+
+.range-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 8px;
+  background: linear-gradient(
+    to right,
+    #174ab5 0%,
+    #174ab5 var(--fill, 0%),
+    #eeeff0 var(--fill, 0%),
+    #eeeff0 100%
+  );
+  outline: none;
+  cursor: pointer;
+}
+
+.range-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 8px;
+  background: transparent; 
+}
+
+.range-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 8px;
+  background: transparent;
+}
+
+
+.range-slider::-moz-range-progress {
+  height: 4px;
+  border-radius: 8px;
+  background: #174ab5;
+}
+
+.range-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  border: 0.75px solid #eeeff0;
+  background: #ffffff;
+  box-shadow: 0 0.8px 6px rgba(11, 26, 59, 0.05);
+  margin-top: -6px;
+  cursor: pointer;
+  transition: transform 120ms ease-out;
+}
+
+.range-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  border: 0.75px solid #eeeff0;
+  background: #ffffff;
+  box-shadow: 0 0.8px 6px rgba(11, 26, 59, 0.05);
+  cursor: pointer;
+  transition: transform 120ms ease-out;
+}
+
+.range-slider:active::-webkit-slider-thumb,
+.range-slider:focus-visible::-webkit-slider-thumb {
+  transform: scale(1.08);
+}
+.range-slider:active::-moz-range-thumb,
+.range-slider:focus-visible::-moz-range-thumb {
+  transform: scale(1.08);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
+* Tablet Typography
+*
+* Per-token tablet values. Apply explicitly at the call site, e.g.:
+*   text-h1-tablet lg:text-h1
+* Existing desktop tokens above remain unchanged.
+* ────────────────────────────────────────────────────────────────────────── */
+@theme {
+  /* ── Display ─────────────────────────────────────────────────────────── */
+  --text-display-1-tablet: 36px;
+  --text-display-1-tablet--line-height: 42px;
+  --tracking-display-1-tablet: -0.35px;
+ 
+  --text-display-2-tablet: 32px;
+  --text-display-2-tablet--line-height: 38px;
+  --tracking-display-2-tablet: -0.3px;
+ 
+  /* ── Heading ─────────────────────────────────────────────────────────── */
+  --text-h1-tablet: 28px;
+  --text-h1-tablet--line-height: 34px;
+  --tracking-h1-tablet: -0.25px;
+ 
+  --text-h2-tablet: 24px;
+  --text-h2-tablet--line-height: 31px;
+  --tracking-h2-tablet: -0.25px;
+ 
+  --text-h3-tablet: 20px;
+  --text-h3-tablet--line-height: 28px;
+  --tracking-h3-tablet: 0px;
+ 
+  --text-h4-tablet: 20px;
+  --text-h4-tablet--line-height: 28px;
+  --tracking-h4-tablet: 0px;
+ 
+  /* ── Subtitle ────────────────────────────────────────────────────────── */
+  --text-subtitle-md-tablet: 14px;
+  --text-subtitle-md-tablet--line-height: 24px;
+  --tracking-subtitle-md-tablet: 0px;
+ 
+  --text-subtitle-sm-tablet: 14px;
+  --text-subtitle-sm-tablet--line-height: 20px;
+  --tracking-subtitle-sm-tablet: 0px;
+ 
+  /* ── Body ────────────────────────────────────────────────────────────── */
+  --text-body-tablet: 14px;
+  --text-body-tablet--line-height: 22px;
+  --tracking-body-tablet: 0px;
+ 
+  /* ── Link ────────────────────────────────────────────────────────────── */
+  --text-link-tablet: 14px;
+  --text-link-tablet--line-height: 20px;
+  --tracking-link-tablet: 0px;
+ 
+  --text-link-underline-tablet: 14px;
+  --text-link-underline-tablet--line-height: 20px;
+  --tracking-link-underline-tablet: 0px;
+ 
+  /* ── Caption ─────────────────────────────────────────────────────────── */
+  --text-caption-tablet: 12px;
+  --text-caption-tablet--line-height: 20px;
+  --tracking-caption-tablet: 0.25px;
+ 
+  /* ── Input Field ─────────────────────────────────────────────────────── */
+  --text-input-label-tablet: 12px;
+  --text-input-label-tablet--line-height: 20px;
+  --tracking-input-label-tablet: 0.25px;
+ 
+  --text-placeholder-tablet: 14px;
+  --text-placeholder-tablet--line-height: 20px;
+  --tracking-placeholder-tablet: 0.25px;
+}
+ 
+/* ─────────────────────────────────────────────────────────────────────────────
+* Mobile Typography
+*
+* Per-token mobile values. Apply explicitly at the call site, e.g.:
+*   text-h1-mobile md:text-h1-tablet lg:text-h1
+* Existing desktop and tablet tokens above remain unchanged.
+* ────────────────────────────────────────────────────────────────────────── */
+@theme {
+  /* ── Display ─────────────────────────────────────────────────────────── */
+  --text-display-1-mobile: 32px;
+  --text-display-1-mobile--line-height: 38px;
+  --tracking-display-1-mobile: -0.3px;
+ 
+  --text-display-2-mobile: 28px;
+  --text-display-2-mobile--line-height: 34px;
+  --tracking-display-2-mobile: -0.25px;
+ 
+  /* ── Heading ─────────────────────────────────────────────────────────── */
+  --text-h1-mobile: 24px;
+  --text-h1-mobile--line-height: 31px;
+  --tracking-h1-mobile: -0.25px;
+ 
+  --text-h2-mobile: 20px;
+  --text-h2-mobile--line-height: 28px;
+  --tracking-h2-mobile: 0px;
+ 
+  --text-h3-mobile: 16px;
+  --text-h3-mobile--line-height: 24px;
+  --tracking-h3-mobile: 0px;
+ 
+  --text-h4-mobile: 16px;
+  --text-h4-mobile--line-height: 24px;
+  --tracking-h4-mobile: 0px;
+ 
+  /* ── Subtitle ────────────────────────────────────────────────────────── */
+  --text-subtitle-md-mobile: 14px;
+  --text-subtitle-md-mobile--line-height: 20px;
+  --tracking-subtitle-md-mobile: 0px;
+ 
+  --text-subtitle-sm-mobile: 14px;
+  --text-subtitle-sm-mobile--line-height: 20px;
+  --tracking-subtitle-sm-mobile: 0px;
+ 
+  /* ── Body ────────────────────────────────────────────────────────────── */
+  --text-body-mobile: 14px;
+  --text-body-mobile--line-height: 22px;
+  --tracking-body-mobile: 0px;
+ 
+  /* ── Link ────────────────────────────────────────────────────────────── */
+  --text-link-mobile: 14px;
+  --text-link-mobile--line-height: 20px;
+  --tracking-link-mobile: 0px;
+ 
+  --text-link-underline-mobile: 14px;
+  --text-link-underline-mobile--line-height: 20px;
+  --tracking-link-underline-mobile: 0px;
+ 
+  /* ── Caption ─────────────────────────────────────────────────────────── */
+  --text-caption-mobile: 12px;
+  --text-caption-mobile--line-height: 20px;
+  --tracking-caption-mobile: 0.25px;
+ 
+  /* ── Input Field ─────────────────────────────────────────────────────── */
+  --text-input-label-mobile: 12px;
+  --text-input-label-mobile--line-height: 20px;
+  --tracking-input-label-mobile: 0.25px;
+ 
+  --text-placeholder-mobile: 14px;
+  --text-placeholder-mobile--line-height: 20px;
+  --tracking-placeholder-mobile: 0px;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+}

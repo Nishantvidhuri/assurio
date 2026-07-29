@@ -7,6 +7,15 @@ import { fetchCsrf, login } from '../lib/api';
 import { saveSession } from '../lib/session';
 import { Eye, EyeOff } from 'lucide-react';
 import { IconApple, IconGoogle } from '../components/AuthIcons';
+import Brand from '../components/Brand';
+import {
+  Button,
+  Callout,
+  Input,
+  InputFieldWrapper,
+  TabBar,
+  TabBarItem,
+} from '@/shared/components/ui';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -47,87 +56,122 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="au">
-      <div className="au-card">
-        <div className="au-head">
-          <h1 className="au-title">Welcome Back</h1>
-          <p className="au-sub">Sign in to your Assurio account</p>
+    <div className="min-h-screen flex items-center justify-center bg-[#F4F7FC] px-4 py-10">
+      <div className="w-full max-w-md rounded-xl border border-border-default bg-white p-8 shadow-[0px_1px_5px_0px_rgba(11,26,59,0.06)]">
+        <div className="mb-6 flex justify-center [&_.brand]:mb-0">
+          <Brand />
         </div>
 
-        <div className="au-toggle">
-          <Link href="/login" className="is-active">
+        <div className="mb-6 text-center">
+          <h1 className="text-xl font-semibold text-text-heading">Welcome Back</h1>
+          <p className="mt-1 text-sm text-text-subheading">
+            Sign in to your Assurio account
+          </p>
+        </div>
+
+        <TabBar
+          defaultValue="login"
+          value="login"
+          onValueChange={(v) => {
+            if (v === 'register') router.push('/signup');
+          }}
+          className="mb-6 w-full"
+        >
+          <TabBarItem value="login" className="flex-1">
             Login
-          </Link>
-          <Link href="/signup">Register</Link>
-        </div>
+          </TabBarItem>
+          <TabBarItem value="register" className="flex-1">
+            Register
+          </TabBarItem>
+        </TabBar>
 
-        {error && <div className="au-error">{error}</div>}
+        {error && (
+          <Callout
+            state="Error"
+            title={error}
+            showAction={false}
+            showCloseIcon={false}
+            multiline
+            className="mb-4"
+          />
+        )}
 
-        <form onSubmit={handleSubmit}>
-          <div className="au-field">
-            <label className="au-label" htmlFor="email">
-              Email
-            </label>
-            <input
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <InputFieldWrapper label="Email">
+            <Input
               id="email"
-              className="au-input"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
               required
             />
+          </InputFieldWrapper>
+
+          <InputFieldWrapper label="Password">
+            <Input
+              id="password"
+              type={showPw ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Enter your password"
+              required
+              rightIcon={
+                <button
+                  type="button"
+                  className="inline-flex items-center justify-center text-icon-muted transition-colors hover:text-text-body"
+                  onClick={() => setShowPw((v) => !v)}
+                  aria-label={showPw ? 'Hide password' : 'Show password'}
+                >
+                  {showPw ? <Eye size={16} strokeWidth={1.7} /> : <EyeOff size={16} strokeWidth={1.7} />}
+                </button>
+              }
+            />
+          </InputFieldWrapper>
+
+          <div className="-mt-1 flex justify-end">
+            <Button variant="link" onClick={handleForgot}>
+              Forgot Password?
+            </Button>
           </div>
 
-          <div className="au-field">
-            <label className="au-label" htmlFor="password">
-              Password
-            </label>
-            <div className="au-pass">
-              <input
-                id="password"
-                className="au-input"
-                type={showPw ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter your password"
-                required
-              />
-              <button
-                type="button"
-                className="au-eye"
-                onClick={() => setShowPw((v) => !v)}
-                aria-label={showPw ? 'Hide password' : 'Show password'}
-              >
-                {showPw ? <Eye size={18} strokeWidth={1.7} /> : <EyeOff size={18} strokeWidth={1.7} />}
-              </button>
-            </div>
-          </div>
-
-          <button type="button" className="au-forgot" onClick={handleForgot}>
-            Forgot Password?
-          </button>
-
-          <button className="au-btn" type="submit" disabled={loading}>
+          <Button type="submit" variant="primary" isLoading={loading} className="w-full">
             {loading ? 'Signing in…' : 'Login'}
-          </button>
+          </Button>
         </form>
 
-        <div className="au-or">or continue with</div>
-
-        <div className="au-social">
-          <button type="button" className="au-social-btn" onClick={handleSocial}>
-            <IconGoogle />
-            Google
-          </button>
-          <button type="button" className="au-social-btn" onClick={handleSocial}>
-            <IconApple />
-            Apple
-          </button>
+        <div className="my-6 flex items-center gap-3">
+          <span className="h-px flex-1 bg-border-hover" />
+          <span className="text-xs font-medium text-text-subheading">
+            or continue with
+          </span>
+          <span className="h-px flex-1 bg-border-hover" />
         </div>
 
-        <p className="au-bottom">
-          Don&apos;t have an account? <Link href="/signup">Sign Up</Link>
+        <div className="flex gap-3">
+          <Button
+            variant="secondary"
+            onClick={handleSocial}
+            leftIcon={<IconGoogle />}
+            className="flex-1"
+          >
+            Google
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={handleSocial}
+            leftIcon={<IconApple />}
+            className="flex-1"
+          >
+            Apple
+          </Button>
+        </div>
+
+        <p className="mt-6 text-center text-sm text-text-subheading">
+          Don&apos;t have an account?{' '}
+          <Link href="/signup" className="font-medium text-text-link hover:underline">
+            Sign Up
+          </Link>
         </p>
       </div>
     </div>

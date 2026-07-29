@@ -10,7 +10,9 @@ import {
 } from '../lib/api';
 import { getToken } from '../lib/session';
 import { doLogout } from '../lib/logout';
-import Sidebar, { ICONS, type SidebarItem } from '../components/Sidebar';
+import { ICONS, type SidebarItem } from '../components/Sidebar';
+import AppShell from '../components/AppShell';
+import StatCard from '../components/StatCard';
 
 const ADMIN_NAV: SidebarItem[] = [
   { href: '/admin', label: 'Dashboard', icon: ICONS.dashboard },
@@ -99,9 +101,8 @@ export default function AdminPage() {
   ];
 
   return (
-    <div className="shell">
-      <Sidebar items={ADMIN_NAV} user={user} onLogout={handleLogout} />
-      <main className="shell-main dash">
+    <AppShell nav={ADMIN_NAV} user={user} onLogout={handleLogout}>
+      <div className="dash">
         <div className="dash-head">
           <div>
             <h1 className="dash-title">Dashboard</h1>
@@ -113,15 +114,12 @@ export default function AdminPage() {
 
         {error && <div className="error">{error}</div>}
 
-        <div className="kpi-row4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {cards.map((c) => (
-            <div key={c.label} className="kpi-simple">
-              <div className="kpi-simple-label">{c.label}</div>
-              <div className="kpi-simple-value">{c.value}</div>
-            </div>
+            <StatCard key={c.label} label={c.label} value={c.value} />
           ))}
         </div>
-      </main>
-    </div>
+      </div>
+    </AppShell>
   );
 }

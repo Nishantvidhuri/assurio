@@ -6,7 +6,16 @@ import { CheckCircle2, Phone, Settings, User } from 'lucide-react';
 import { me, updateMe, type AuthUser } from '../../lib/api';
 import { getToken } from '../../lib/session';
 import { doLogout } from '../../lib/logout';
-import Sidebar, { ICONS, type SidebarItem } from '../../components/Sidebar';
+import { ICONS, type SidebarItem } from '../../components/Sidebar';
+import AppShell from '../../components/AppShell';
+import {
+  Button,
+  Callout,
+  Input,
+  InputFieldWrapper,
+  Loader,
+  Tag,
+} from '@/shared/components/ui';
 
 const CLIENT_NAV: SidebarItem[] = [
   { href: '/home', label: 'Dashboard', icon: ICONS.dashboard },
@@ -60,109 +69,116 @@ export default function SettingsPage() {
 
   if (!user) {
     return (
-      <div className="st-loading">
-        <span className="spinner" />
+      <div className="flex min-h-screen items-center justify-center">
+        <Loader description="Loading..." />
       </div>
     );
   }
 
   return (
-    <div className="shell">
-      <Sidebar items={CLIENT_NAV} user={user} onLogout={logout} />
-      <main className="shell-main">
-        <div className="st-page">
+    <AppShell nav={CLIENT_NAV} user={user} onLogout={logout}>
+        <div className="mx-auto w-full max-w-3xl">
 
           {/* Page header */}
-          <header className="st-head">
-            <h1 className="st-title">Settings</h1>
-            <p className="st-sub">Manage your account and notification preferences</p>
+          <header className="mb-6">
+            <h1 className="text-xl font-semibold text-text-heading">Settings</h1>
+            <p className="mt-1 text-body-md text-text-subheading">
+              Manage your account and notification preferences
+            </p>
           </header>
 
-          <div className="st-grid">
+          <div className="flex flex-col gap-4">
 
             {/* Profile card — read-only info */}
-            <section className="st-card">
-              <div className="st-card-header">
-                <span className="st-card-icon"><User size={16} strokeWidth={1.8} /></span>
-                <h2 className="st-card-title">Account</h2>
+            <section className="rounded-lg border border-border-default bg-white p-5">
+              <div className="mb-4 flex items-center gap-2">
+                <span className="inline-flex size-8 items-center justify-center rounded-md bg-primary-200 text-primary">
+                  <User size={16} strokeWidth={1.8} />
+                </span>
+                <h2 className="text-body-lg font-bold text-text-heading">Account</h2>
               </div>
-              <div className="st-rows">
-                <div className="st-row">
-                  <span className="st-row-label">Name</span>
-                  <span className="st-row-val">{user.name}</span>
+              <div className="flex flex-col divide-y divide-border-default">
+                <div className="grid grid-cols-[120px_1fr] items-center gap-3 py-2.5">
+                  <span className="text-body-sm font-medium text-text-subheading">Name</span>
+                  <span className="text-body-md text-text-body">{user.name}</span>
                 </div>
-                <div className="st-row">
-                  <span className="st-row-label">Email</span>
-                  <span className="st-row-val">{user.email}</span>
+                <div className="grid grid-cols-[120px_1fr] items-center gap-3 py-2.5">
+                  <span className="text-body-sm font-medium text-text-subheading">Email</span>
+                  <span className="text-body-md text-text-body">{user.email}</span>
                 </div>
-                <div className="st-row">
-                  <span className="st-row-label">Role</span>
-                  <span className="st-row-badge">{user.role ?? 'owner'}</span>
+                <div className="grid grid-cols-[120px_1fr] items-center gap-3 py-2.5">
+                  <span className="text-body-sm font-medium text-text-subheading">Role</span>
+                  <span>
+                    <Tag variant="Info" label={user.role ?? 'owner'} />
+                  </span>
                 </div>
               </div>
             </section>
 
             {/* Contact card — editable */}
-            <section className="st-card">
-              <div className="st-card-header">
-                <span className="st-card-icon"><Phone size={16} strokeWidth={1.8} /></span>
-                <h2 className="st-card-title">Contact Number</h2>
+            <section className="rounded-lg border border-border-default bg-white p-5">
+              <div className="mb-1 flex items-center gap-2">
+                <span className="inline-flex size-8 items-center justify-center rounded-md bg-primary-200 text-primary">
+                  <Phone size={16} strokeWidth={1.8} />
+                </span>
+                <h2 className="text-body-lg font-bold text-text-heading">Contact Number</h2>
               </div>
-              <p className="st-card-desc">
+              <p className="mb-4 text-body-sm text-text-subheading">
                 Your mobile number, kept on file for your account.
               </p>
 
-              <form onSubmit={handleSave} className="st-form">
-                <div className="st-field">
-                  <label className="st-label" htmlFor="st-phone">
-                    Mobile number
-                  </label>
-                  <div className="st-input-wrap">
-                    <span className="st-prefix">+91</span>
-                    <input
-                      id="st-phone"
-                      className="st-input"
-                      type="tel"
-                      inputMode="numeric"
-                      maxLength={15}
-                      placeholder="98765 43210"
-                      value={phone.replace(/^\+?91/, '')}
-                      onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
-                    />
-                    {user.phone && (
-                      <span className="st-verified" title="Number saved">
-                        <CheckCircle2 size={15} />
-                      </span>
-                    )}
-                  </div>
-                  <p className="st-hint">
-                    Enter your 10-digit mobile number.
-                  </p>
-                </div>
+              <form onSubmit={handleSave} className="flex flex-col gap-4">
+                <InputFieldWrapper
+                  label="Mobile number"
+                  note="Enter your 10-digit mobile number."
+                >
+                  <Input
+                    id="st-phone"
+                    type="tel"
+                    inputMode="numeric"
+                    maxLength={15}
+                    placeholder="98765 43210"
+                    value={phone.replace(/^\+?91/, '')}
+                    onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
+                    leftIcon={
+                      <span className="text-body-md font-medium text-text-subheading">+91</span>
+                    }
+                    rightIcon={
+                      user.phone ? (
+                        <CheckCircle2 size={15} className="text-success" />
+                      ) : undefined
+                    }
+                  />
+                </InputFieldWrapper>
 
                 {error && (
-                  <div className="st-alert st-alert-err">{error}</div>
+                  <Callout
+                    state="Error"
+                    title={error}
+                    showAction={false}
+                    showCloseIcon={false}
+                    multiline
+                  />
                 )}
                 {saved && (
-                  <div className="st-alert st-alert-ok">
-                    <CheckCircle2 size={14} />
-                    Number saved.
-                  </div>
+                  <Callout
+                    state="Success"
+                    title="Number saved."
+                    showAction={false}
+                    showCloseIcon={false}
+                  />
                 )}
 
-                <div className="st-actions">
-                  <button type="submit" className="st-save-btn" disabled={saving}>
-                    {saving ? (
-                      <><span className="st-btn-spinner" />Saving…</>
-                    ) : 'Save changes'}
-                  </button>
+                <div className="flex justify-end">
+                  <Button type="submit" variant="primary" isLoading={saving}>
+                    {saving ? 'Saving…' : 'Save changes'}
+                  </Button>
                 </div>
               </form>
             </section>
 
           </div>
         </div>
-      </main>
-    </div>
+      </AppShell>
   );
 }

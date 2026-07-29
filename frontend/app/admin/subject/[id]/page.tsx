@@ -16,7 +16,8 @@ import {
 } from '../../../lib/api';
 import { getToken } from '../../../lib/session';
 import { doLogout } from '../../../lib/logout';
-import Sidebar, { ICONS, type SidebarItem } from '../../../components/Sidebar';
+import { ICONS, type SidebarItem } from '../../../components/Sidebar';
+import AppShell from '../../../components/AppShell';
 
 const ADMIN_NAV: SidebarItem[] = [
   { href: '/admin', label: 'Dashboard', icon: ICONS.dashboard },
@@ -171,15 +172,12 @@ export default function AdminSubjectPage() {
 
   if (error) {
     return (
-      <div className="shell">
-        <Sidebar items={ADMIN_NAV} user={user} onLogout={handleLogout} />
-        <main className="shell-main">
+      <AppShell nav={ADMIN_NAV} user={user} onLogout={handleLogout}>
           <div className="error">{error}</div>
           <Link className="back-link" href="/admin/clients">
             ← Back to clients
           </Link>
-        </main>
-      </div>
+        </AppShell>
     );
   }
 
@@ -197,9 +195,7 @@ export default function AdminSubjectPage() {
   const cases = (crime?.cases || []) as CrimeCase[];
 
   return (
-    <div className="shell">
-      <Sidebar items={ADMIN_NAV} user={user} onLogout={handleLogout} />
-      <main className="shell-main">
+    <AppShell nav={ADMIN_NAV} user={user} onLogout={handleLogout}>
         <Link className="back-link" href="/admin/clients">
           ← All clients
         </Link>
@@ -339,8 +335,7 @@ export default function AdminSubjectPage() {
             </div>
           )}
         </section>
-      </main>
-    </div>
+      </AppShell>
   );
 }
 

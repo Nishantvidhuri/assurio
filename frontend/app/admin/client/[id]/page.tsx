@@ -7,12 +7,8 @@ import {
   ArrowLeft,
   CheckCircle2,
   ChevronDown,
-  CreditCard,
-  FileText,
   Search,
-  ShieldAlert,
   Users,
-  Wallet,
   X,
 } from 'lucide-react';
 import {
@@ -24,7 +20,20 @@ import {
 } from '../../../lib/api';
 import { getToken } from '../../../lib/session';
 import { doLogout } from '../../../lib/logout';
-import Sidebar, { ICONS, type SidebarItem } from '../../../components/Sidebar';
+import { ICONS, type SidebarItem } from '../../../components/Sidebar';
+import AppShell from '../../../components/AppShell';
+import {
+  FilterChip,
+  Pagination,
+  SearchBar,
+  Tag,
+  Table,
+  TableBody,
+  TableCell,
+  TableHeader,
+  TableHeaderCell,
+  TableRow,
+} from '@/shared/components/ui';
 
 const ADMIN_NAV: SidebarItem[] = [
   { href: '/admin', label: 'Dashboard', icon: ICONS.dashboard },
@@ -60,6 +69,21 @@ export default function AdminClientPage() {
   const [detail, setDetail] = useState<AdminClientDetail | null>(null);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [sortKey, setSortKey] = useState<'name' | 'status' | null>('name');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  function toggleSort(key: 'name' | 'status') {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  }
 
   useEffect(() => {
     const id = params?.id;
@@ -106,258 +130,224 @@ export default function AdminClientPage() {
   const filteredSubjects = useMemo(() => {
     if (!detail) return [];
     const q = query.trim().toLowerCase();
-    if (!q) return detail.subjects;
-    return detail.subjects.filter((s) =>
-      [s.name, s.email, s.role, s.status].join(' ').toLowerCase().includes(q),
+    return detail.subjects.filter((s) => {
+      if (statusFilter.length > 0 && !statusFilter.includes(s.status)) return false;
+      if (!q) return true;
+      return [s.name, s.email, s.role, s.status].join(' ').toLowerCase().includes(q);
+    });
+  }, [detail, query, statusFilter]);
+
+  const sortedSubjects = useMemo(() => {
+    if (!sortKey) return filteredSubjects;
+    const dir = sortDir === 'asc' ? 1 : -1;
+    return [...filteredSubjects].sort((a, b) =>
+      sortKey === 'name'
+        ? dir * (a.name || '').localeCompare(b.name || '')
+        : dir * (a.status || '').localeCompare(b.status || ''),
     );
-  }, [detail, query]);
+  }, [filteredSubjects, sortKey, sortDir]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedSubjects.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pagedSubjects = useMemo(
+    () => sortedSubjects.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [sortedSubjects, currentPage, pageSize],
+  );
+
+  const allPagedSelected =
+    pagedSubjects.length > 0 && pagedSubjects.every((x) => selected.has(x.id));
+  const somePagedSelected = pagedSubjects.some((x) => selected.has(x.id));
+
+  function toggleSelectAll(checked: boolean) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const x of pagedSubjects) {
+        if (checked) next.add(x.id);
+        else next.delete(x.id);
+      }
+      return next;
+    });
+  }
+
+  function toggleSelect(id: string, checked: boolean) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
 
   if (!user) return <div className="loading">Loading...</div>;
 
   return (
-    <div className="shell">
-      <Sidebar items={ADMIN_NAV} user={user} onLogout={handleLogout} />
-      <main className="shell-main">
-        <Link className="cd-back" href="/admin/clients">
-          <ArrowLeft size={14} />
-          All clients
-        </Link>
-
+    <AppShell
+      nav={ADMIN_NAV}
+      user={user}
+      onLogout={handleLogout}
+      breadcrumbs={[
+        { label: 'Home', href: '/admin' },
+        { label: 'Clients', href: '/admin/clients' },
+        { label: detail?.client.name ?? '…' },
+      ]}
+    >
         {error && <div className="error">{error}</div>}
 
         {detail && (
           <>
-            {/* Client header */}
-            <header className="cd-head">
-              <div className="cd-head-avatar">
-                {(detail.client.name || '?').charAt(0).toUpperCase()}
-              </div>
-              <div className="cd-head-meta">
-                <h1 className="cd-head-name">{detail.client.name}</h1>
-                <div className="cd-head-sub">
-                  <span>{detail.client.email}</span>
-                  <span className="cd-dot" aria-hidden="true">·</span>
-                  <span>
-                    {detail.client.candidateCount}{' '}
-                    candidate
-                    {detail.client.candidateCount === 1 ? '' : 's'}
-                  </span>
-                </div>
-              </div>
+            {/* ── Recriauth-style page header: back + name + status ── */}
+            <header className="mb-4 flex items-center gap-3">
+              <Link
+                href="/admin/clients"
+                aria-label="Back to clients"
+                className="flex h-8 w-8 items-center justify-center rounded-md text-text-body hover:bg-neutral-300"
+              >
+                <ArrowLeft size={18} />
+              </Link>
+              <h1 className="text-xl font-semibold text-text-heading">
+                {detail.client.name}
+              </h1>
+              <Tag label="Active" variant="Success" />
+              <span className="ml-2 hidden text-body-md text-text-placeholder sm:inline">
+                {detail.client.email}
+              </span>
             </header>
 
-            {/* Stat cards (replaces the old wallet table) */}
-            <section className="cd-stats">
-              <div className="cd-stat cd-stat-hero">
-                <div className="cd-stat-ico">
-                  <Wallet size={16} />
-                </div>
-                <div>
-                  <div className="cd-stat-label">Total spent</div>
-                  <div className="cd-stat-value">
-                    ₹{detail.billing.totalAmount}
-                  </div>
-                </div>
-              </div>
-              <div className="cd-stat">
-                <div className="cd-stat-ico">
-                  <CreditCard size={16} />
-                </div>
-                <div>
-                  <div className="cd-stat-label">PAN checks</div>
-                  <div className="cd-stat-value">
-                    {detail.billing.byType.pan}
-                  </div>
-                </div>
-              </div>
-              <div className="cd-stat">
-                <div className="cd-stat-ico">
-                  <FileText size={16} />
-                </div>
-                <div>
-                  <div className="cd-stat-label">Aadhaar checks</div>
-                  <div className="cd-stat-value">
-                    {detail.billing.byType.aadhaar}
-                  </div>
-                </div>
-              </div>
-              <div className="cd-stat">
-                <div className="cd-stat-ico">
-                  <ShieldAlert size={16} />
-                </div>
-                <div>
-                  <div className="cd-stat-label">Crime checks</div>
-                  <div className="cd-stat-value">
-                    {detail.billing.byType.crime}
-                  </div>
-                </div>
-              </div>
-            </section>
+            <section className="mt-6">
+              <h2 className="mb-3 text-lg font-semibold text-text-heading">Candidates</h2>
 
-            {/* Candidates section */}
-            <section className="cd-section">
-              <div className="cd-section-head">
-                <div>
-                  <div className="cd-section-eyebrow">
-                    <Users size={12} />
-                    Candidates
-                  </div>
-                  <h2 className="cd-section-title">
-                    Every <em>person</em> they&apos;ve checked
-                  </h2>
-                </div>
-                <label
-                  className={`inv-searchbar ${query ? 'is-filled' : ''}`}
-                  htmlFor="cd-q"
-                >
-                  <Search size={15} className="inv-searchbar-ico" />
-                  <input
-                    id="cd-q"
-                    type="search"
-                    placeholder="Search by name, email or role"
+              {/* ── Filters row ── */}
+              <div className="mb-3 flex flex-wrap items-center gap-3">
+                <span className="text-body-md text-text-placeholder">Filters:</span>
+                <FilterChip
+                  label="Status"
+                  options={[
+                    { value: 'invited', label: 'Invited' },
+                    { value: 'active', label: 'Active' },
+                  ]}
+                  selectedValues={statusFilter}
+                  onSelectionChange={setStatusFilter}
+                />
+              </div>
+
+              {/* ── Showing count left, search right ── */}
+              <div className="mb-2 flex flex-wrap items-end justify-between gap-3">
+                <p className="text-body-sm text-text-placeholder">
+                  Showing {pagedSubjects.length} out of {sortedSubjects.length}
+                </p>
+                <div className="w-full sm:w-[280px]">
+                  <SearchBar
                     value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    autoComplete="off"
-                    spellCheck={false}
+                    onChange={setQuery}
+                    placeholder="Search"
                   />
-                  {query && (
-                    <button
-                      type="button"
-                      className="inv-searchbar-clear"
-                      onClick={() => setQuery('')}
-                      aria-label="Clear search"
-                    >
-                      <X size={13} strokeWidth={2.5} />
-                    </button>
-                  )}
-                </label>
+                </div>
               </div>
 
-              <div className="cd-table-wrap">
-                <div className="cd-table-scroll">
-                  <table className="cd-table">
-                    <thead>
-                      <tr>
-                        <th>Candidate</th>
-                        <th className="cd-col-hide">Role</th>
-                        <th className="cd-col-hide">Status</th>
-                        <th className="cd-col-hide">PAN</th>
-                        <th className="cd-col-hide">Aadhaar</th>
-                        <th className="cd-col-hide">Crime</th>
-                      </tr>
-                    </thead>
-                    <tbody>
+              <Table bordered className="bg-white">
+                <TableHeader>
+                  <TableRow>
+                    <TableHeaderCell
+                      type="checkbox"
+                      checked={allPagedSelected}
+                      indeterminate={!allPagedSelected && somePagedSelected}
+                      onCheckedChange={toggleSelectAll}
+                    />
+                    <TableHeaderCell
+                      label="Candidate"
+                      sortable
+                      sortOrder={sortKey === 'name' ? sortDir : null}
+                      onSort={() => toggleSort('name')}
+                    />
+                    <TableHeaderCell label="Role" className="cd-col-hide" />
+                    <TableHeaderCell
+                      label="Status"
+                      sortable
+                      sortOrder={sortKey === 'status' ? sortDir : null}
+                      onSort={() => toggleSort('status')}
+                    />
+                    <TableHeaderCell label="PAN" className="cd-col-hide" />
+                    <TableHeaderCell label="Aadhaar" className="cd-col-hide" />
+                    <TableHeaderCell label="Crime" className="cd-col-hide" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                       {detail.subjects.length === 0 ? (
-                        <tr>
-                          <td colSpan={6} className="cd-table-empty">
-                            This client hasn&apos;t added any candidates yet.
-                          </td>
-                        </tr>
+                        <TableRow>
+                          <TableCell colSpan={7} className="text-center" value={<span className="text-text-placeholder">This client hasn&apos;t added any candidates yet.</span>} />
+                        </TableRow>
                       ) : filteredSubjects.length === 0 ? (
-                        <tr>
-                          <td colSpan={6} className="cd-table-empty">
-                            No candidates match{' '}
-                            <strong>&ldquo;{query}&rdquo;</strong>.
-                          </td>
-                        </tr>
+                        <TableRow>
+                          <TableCell colSpan={7} className="text-center" value={
+                            <span className="text-text-placeholder">No candidates match <strong>&ldquo;{query}&rdquo;</strong>.</span>
+                          } />
+                        </TableRow>
                       ) : (
-                        filteredSubjects.map((s) => (
-                          <CandidateRow
+                        pagedSubjects.map((s) => (
+                          <TableRow
                             key={s.id}
-                            s={s}
-                            onOpen={() => router.push(`/admin/subject/${s.id}`)}
-                          />
+                            hoverable
+                            className="cursor-pointer"
+                            onClick={(e) => {
+                              if ((e.target as HTMLElement).closest('input,label')) return;
+                              router.push(`/admin/subject/${s.id}`);
+                            }}
+                          >
+                            <TableCell
+                              type="checkbox"
+                              checked={selected.has(s.id)}
+                              onCheckedChange={(checked) => toggleSelect(s.id, checked)}
+                            />
+                            <TableCell
+                              type="primary"
+                              primaryText={s.name}
+                              subtext={s.email}
+                              onPrimaryClick={() => router.push(`/admin/subject/${s.id}`)}
+                            />
+                            <TableCell className="cd-col-hide" value={s.role || '—'} />
+                            <TableCell
+                              type="status"
+                              statusLabel={s.status}
+                              statusVariant={s.status === 'active' ? 'Success' : 'Warning'}
+                            />
+                            <TableCell
+                              className="cd-col-hide"
+                              value={s.hasPan ? <CheckCircle2 size={14} className="cd-check" /> : '—'}
+                            />
+                            <TableCell
+                              className="cd-col-hide"
+                              value={s.hasAadhaar ? <CheckCircle2 size={14} className="cd-check" /> : '—'}
+                            />
+                            <TableCell
+                              className="cd-col-hide"
+                              value={
+                                s.crimeRisk ? (
+                                  <span className={`badge ${riskClassBadge(s.crimeRisk)}`}>{s.crimeRisk}</span>
+                                ) : (
+                                  <span className="text-text-placeholder">not started</span>
+                                )
+                              }
+                            />
+                          </TableRow>
                         ))
                       )}
-                    </tbody>
-                  </table>
-                </div>
+                </TableBody>
+              </Table>
+              <div className="mt-3">
+                <Pagination
+                  currentPage={currentPage}
+                  totalPages={totalPages}
+                  onPageChange={setPage}
+                  pageSize={pageSize}
+                  onPageSizeChange={(size: number) => {
+                    setPageSize(size);
+                    setPage(1);
+                  }}
+                />
               </div>
             </section>
           </>
         )}
-      </main>
-    </div>
-  );
-}
-
-function CandidateRow({ s, onOpen }: { s: AdminSubjectRow; onOpen: () => void }) {
-  const [expanded, setExpanded] = useState(false);
-  const initial = (s.name || '?').charAt(0).toUpperCase();
-
-  return (
-    <tr
-      className="cd-row"
-      onClick={(e) => {
-        if ((e.target as HTMLElement).closest('.cd-expand-btn')) return;
-        onOpen();
-      }}
-    >
-      <td>
-        <div className="cd-cell-bio">
-          <span className="cd-cell-avatar">{initial}</span>
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div className="cd-cell-name">{s.name}</div>
-            <div className="cd-cell-sub">{s.email}</div>
-            <div className="cd-cell-mobile-row">
-              {s.role && <span className="cd-cell-role-pill">{s.role}</span>}
-              <span className={`cd-status cd-status-${s.status}`}>{s.status}</span>
-              <span className="cd-cell-checks">
-                <span className={s.hasPan ? 'cd-chk cd-chk-ok' : 'cd-chk cd-chk-off'} title="PAN">P</span>
-                <span className={s.hasAadhaar ? 'cd-chk cd-chk-ok' : 'cd-chk cd-chk-off'} title="Aadhaar">A</span>
-              </span>
-              {s.crimeRisk ? (
-                <span className={`badge ${riskClassBadge(s.crimeRisk)}`}>{s.crimeRisk}</span>
-              ) : (
-                <span className="cd-mob-not-started">not started</span>
-              )}
-              <button
-                type="button"
-                className="cd-expand-btn"
-                onClick={(e) => { e.stopPropagation(); setExpanded((x) => !x); }}
-                aria-label={expanded ? 'Collapse' : 'Expand'}
-              >
-                <ChevronDown size={13} style={{ transition: 'transform 0.18s ease', transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)' }} />
-              </button>
-            </div>
-            {expanded && (
-              <div className="cd-expand-panel">
-                <div className="cd-expand-row">
-                  <span className="cd-expand-label">Role</span>
-                  <span className="cd-expand-val">{s.role || '—'}</span>
-                </div>
-                <div className="cd-expand-row">
-                  <span className="cd-expand-label">PAN</span>
-                  <span className="cd-expand-val">
-                    {s.hasPan ? <CheckCircle2 size={13} className="cd-check" /> : '—'}
-                  </span>
-                </div>
-                <div className="cd-expand-row">
-                  <span className="cd-expand-label">Aadhaar</span>
-                  <span className="cd-expand-val">
-                    {s.hasAadhaar ? <CheckCircle2 size={13} className="cd-check" /> : '—'}
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </td>
-      <td className="cd-col-hide">{s.role || '—'}</td>
-      <td className="cd-col-hide">
-        <span className={`cd-status cd-status-${s.status}`}>{s.status}</span>
-      </td>
-      <td className="cd-col-hide">
-        {s.hasPan ? <CheckCircle2 size={14} className="cd-check" /> : <span className="cd-cell-sub">—</span>}
-      </td>
-      <td className="cd-col-hide">
-        {s.hasAadhaar ? <CheckCircle2 size={14} className="cd-check" /> : <span className="cd-cell-sub">—</span>}
-      </td>
-      <td className="cd-col-hide">
-        {s.crimeRisk
-          ? <span className={`badge ${riskClassBadge(s.crimeRisk)}`}>{s.crimeRisk}</span>
-          : <span className="cd-not-started">not started</span>}
-      </td>
-    </tr>
+      </AppShell>
   );
 }

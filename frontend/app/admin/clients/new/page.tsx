@@ -20,7 +20,8 @@ import {
 import { me, type AuthUser } from '../../../lib/api';
 import { getToken } from '../../../lib/session';
 import { doLogout } from '../../../lib/logout';
-import Sidebar, { ICONS, type SidebarItem } from '../../../components/Sidebar';
+import { ICONS, type SidebarItem } from '../../../components/Sidebar';
+import AppShell from '../../../components/AppShell';
 import { saveDraft, type ClientDraft } from './draft';
 
 const ADMIN_NAV: SidebarItem[] = [
@@ -116,9 +117,7 @@ export default function AddClientPage() {
   if (!user) return <div className="loading">Loading…</div>;
 
   return (
-    <div className="shell">
-      <Sidebar items={ADMIN_NAV} user={user} onLogout={handleLogout} />
-      <main className="shell-main">
+    <AppShell nav={ADMIN_NAV} user={user} onLogout={handleLogout}>
         <div className="ac">
           {/* Step indicator */}
           <div className="ac-progress">
@@ -297,8 +296,7 @@ export default function AddClientPage() {
             </>
           )}
         </div>
-      </main>
-    </div>
+      </AppShell>
   );
 }
 

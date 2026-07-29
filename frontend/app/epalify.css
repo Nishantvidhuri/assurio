@@ -3,20 +3,20 @@
    =================================================================== */
 
 .ep {
-  /* Clean fintech theme — cool neutrals + indigo accent */
-  --ink: #0f172a;
-  --navy: #131a33;       /* dark sections: deep indigo-slate */
-  --navy-deep: #0b1029;  /* slightly deeper for footer */
-  --blue: #4f46e5;       /* indigo accent */
-  --blue-deep: #4338ca;
-  --blue-soft: #e0e7ff;  /* indigo-100 */
-  --bg: #f6f7f9;
-  --alt: #eef0f4;
+  /* RDS (Recriauth) theme — navy primary, #174ab5 link blue, F4F7FC frame */
+  --ink: #0e1321;        /* RDS text-heading */
+  --navy: #0e204a;       /* RDS surface-btn-primary — dark sections */
+  --navy-deep: #08132c;  /* RDS accent-800 — footer */
+  --blue: #174ab5;       /* RDS text-link / accent */
+  --blue-deep: #103581;  /* RDS primary-800 */
+  --blue-soft: #e6edff;  /* RDS active-pill tint */
+  --bg: #f4f7fc;         /* RDS app frame */
+  --alt: #eef2f9;
   --card: #ffffff;
-  --card-2: #f8f9fb;
-  --line: #e2e6ee;
-  --muted: #475569;
-  --muted-2: #8494ab;
+  --card-2: #f9fbff;     /* RDS neutral-200 */
+  --line: #e2e8f0;       /* RDS border-hover */
+  --muted: #374150;      /* RDS text-body */
+  --muted-2: #828d9d;    /* RDS text-subheading */
   --green: #059669;
   --red: #dc2626;
   --amber: #d97706;
@@ -41,8 +41,8 @@
 .ep-head-title,
 .ep-finalcta-title,
 .ep-price-amount {
-  font-family: var(--font-display), sans-serif;
-  font-weight: 600;
+  font-family: var(--font-sans), sans-serif;
+  font-weight: 700;
 }
 
 .ep-container {
@@ -111,7 +111,7 @@
   justify-content: center;
   gap: 8px;
   padding: 12px 22px;
-  border-radius: 10px;
+  border-radius: 8px;
   font-size: 14px;
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -132,15 +132,15 @@
 }
 
 .ep-btn-primary {
-  background: var(--blue);
+  background: var(--navy); /* RDS primary button navy */
   color: #fff;
   box-shadow: 0 1px 2px rgba(12, 28, 57, 0.16);
 }
 
 .ep-btn-primary:hover {
-  background: var(--blue-deep);
+  background: #0d2964; /* RDS surface-btn-primary-hover */
   transform: translateY(-1px);
-  box-shadow: 0 10px 24px rgba(35, 88, 214, 0.26);
+  box-shadow: 0 10px 24px rgba(13, 41, 100, 0.26);
 }
 
 .ep-btn-ghost {
@@ -644,8 +644,8 @@
 
 .ep-status-review {
   color: #9a6a12;
-  background: #eef2ff;
-  border-color: #c7d2fe;
+  background: #e8edf8;
+  border-color: #c9d7f2;
 }
 
 .ep-status-attention {
@@ -999,8 +999,8 @@
   font-size: 13.5px;
   font-weight: 500;
   color: var(--ink);
-  background: #eef2ff;
-  border: 1px solid #c7d2fe;
+  background: #e8edf8;
+  border: 1px solid #c9d7f2;
   border-radius: 10px;
   padding: 11px 13px;
 }
@@ -1633,7 +1633,7 @@
   border-color: var(--paper);
 }
 .ep .ep-btn-light:hover {
-  background: #f5f7ff;
+  background: #f9fbff;
 }
 .ep .ep-btn-outline-light {
   color: var(--paper);

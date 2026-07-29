@@ -31,7 +31,18 @@ import {
 } from '../lib/api';
 import { getToken } from '../lib/session';
 import { doLogout } from '../lib/logout';
-import Sidebar, { ICONS, type SidebarItem } from '../components/Sidebar';
+import { ICONS, type SidebarItem } from '../components/Sidebar';
+import AppShell from '../components/AppShell';
+import {
+  Button,
+  SearchBar,
+  Table,
+  TableBody,
+  TableCell,
+  TableHeader,
+  TableHeaderCell,
+  TableRow,
+} from '@/shared/components/ui';
 
 const CLIENT_NAV: SidebarItem[] = [
   { href: '/home', label: 'Dashboard', icon: ICONS.dashboard },
@@ -124,9 +135,7 @@ export default function HomePage() {
   if (!user) return <div className="loading">Loading...</div>;
 
   return (
-    <div className="shell">
-      <Sidebar items={CLIENT_NAV} user={user} onLogout={handleLogout} />
-      <main className="shell-main">
+    <AppShell nav={CLIENT_NAV} user={user} onLogout={handleLogout}>
         <div className="hd">
           {/* Header */}
           <header className="hd-head">
@@ -139,46 +148,25 @@ export default function HomePage() {
                 verifying.
               </p>
             </div>
-            <button className="hd-add" onClick={openAdd}>
+            <Button variant="primary" onClick={openAdd}>
               <Plus size={15} strokeWidth={2.5} />
               Add candidate
-            </button>
+            </Button>
           </header>
 
           {/* Toolbar */}
           {subjects.length > 0 && (
             <div className="hd-toolbar">
-              <label
-                className={`inv-searchbar ${query ? 'is-filled' : ''}`}
-                htmlFor="hd-q"
-              >
-                <Search size={15} className="inv-searchbar-ico" />
-                <input
-                  id="hd-q"
-                  type="search"
-                  placeholder="Search candidates by name, email or role"
+              <div className="w-full sm:w-[320px]">
+                <SearchBar
                   value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  autoComplete="off"
-                  spellCheck={false}
+                  onChange={setQuery}
+                  placeholder="Search candidates by name, email or role"
                 />
-                {query && (
-                  <button
-                    type="button"
-                    className="inv-searchbar-clear"
-                    onClick={() => setQuery('')}
-                    aria-label="Clear search"
-                  >
-                    <X size={13} strokeWidth={2.5} />
-                  </button>
-                )}
-              </label>
-              <div className="inv-page-count">
-                <span className="inv-page-count-n">{filtered.length}</span>
-                <span className="inv-page-count-l">
-                  {filtered.length === 1 ? 'candidate' : 'candidates'}
-                </span>
               </div>
+              <span className="ml-auto text-body-sm text-text-placeholder">
+                {filtered.length} {filtered.length === 1 ? 'candidate' : 'candidates'}
+              </span>
             </div>
           )}
 
@@ -189,67 +177,72 @@ export default function HomePage() {
                 Loading…
               </div>
             </div>
-          ) : subjects.length === 0 ? (
-            <div className="hd-empty">
-              <div className="hd-empty-ico">
-                <Plus size={22} strokeWidth={2} />
-              </div>
-              <h2 className="hd-empty-title">No background checks yet</h2>
-              <p className="hd-empty-sub">
-                Add the first person you want to verify. They&apos;ll get an
-                invite and you&apos;ll see their progress here.
-              </p>
-              <button className="hd-empty-cta" onClick={openAdd}>
-                Add your first candidate
-                <ArrowRight size={15} />
-              </button>
-            </div>
           ) : (
-            <div className="hd-table-wrap">
-              <div className="cd-table-scroll">
-                <table className="cd-table hd-table">
-                  <thead>
-                    <tr>
-                      <th>Candidate</th>
-                      <th>Role</th>
-                      <th>Status</th>
-                      <th>PAN</th>
-                      <th>Aadhaar</th>
-                      <th>Crime</th>
-                      <th className="actions"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filtered.length === 0 ? (
-                      <tr>
-                        <td colSpan={7} className="cd-table-empty">
-                          No candidates match{' '}
-                          <strong>&ldquo;{query}&rdquo;</strong>.
-                        </td>
-                      </tr>
-                    ) : (
-                      filtered.map((s) => (
-                        <SubjectRow
-                          key={s.id}
-                          s={s}
-                          isMenuOpen={openMenu === s.id}
-                          onOpenMenu={() =>
-                            setOpenMenu((cur) => (cur === s.id ? null : s.id))
-                          }
-                          onCloseMenu={() => setOpenMenu(null)}
-                          onOpen={() => router.push(`/subject/${s.id}`)}
-                          onDelete={() => handleDelete(s.id)}
-                        />
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <Table bordered className="bg-white">
+              <TableHeader>
+                <TableRow>
+                  <TableHeaderCell label="Candidate" />
+                  <TableHeaderCell label="Role" className="cd-col-hide" />
+                  <TableHeaderCell label="Status" className="cd-col-hide" />
+                  <TableHeaderCell label="PAN" className="cd-col-hide" />
+                  <TableHeaderCell label="Aadhaar" className="cd-col-hide" />
+                  <TableHeaderCell label="Crime" className="cd-col-hide" />
+                  <TableHeaderCell type="empty" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {subjects.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={7}
+                      className="text-center"
+                      value={
+                        <div className="flex flex-col items-center gap-3 py-10">
+                          <span className="text-body-md text-text-subheading">
+                            No background checks yet. Add the first person you
+                            want to verify — they&apos;ll get an invite and
+                            you&apos;ll see their progress here.
+                          </span>
+                          <Button variant="primary" onClick={openAdd}>
+                            Add your first candidate
+                            <ArrowRight size={15} />
+                          </Button>
+                        </div>
+                      }
+                    />
+                  </TableRow>
+                ) : filtered.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={7}
+                      className="text-center"
+                      value={
+                        <span className="text-text-placeholder">
+                          No candidates match <strong>&ldquo;{query}&rdquo;</strong>.
+                        </span>
+                      }
+                    />
+                  </TableRow>
+                ) : (
+                  filtered.map((s) => (
+                    <SubjectRow
+                      key={s.id}
+                      s={s}
+                      isMenuOpen={openMenu === s.id}
+                      onOpenMenu={() =>
+                        setOpenMenu((cur) => (cur === s.id ? null : s.id))
+                      }
+                      onCloseMenu={() => setOpenMenu(null)}
+                      onOpen={() => router.push(`/subject/${s.id}`)}
+                      onDelete={() => handleDelete(s.id)}
+                    />
+                  ))
+                )}
+              </TableBody>
+            </Table>
           )}
         </div>
-      </main>
-    </div>
+      </AppShell>
   );
 }
 
@@ -276,15 +269,17 @@ function SubjectRow({
   const initial = (s.name || '?').charAt(0).toUpperCase();
 
   return (
-    <tr
-      className={`cd-row${expanded ? ' is-expanded' : ''}`}
+    <TableRow
+      hoverable
+      className={`cd-row cursor-pointer${expanded ? ' is-expanded' : ''}`}
       onClick={(e) => {
         const target = e.target as HTMLElement;
         if (target.closest('.hd-menu') || target.closest('.cd-expand-btn')) return;
         onOpen();
       }}
     >
-      <td>
+      <TableCell
+        value={
         <div className="cd-cell-bio">
           <span className="cd-cell-avatar">{initial}</span>
           <div style={{ minWidth: 0, flex: 1 }}>
@@ -345,48 +340,47 @@ function SubjectRow({
             )}
           </div>
         </div>
-      </td>
-      <td className="cd-col-hide">{s.role || '—'}</td>
-      <td className="cd-col-hide">
-        <span className={`cd-status cd-status-${s.status || 'invited'}`}>
-          {s.status || 'invited'}
-        </span>
-      </td>
-      <td className="cd-col-hide">
-        {panOk ? (
-          <CheckCircle2 size={14} className="cd-check" />
-        ) : (
-          <span className="cd-cell-sub">—</span>
-        )}
-      </td>
-      <td className="cd-col-hide">
-        {aadhaarOk ? (
-          <CheckCircle2 size={14} className="cd-check" />
-        ) : (
-          <span className="cd-cell-sub">—</span>
-        )}
-      </td>
-      <td className="cd-col-hide">
-        {crimeRisk ? (
-          <span className={`badge ${riskClassMini(crimeRisk)}`}>
-            {crimeRisk}
-          </span>
-        ) : crimePending ? (
-          <span className="cd-status cd-status-pending">pending</span>
-        ) : (
-          <span className="cd-not-started">not started</span>
-        )}
-      </td>
-      <td className="actions">
-        <RowMenu
-          isOpen={isMenuOpen}
-          onOpen={onOpenMenu}
-          onClose={onCloseMenu}
-          onOpenSubject={onOpen}
-          onDelete={onDelete}
-        />
-      </td>
-    </tr>
+        }
+      />
+      <TableCell className="cd-col-hide" value={s.role || '—'} />
+      <TableCell
+        className="cd-col-hide"
+        type="status"
+        statusLabel={s.status || 'invited'}
+        statusVariant={s.status === 'active' ? 'Success' : 'Warning'}
+      />
+      <TableCell
+        className="cd-col-hide"
+        value={panOk ? <CheckCircle2 size={14} className="cd-check" /> : <span className="cd-cell-sub">—</span>}
+      />
+      <TableCell
+        className="cd-col-hide"
+        value={aadhaarOk ? <CheckCircle2 size={14} className="cd-check" /> : <span className="cd-cell-sub">—</span>}
+      />
+      <TableCell
+        className="cd-col-hide"
+        value={
+          crimeRisk ? (
+            <span className={`badge ${riskClassMini(crimeRisk)}`}>{crimeRisk}</span>
+          ) : crimePending ? (
+            <span className="cd-status cd-status-pending">pending</span>
+          ) : (
+            <span className="cd-not-started">not started</span>
+          )
+        }
+      />
+      <TableCell
+        value={
+          <RowMenu
+            isOpen={isMenuOpen}
+            onOpen={onOpenMenu}
+            onClose={onCloseMenu}
+            onOpenSubject={onOpen}
+            onDelete={onDelete}
+          />
+        }
+      />
+    </TableRow>
   );
 }
 

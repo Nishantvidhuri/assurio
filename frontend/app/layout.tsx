@@ -1,9 +1,22 @@
+// RDS (Recrivio Design System) theme first — it pulls in Tailwind and defines
+// the design tokens every shared/components/* class depends on. Our own
+// stylesheets load after so page-level styles still win over Tailwind preflight.
+import './rds.css';
 import './globals.css';
 import './epalify.css';
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
-import { Inter, Plus_Jakarta_Sans } from 'next/font/google';
+import { Plus_Jakarta_Sans } from 'next/font/google';
 import localFont from 'next/font/local';
+
+// RDS primary sans (variable weight 200–800). Exposed as --font-manrope, which
+// the RDS theme maps onto --font-sans, making it the app-wide body font.
+const manrope = localFont({
+  src: '../public/font/Manrope-VariableFont_wght.ttf',
+  weight: '200 800',
+  display: 'swap',
+  variable: '--font-manrope',
+});
 
 const display = Plus_Jakarta_Sans({
   subsets: ['latin'],
@@ -18,12 +31,6 @@ const logo = localFont({
   variable: '--font-logo',
 });
 
-const sans = Inter({
-  subsets: ['latin'],
-  display: 'swap',
-  variable: '--font-sans',
-});
-
 export const metadata: Metadata = {
   title: 'Assurio — Background Verification',
   description:
@@ -32,10 +39,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en">
-      <body className={`${display.variable} ${sans.variable} ${logo.variable}`}>
-        {children}
-      </body>
+    <html lang="en" className={manrope.variable}>
+      <body className={`${display.variable} ${logo.variable}`}>{children}</body>
     </html>
   );
 }

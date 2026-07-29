@@ -4,6 +4,14 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { me, bulkInvite, bulkStatus, type AuthUser, type BulkCandidate, type BulkBatchStatus } from '../../lib/api';
 import { getToken } from '../../lib/session';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHeader,
+  TableHeaderCell,
+  TableRow,
+} from '@/shared/components/ui';
 
 const TEMPLATE_CSV = `name,email,phone,role
 Ravi Kumar,ravi@example.com,9876543210,Software Engineer
@@ -125,7 +133,7 @@ export default function BulkInvitePage() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--paper)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '48px 16px' }}>
-      <div style={{ maxWidth: 680, width: '100%' }}>
+      <div style={{ width: '100%' }}>
 
         {/* Header */}
         <div style={{ marginBottom: 32 }}>
@@ -216,27 +224,29 @@ export default function BulkInvitePage() {
             <p style={{ fontSize: 13, color: 'var(--ink-2)', margin: '0 0 8px' }}>
               <strong style={{ color: 'var(--ink)' }}>{preview.length}</strong> candidate{preview.length !== 1 ? 's' : ''} ready to invite
             </p>
-            <div style={{ border: '1px solid var(--rule)', borderRadius: 8, overflow: 'hidden' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
-                <thead>
-                  <tr style={{ background: 'var(--paper)' }}>
-                    {['#', 'Name', 'Email', 'Phone', 'Role'].map(h => (
-                      <th key={h} style={{ padding: '8px 12px', textAlign: 'left', color: 'var(--ink-2)', fontWeight: 600, borderBottom: '1px solid var(--rule)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
+            <div>
+              <Table bordered className="bg-white">
+                <TableHeader>
+                  <TableRow>
+                    <TableHeaderCell label="#" />
+                    <TableHeaderCell label="Name" />
+                    <TableHeaderCell label="Email" />
+                    <TableHeaderCell label="Phone" />
+                    <TableHeaderCell label="Role" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
                   {preview.slice(0, 8).map((c, i) => (
-                    <tr key={i} style={{ borderBottom: i < Math.min(preview.length, 8) - 1 ? '1px solid var(--rule)' : 'none' }}>
-                      <td style={{ padding: '7px 12px', color: 'var(--ink-2)' }}>{i + 1}</td>
-                      <td style={{ padding: '7px 12px', color: 'var(--ink)', fontWeight: 500 }}>{c.name}</td>
-                      <td style={{ padding: '7px 12px', color: 'var(--ink-2)' }}>{c.email}</td>
-                      <td style={{ padding: '7px 12px', color: 'var(--ink-2)' }}>{c.phone || '—'}</td>
-                      <td style={{ padding: '7px 12px', color: 'var(--ink-2)' }}>{c.role || '—'}</td>
-                    </tr>
+                    <TableRow key={i}>
+                      <TableCell value={i + 1} />
+                      <TableCell value={<span className="font-medium">{c.name}</span>} />
+                      <TableCell value={c.email} />
+                      <TableCell value={c.phone || '—'} />
+                      <TableCell value={c.role || '—'} />
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
               {preview.length > 8 && (
                 <div style={{ padding: '6px 12px', background: 'var(--paper)', borderTop: '1px solid var(--rule)', fontSize: 12, color: 'var(--ink-2)' }}>
                   +{preview.length - 8} more rows

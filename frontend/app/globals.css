@@ -1,7 +1,11 @@
+/* NOTE: the margin/padding reset that used to live here was removed when the
+ * RDS (Tailwind) theme was adopted. This file is unlayered, and unlayered CSS
+ * outranks *every* layered rule — so `* { margin:0; padding:0 }` silently beat
+ * all Tailwind spacing utilities (p-4, gap-2, …) on RDS components. Tailwind's
+ * preflight, loaded via rds.css, already applies the identical reset inside
+ * @layer base, where utilities can still override it. */
 * {
   box-sizing: border-box;
-  margin: 0;
-  padding: 0;
 }
 
 html,
@@ -1849,8 +1853,8 @@ body {
 
 /* ===== Admin Dashboard (minimal) ===== */
 .dash {
-  background: #fafbfd;
-  padding: 28px 32px 60px;
+  background: transparent;
+  padding: 0 0 40px;
 }
 
 .dash-head {
@@ -3592,18 +3596,20 @@ body {
 
 :root {
   /* Clean fintech theme — cool neutrals + indigo accent */
-  --paper: #f6f7f9;
-  --paper-2: #eef0f4;
+  /* Legacy token names now bound to the RDS palette (source of truth:
+     app/rds.css @theme — same place Recriauth stores its design tokens). */
+  --paper: #f4f7fc;
+  --paper-2: #eef2f9;
   --card: #ffffff;
-  --card-2: #f8f9fb;
-  --ink: #0f172a;
-  --ink-2: #475569;
-  --ink-3: #8494ab;
-  --rule: #e2e6ee;
+  --card-2: #f9fbff;
+  --ink: #0e1321;
+  --ink-2: #374150;
+  --ink-3: #828d9d;
+  --rule: #e2e8f0;
   --rule-2: #eaedf3;
-  --accent: #4f46e5;
-  --accent-deep: #4338ca;
-  --accent-soft: #e0e7ff;
+  --accent: #174ab5;
+  --accent-deep: #103581;
+  --accent-soft: #e6edff;
   --ok: #059669;
   --ok-soft: #d1fae5;
   --warn: #d97706;
@@ -5841,7 +5847,7 @@ body > * {
    ===================================================================== */
 
 .inv-page {
-  max-width: 1240px;
+  max-width: none;
   padding: 8px 0 80px;
 }
 
@@ -8641,8 +8647,8 @@ body > * {
 /* ===== Admin Operations page ===== */
 
 .ops-page {
-  padding: 32px 28px;
-  max-width: 1200px;
+  padding: 0;
+  max-width: none;
 }
 
 .ops-header {
@@ -8947,3 +8953,103 @@ body > * {
 
 .ops-outbox-failed     { background: #fef2f2; border-color: #fecaca; }
 .ops-outbox-failed     .ops-outbox-count { color: #991b1b; }
+
+/* =====================================================================
+   RDS header normalization — Recriauth page-header look everywhere.
+   Eyebrow micro-labels are dropped and the serif/italic display titles
+   become plain semibold sans, matching app.recriauth.com.
+   ===================================================================== */
+.inv-page-eyebrow,
+.bl-eyebrow,
+.cd-section-eyebrow,
+.hd-eyebrow,
+.dash-eyebrow,
+.ops-breadcrumb,
+.ops-eyebrow {
+  display: none;
+}
+
+.hd-title,
+.bl-title,
+.st-title,
+.dash-title,
+.ops-title,
+.inv-page-title,
+.cd-section-title,
+.page-title {
+  font-family: var(--font-sans), sans-serif;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: #0f172a;
+}
+
+.hd-title em,
+.bl-title em,
+.inv-page-title em,
+.cd-section-title em,
+.suc-title em,
+.ac-title em,
+.co-pane-title em {
+  font-style: normal;
+  font-family: inherit;
+  color: inherit;
+}
+
+
+/* =====================================================================
+   RDS re-skin — avatars and the report hero.
+   Consumes the Tailwind @theme tokens emitted by app/rds.css
+   (var(--color-*)), mirroring where Recriauth stores its palette.
+   ===================================================================== */
+
+/* Avatars: soft RDS blue instead of the old near-black circles. */
+.cd-cell-avatar,
+.result-avatar,
+.inv-cell-avatar,
+.sb-avatar,
+.subject-head-avatar,
+.rp-head-avatar,
+.rp-readout-avatar {
+  background: var(--color-primary-200);
+  color: var(--color-text-link);
+  font-family: var(--font-sans), sans-serif;
+  font-weight: 600;
+}
+
+/* Report "Overall" hero: white RDS card instead of the dark panel. */
+.rp-summary-hero {
+  background: #ffffff;
+  color: var(--color-text-body);
+  border: 1px solid var(--color-border-hover);
+  border-radius: 12px;
+}
+
+.rp-summary-hero-label {
+  color: var(--color-text-subheading);
+}
+
+.rp-summary-hero-sub {
+  color: var(--color-text-subheading);
+  font-style: normal;
+}
+
+.rp-risk-pending {
+  background: var(--color-neutral-400) !important;
+  color: var(--color-text-body) !important;
+  border-color: var(--color-border-hover) !important;
+}
+
+.rp-risk-idle {
+  background: var(--color-neutral-300) !important;
+  color: var(--color-text-subheading) !important;
+  border-color: var(--color-border-hover) !important;
+}
+
+.rp-progress-bar {
+  background: var(--color-neutral-400);
+}
+
+.rp-progress-fill {
+  background: var(--color-icon-success, #059669);
+}
