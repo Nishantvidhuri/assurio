@@ -18,7 +18,7 @@ const POPUP_SX = {
   background: 'var(--card)',
   border: '1.5px solid var(--rule)',
   borderRadius: '12px',
-  boxShadow: '0 4px 28px rgba(26,22,18,0.13)',
+  boxShadow: '0 4px 28px rgba(15,23,42,0.13)',
   fontFamily: 'inherit',
 
   '& .MuiDayCalendar-weekDayLabel': {

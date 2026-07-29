@@ -19,7 +19,6 @@ import type { Request, Response } from 'express';
 import { Observable } from 'rxjs';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { EmailService } from './email.service';
-import { WhatsAppService } from '../common/whatsapp.service';
 import { EventsService } from '../common/events.service';
 import { toSubjectResponse } from './subject-response';
 import { SubjectPatch, SubjectsService } from './subjects.service';
@@ -57,7 +56,6 @@ export class SubjectsController {
   constructor(
     private readonly svc: SubjectsService,
     private readonly email: EmailService,
-    private readonly whatsapp: WhatsAppService,
     private readonly users: UsersService,
     private readonly events: EventsService,
   ) {}
@@ -102,22 +100,8 @@ export class SubjectsController {
     const response = toSubjectResponse(doc);
     const inviteUrl = response.inviteUrl as string;
 
-    // 1. Send invite email to candidate
+    // Send invite email to candidate
     const emailSent = await this.email.sendInvite(doc.email, doc.name, inviteUrl);
-
-    // Look up the owner so we can include their name in the candidate's message.
-    const ownerUser = await this.users.findById(userId).catch(() => null);
-    const clientName = ownerUser?.name || 'Assurio';
-
-    // 2. Send CANDIDATE a "verification started by [client]" WhatsApp message.
-    if (doc.phone) {
-      this.whatsapp
-        .sendVerificationStarted(doc.phone, doc.name, clientName, inviteUrl, doc.role)
-        .catch((err: unknown) =>
-          this.logger.error('WhatsApp verification-started to candidate failed', err),
-        );
-    }
-    // Client gets the invoice PDF via payments verify() — no extra notification here.
 
     return { ...response, emailSent };
   }
@@ -161,15 +145,11 @@ export class SubjectsController {
 
     const doc = await this.svc.patch(userId, id, patch);
 
-    // Fire-and-forget candidate notifications (email + WhatsApp).
+    // Fire-and-forget candidate notifications (email).
     for (const label of newChecks) {
       if (doc.email) {
         this.email.sendCheckStarted(doc.email, doc.name, label)
           .catch((err: unknown) => this.logger.error(`Email check-started (${label}) failed`, err));
-      }
-      if (doc.phone) {
-        this.whatsapp.sendCheckStarted(doc.phone, doc.name, label)
-          .catch((err: unknown) => this.logger.error(`WhatsApp check-started (${label}) failed`, err));
       }
     }
 

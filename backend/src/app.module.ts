@@ -8,11 +8,11 @@ import { VerifyModule } from './verify/verify.module';
 import { SubjectsModule } from './subjects/subjects.module';
 import { AdminModule } from './admin/admin.module';
 import { PaymentsModule } from './payments/payments.module';
-import { WhatsAppModule } from './common/whatsapp.module';
 import { BulkModule } from './bulk/bulk.module';
 import { OutboxModule } from './outbox/outbox.module';
 import { BullBoardAuthMiddleware } from './common/bull-board-auth.middleware';
 import { PrismaModule } from './common/prisma.module';
+import { CommonModule } from './common/common.module';
 import { EventsModule } from './common/events.module';
 import { DraftModule } from './draft/draft.module';
 
@@ -38,8 +38,8 @@ import { DraftModule } from './draft/draft.module';
       adapter: ExpressAdapter,
     }),
     PrismaModule,     // global — PrismaService available everywhere
+    CommonModule,     // global — PdfService / S3Service available everywhere
     EventsModule,     // global — EventsService available everywhere
-    WhatsAppModule,   // global — available everywhere
     OutboxModule,     // global — OutboxService available everywhere
     AuthModule,
     VerifyModule,

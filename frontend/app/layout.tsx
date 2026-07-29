@@ -2,12 +2,20 @@ import './globals.css';
 import './epalify.css';
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
-import { Fraunces, Inter } from 'next/font/google';
+import { Inter, Plus_Jakarta_Sans } from 'next/font/google';
+import localFont from 'next/font/local';
 
-const display = Fraunces({
+const display = Plus_Jakarta_Sans({
   subsets: ['latin'],
   display: 'swap',
   variable: '--font-display',
+});
+
+// Wordmark face — used only for the "Assurio" text beside the logo.
+const logo = localFont({
+  src: './fonts/Logoza.otf',
+  display: 'swap',
+  variable: '--font-logo',
 });
 
 const sans = Inter({
@@ -17,7 +25,7 @@ const sans = Inter({
 });
 
 export const metadata: Metadata = {
-  title: 'test',
+  title: 'Assurio — Background Verification',
   description:
     'Background screening for tenants, employees, caretakers, domestic workers, PG residents, drivers, and service professionals.',
 };
@@ -25,7 +33,9 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body className={`${display.variable} ${sans.variable}`}>{children}</body>
+      <body className={`${display.variable} ${sans.variable} ${logo.variable}`}>
+        {children}
+      </body>
     </html>
   );
 }

@@ -3,8 +3,6 @@ import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { SubjectsService } from '../subjects/subjects.service';
 import { OutboxService } from '../outbox/outbox.service';
-import { WhatsAppService } from '../common/whatsapp.service';
-import { UsersService } from '../users/users.service';
 import { PrismaService } from '../common/prisma.service';
 import { EventsService } from '../common/events.service';
 import { toSubjectResponse } from '../subjects/subject-response';
@@ -36,8 +34,6 @@ export class BulkProcessor extends WorkerHost {
   constructor(
     private readonly subjects: SubjectsService,
     private readonly outbox: OutboxService,
-    private readonly whatsapp: WhatsAppService,
-    private readonly users: UsersService,
     private readonly prisma: PrismaService,
     private readonly events: EventsService,
   ) {
@@ -57,17 +53,6 @@ export class BulkProcessor extends WorkerHost {
         name: doc.name,
         inviteUrl,
       });
-
-      const ownerUser = await this.users.findById(userId).catch(() => null);
-      const clientName = ownerUser?.name || 'recriauth.com';
-
-      if (doc.phone) {
-        this.whatsapp
-          .sendVerificationStarted(doc.phone, doc.name, clientName, inviteUrl, doc.role)
-          .catch((err: unknown) =>
-            this.logger.warn(`WhatsApp to ${doc.phone} failed: ${(err as Error)?.message}`),
-          );
-      }
 
       const updated = await this.prisma.bulkBatch.update({
         where: { batchId },

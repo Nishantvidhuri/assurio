@@ -3,23 +3,23 @@
    =================================================================== */
 
 .ep {
-  /* Paper-grain theme — matches the rest of the app. */
-  --ink: #1a1612;
-  --navy: #1a1612;       /* dark sections use warm ink instead of navy */
-  --navy-deep: #0f0c08;  /* slightly deeper for footer */
-  --blue: #1a1612;       /* "accent" is now ink */
-  --blue-deep: #0f0c08;
-  --blue-soft: #ebe1c7;  /* accent-soft cream */
-  --bg: #f3ecdc;         /* paper */
-  --alt: #ece3cf;        /* paper-2 */
-  --card: #fbf6e9;
-  --card-2: #f7efd9;
-  --line: #e0d4bb;       /* rule */
-  --muted: #6b6157;      /* ink-2 */
-  --muted-2: #948776;    /* ink-3 */
-  --green: #2f6649;
-  --red: #9c3936;
-  --amber: #b3771e;
+  /* Clean fintech theme — cool neutrals + indigo accent */
+  --ink: #0f172a;
+  --navy: #131a33;       /* dark sections: deep indigo-slate */
+  --navy-deep: #0b1029;  /* slightly deeper for footer */
+  --blue: #4f46e5;       /* indigo accent */
+  --blue-deep: #4338ca;
+  --blue-soft: #e0e7ff;  /* indigo-100 */
+  --bg: #f6f7f9;
+  --alt: #eef0f4;
+  --card: #ffffff;
+  --card-2: #f8f9fb;
+  --line: #e2e6ee;
+  --muted: #475569;
+  --muted-2: #8494ab;
+  --green: #059669;
+  --red: #dc2626;
+  --amber: #d97706;
 
   --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
 
@@ -40,9 +40,8 @@
 .ep-hero-title,
 .ep-head-title,
 .ep-finalcta-title,
-.ep-price-amount,
-.ep-logo-text {
-  font-family: var(--font-display), 'Iowan Old Style', Georgia, serif;
+.ep-price-amount {
+  font-family: var(--font-display), sans-serif;
   font-weight: 600;
 }
 
@@ -216,12 +215,9 @@
 .ep-logo-mark {
   width: 34px;
   height: 34px;
-  border-radius: 9px;
-  background: var(--blue);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-shrink: 0;
+  /* The logo PNG carries its own navy rounded-square container. */
+  object-fit: contain;
 }
 
 .ep-logo-mark svg {
@@ -230,8 +226,10 @@
 }
 
 .ep-logo-text {
-  font-size: 21px;
-  letter-spacing: -0.01em;
+  font-family: var(--font-logo), var(--font-display), sans-serif;
+  font-weight: 400;
+  font-size: 24px;
+  letter-spacing: 0;
   color: var(--ink);
 }
 
@@ -641,19 +639,19 @@
 .ep-status-clear {
   color: #0b7a52;
   background: #e7f6ef;
-  border-color: #b9e6d3;
+  border-color: #a7f3d0;
 }
 
 .ep-status-review {
   color: #9a6a12;
-  background: #fbf2dd;
-  border-color: #ecd9a8;
+  background: #eef2ff;
+  border-color: #c7d2fe;
 }
 
 .ep-status-attention {
-  color: #b53224;
-  background: #fbe9e6;
-  border-color: #f1c4bd;
+  color: #dc2626;
+  background: #fee2e2;
+  border-color: #fecaca;
 }
 
 .ep-status-scan {
@@ -1001,8 +999,8 @@
   font-size: 13.5px;
   font-weight: 500;
   color: var(--ink);
-  background: #fbf2dd;
-  border: 1px solid #ecd9a8;
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
   border-radius: 10px;
   padding: 11px 13px;
 }
@@ -1271,7 +1269,7 @@
 }
 
 .ep-quote-mark {
-  font-family: var(--font-display), Georgia, serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 46px;
   line-height: 0.2;
   color: var(--blue);
@@ -1554,18 +1552,17 @@
 
 /* Navbar — frosted cream instead of frosted white */
 .ep .ep-nav {
-  background: rgba(243, 236, 220, 0.78);
+  background: rgba(250, 251, 253, 0.78);
   border-bottom: 1px solid var(--rule);
 }
 .ep .ep-nav.is-scrolled {
-  background: rgba(243, 236, 220, 0.92);
-  box-shadow: 0 8px 30px rgba(26, 22, 18, 0.08);
+  background: rgba(250, 251, 253, 0.92);
+  box-shadow: 0 8px 30px rgba(15, 23, 42, 0.08);
 }
 
-/* Logo mark — dark ink tile with cream glyph */
+/* Logo mark — the PNG carries its own shape; no tile behind it. */
 .ep .ep-logo-mark {
-  background: var(--ink);
-  color: var(--paper);
+  background: none;
 }
 
 /* Hero — cream gradient instead of white-to-blue */
@@ -1581,7 +1578,7 @@
 .ep .ep-glow {
   background: radial-gradient(
     closest-side,
-    rgba(26, 22, 18, 0.08),
+    rgba(15, 23, 42, 0.08),
     transparent 70%
   );
 }
@@ -1612,14 +1609,14 @@
   color: var(--paper);
   border-color: var(--ink);
   box-shadow:
-    0 1px 2px rgba(26, 22, 18, 0.18),
-    0 8px 22px rgba(26, 22, 18, 0.16);
+    0 1px 2px rgba(15, 23, 42, 0.18),
+    0 8px 22px rgba(15, 23, 42, 0.16);
 }
 .ep .ep-btn-primary:hover {
   background: #000;
   box-shadow:
-    0 2px 4px rgba(26, 22, 18, 0.24),
-    0 14px 30px rgba(26, 22, 18, 0.22);
+    0 2px 4px rgba(15, 23, 42, 0.24),
+    0 14px 30px rgba(15, 23, 42, 0.22);
 }
 .ep .ep-btn-ghost {
   background: var(--card);
@@ -1636,14 +1633,14 @@
   border-color: var(--paper);
 }
 .ep .ep-btn-light:hover {
-  background: #fff7e3;
+  background: #f5f7ff;
 }
 .ep .ep-btn-outline-light {
   color: var(--paper);
-  border-color: rgba(243, 236, 220, 0.35);
+  border-color: rgba(250, 251, 253, 0.35);
 }
 .ep .ep-btn-outline-light:hover {
-  background: rgba(243, 236, 220, 0.1);
+  background: rgba(250, 251, 253, 0.1);
 }
 
 /* Cards / surfaces — cream instead of white */
@@ -1690,7 +1687,7 @@
 /* Use warm dark ink instead of navy. Keep cream type for contrast. */
 .ep .ep-section-dark {
   background: var(--ink);
-  color: rgba(243, 236, 220, 0.78);
+  color: rgba(250, 251, 253, 0.78);
 }
 .ep .ep-section-dark .ep-head-title,
 .ep .ep-section-dark .ep-card-title {
@@ -1706,30 +1703,30 @@
   background: transparent;
 }
 .ep .ep-section-dark .ep-card {
-  background: rgba(243, 236, 220, 0.06);
-  border-color: rgba(243, 236, 220, 0.14);
+  background: rgba(250, 251, 253, 0.06);
+  border-color: rgba(250, 251, 253, 0.14);
 }
 .ep .ep-section-dark .ep-card-hover:hover {
-  background: rgba(243, 236, 220, 0.1);
-  border-color: rgba(243, 236, 220, 0.28);
+  background: rgba(250, 251, 253, 0.1);
+  border-color: rgba(250, 251, 253, 0.28);
 }
 .ep .ep-section-dark .ep-card-text {
-  color: rgba(243, 236, 220, 0.7);
+  color: rgba(250, 251, 253, 0.7);
 }
 .ep .ep-section-dark .ep-card-icon {
-  background: rgba(243, 236, 220, 0.12);
+  background: rgba(250, 251, 253, 0.12);
   color: var(--paper);
 }
 
 /* Business / admin demo panel */
 .ep .ep-admin {
-  background: #0f0c08;
-  border-color: rgba(243, 236, 220, 0.12);
+  background: #0b1220;
+  border-color: rgba(250, 251, 253, 0.12);
   box-shadow: 0 30px 64px rgba(0, 0, 0, 0.42);
 }
 .ep .ep-admin-head,
 .ep .ep-admin-row {
-  border-color: rgba(243, 236, 220, 0.12);
+  border-color: rgba(250, 251, 253, 0.12);
 }
 .ep .ep-admin-title,
 .ep .ep-admin-stat-num,
@@ -1738,13 +1735,13 @@
 }
 .ep .ep-admin-stat,
 .ep .ep-admin-avatar {
-  background: rgba(243, 236, 220, 0.06);
-  border-color: rgba(243, 236, 220, 0.1);
+  background: rgba(250, 251, 253, 0.06);
+  border-color: rgba(250, 251, 253, 0.1);
   color: var(--paper);
 }
 .ep .ep-admin-stat-label,
 .ep .ep-admin-role {
-  color: rgba(243, 236, 220, 0.55);
+  color: rgba(250, 251, 253, 0.55);
 }
 
 /* Final CTA + Footer — warm dark ink instead of navy / near-black */
@@ -1755,14 +1752,14 @@
   color: var(--paper);
 }
 .ep .ep-finalcta-sub {
-  color: rgba(243, 236, 220, 0.72);
+  color: rgba(250, 251, 253, 0.72);
 }
 .ep .ep-footer {
-  background: #0f0c08;
-  color: rgba(243, 236, 220, 0.6);
+  background: #0b1220;
+  color: rgba(250, 251, 253, 0.6);
 }
 .ep .ep-footer-grid {
-  border-color: rgba(243, 236, 220, 0.1);
+  border-color: rgba(250, 251, 253, 0.1);
 }
 .ep .ep-footer-brand .ep-logo-text,
 .ep .ep-footer-col-title {
@@ -1770,20 +1767,20 @@
 }
 .ep .ep-footer-tag,
 .ep .ep-footer-col a {
-  color: rgba(243, 236, 220, 0.55);
+  color: rgba(250, 251, 253, 0.55);
 }
 .ep .ep-footer-col a:hover {
   color: var(--paper);
 }
 .ep .ep-footer-base {
-  border-color: rgba(243, 236, 220, 0.1);
+  border-color: rgba(250, 251, 253, 0.1);
 }
 
 /* Headings in serif display face (already set on hero/section titles) */
 .ep .ep-head-title,
 .ep .ep-finalcta-title,
 .ep .ep-hero-title {
-  font-family: var(--font-display), 'Iowan Old Style', Georgia, serif;
+  font-family: var(--font-display), sans-serif;
   font-weight: 500;
   letter-spacing: -0.018em;
 }
@@ -1817,16 +1814,16 @@
   border-radius: 16px;
   overflow: hidden;
   box-shadow:
-    0 1px 2px rgba(26, 22, 18, 0.06),
-    0 30px 60px rgba(26, 22, 18, 0.12);
+    0 1px 2px rgba(15, 23, 42, 0.06),
+    0 30px 60px rgba(15, 23, 42, 0.12);
   transition: transform 0.25s ease, box-shadow 0.25s ease;
 }
 
 .ep-shot:hover .ep-shot-frame {
   transform: translateY(-3px);
   box-shadow:
-    0 1px 2px rgba(26, 22, 18, 0.08),
-    0 40px 72px rgba(26, 22, 18, 0.18);
+    0 1px 2px rgba(15, 23, 42, 0.08),
+    0 40px 72px rgba(15, 23, 42, 0.18);
 }
 
 .ep-shot-chrome {
@@ -1870,7 +1867,7 @@
 }
 
 .ep-shot-title {
-  font-family: var(--font-display), 'Iowan Old Style', Georgia, serif;
+  font-family: var(--font-display), sans-serif;
   font-size: 24px;
   font-weight: 500;
   letter-spacing: -0.018em;
@@ -1901,8 +1898,8 @@
   border-radius: 18px;
   overflow: hidden;
   box-shadow:
-    0 1px 2px rgba(26, 22, 18, 0.06),
-    0 32px 64px rgba(26, 22, 18, 0.16);
+    0 1px 2px rgba(15, 23, 42, 0.06),
+    0 32px 64px rgba(15, 23, 42, 0.16);
 }
 
 .ep-report-shot .ep-shot-chrome {
@@ -1951,8 +1948,8 @@
   gap: 6px;
   padding: 6px 12px;
   border-radius: 999px;
-  background: #e7ecda;
-  color: #2f6649;
+  background: #d1fae5;
+  color: #059669;
   font-family: var(--mono);
   font-size: 11px;
   font-weight: 600;
@@ -1965,7 +1962,7 @@
 .ep-report-badge .ep-chip-icon {
   width: 14px;
   height: 14px;
-  color: #2f6649;
+  color: #059669;
 }
 
 @keyframes ep-badge-pop {

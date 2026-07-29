@@ -25,7 +25,6 @@ import {
 import {
   adminInvoices,
   invoicePrintUrl,
-  sendDemoInvoice,
   me,
   type AdminInvoiceRow,
   type AuthUser,
@@ -38,7 +37,6 @@ const ADMIN_NAV: SidebarItem[] = [
   { href: '/admin', label: 'Dashboard', icon: ICONS.dashboard },
   { href: '/admin/clients', label: 'Clients', icon: ICONS.clients },
   { href: '/admin/invoices', label: 'Invoices', icon: ICONS.invoices },
-  { href: '/admin/whatsapp', label: 'WhatsApp', icon: ICONS.whatsapp },
   { href: '/admin/operations', label: 'Operations', icon: ICONS.operations },
 ];
 
@@ -79,9 +77,6 @@ export default function InvoicesPage() {
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [openMenu, setOpenMenu] = useState<string | null>(null);
-  const [demoPhone, setDemoPhone] = useState('');
-  const [demoStatus, setDemoStatus] = useState<'idle' | 'sending' | 'ok' | 'err'>('idle');
-  const [demoMsg, setDemoMsg] = useState('');
 
   useEffect(() => {
     const token = getToken();
@@ -161,24 +156,6 @@ export default function InvoicesPage() {
     () => filtered.reduce((s, r) => s + r.total, 0),
     [filtered],
   );
-
-  async function handleDemoSend(e: React.FormEvent) {
-    e.preventDefault();
-    const token = getToken();
-    if (!token) return;
-    const digits = demoPhone.replace(/\D/g, '');
-    if (digits.length < 10) { setDemoStatus('err'); setDemoMsg('Enter a valid 10-digit number'); return; }
-    setDemoStatus('sending');
-    setDemoMsg('');
-    try {
-      const res = await sendDemoInvoice(token, digits);
-      setDemoStatus(res.ok ? 'ok' : 'err');
-      setDemoMsg(res.ok ? `Sent ${res.invoiceNumber} to WhatsApp ✓` : 'WhatsApp returned ok: false');
-    } catch (err) {
-      setDemoStatus('err');
-      setDemoMsg(err instanceof Error ? err.message : 'Failed to send');
-    }
-  }
 
   if (!user) return <div className="loading">Loading…</div>;
 
@@ -261,48 +238,6 @@ export default function InvoicesPage() {
           </div>
 
           {error && <div className="error">{error}</div>}
-
-          {/* Demo invoice sender */}
-          <div style={{
-            border: '1px solid var(--rule)', borderRadius: 10,
-            padding: '16px 20px', marginBottom: 20,
-            background: 'var(--card)', display: 'flex', alignItems: 'center',
-            gap: 12, flexWrap: 'wrap',
-          }}>
-            <div style={{ flex: '0 0 auto' }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)', marginBottom: 2 }}>Send demo invoice</div>
-              <div style={{ fontSize: 11.5, color: 'var(--ink-2)' }}>Sends the latest invoice PDF to a WhatsApp number</div>
-            </div>
-            <form onSubmit={handleDemoSend} style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 260 }}>
-              <div style={{ display: 'flex', alignItems: 'center', border: '1px solid var(--rule)', borderRadius: 7, overflow: 'hidden', flex: 1, background: 'var(--paper)' }}>
-                <span style={{ padding: '0 10px', fontSize: 13, color: 'var(--ink-2)', borderRight: '1px solid var(--rule)', height: '100%', display: 'flex', alignItems: 'center' }}>+91</span>
-                <input
-                  type="tel"
-                  placeholder="98765 43210"
-                  value={demoPhone}
-                  onChange={e => { setDemoPhone(e.target.value); setDemoStatus('idle'); }}
-                  maxLength={15}
-                  disabled={demoStatus === 'sending'}
-                  style={{ flex: 1, border: 'none', outline: 'none', padding: '8px 10px', fontSize: 13, background: 'transparent', color: 'var(--ink)' }}
-                />
-              </div>
-              <button
-                type="submit"
-                disabled={demoStatus === 'sending'}
-                style={{
-                  padding: '8px 16px', borderRadius: 7, border: 'none',
-                  background: 'var(--ink)', color: 'var(--paper)',
-                  fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                  opacity: demoStatus === 'sending' ? 0.6 : 1, whiteSpace: 'nowrap',
-                  display: 'flex', alignItems: 'center', gap: 6,
-                }}
-              >
-                {demoStatus === 'sending' ? <><span className="wa-demo-spinner" style={{ width: 11, height: 11, borderTopColor: 'var(--paper)' }} />Sending…</> : 'Send'}
-              </button>
-            </form>
-            {demoStatus === 'ok' && <span style={{ fontSize: 12.5, color: '#2f6649', whiteSpace: 'nowrap' }}>✅ {demoMsg}</span>}
-            {demoStatus === 'err' && <span style={{ fontSize: 12.5, color: '#9c3936', whiteSpace: 'nowrap' }}>❌ {demoMsg}</span>}
-          </div>
 
           {/* Table */}
           <div className="inv-table-wrap">

@@ -25,7 +25,7 @@ export default function TermsBox({ onAgreedChange, agreed }: TermsBoxProps) {
         <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
           Review T&amp;C
         </span>
-        <span style={{ marginLeft: 'auto', fontSize: 11.5, color: scrolled ? '#2f6649' : 'var(--ink-2)' }}>
+        <span style={{ marginLeft: 'auto', fontSize: 11.5, color: scrolled ? '#059669' : 'var(--ink-2)' }}>
           {scrolled ? '✓ Scrolled to end' : 'Scroll to read all'}
         </span>
       </div>

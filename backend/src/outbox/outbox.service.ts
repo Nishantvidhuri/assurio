@@ -4,13 +4,10 @@ import { Queue } from 'bullmq';
 import { PrismaService } from '../common/prisma.service';
 import { OutboxEvent } from '../../generated/prisma/client';
 import { EmailService } from '../subjects/email.service';
-import { WhatsAppService } from '../common/whatsapp.service';
-import { PdfService } from '../common/pdf.service';
 
 export type OutboxEventType =
   | 'email.invite'
-  | 'email.password-reset'
-  | 'billing.invoice-notification';
+  | 'email.password-reset';
 
 @Injectable()
 export class OutboxService {
@@ -20,8 +17,6 @@ export class OutboxService {
     private readonly prisma: PrismaService,
     @InjectQueue('outbox') private readonly queue: Queue,
     private readonly email: EmailService,
-    private readonly whatsapp: WhatsAppService,
-    private readonly pdf: PdfService,
   ) {}
 
   async emit(
@@ -105,12 +100,6 @@ export class OutboxService {
       case 'email.password-reset':
         await this.email.sendPasswordReset(p.to, p.name, p.resetUrl);
         break;
-
-      case 'billing.invoice-notification': {
-        const buf = await this.pdf.htmlToPdf(p.pdfHtml);
-        await this.whatsapp.sendInvoicePdf(p.phone, buf, p.invoiceNumber, p.caption);
-        break;
-      }
 
       default:
         throw new Error(`Unknown outbox event type: ${(event as OutboxEvent).eventType}`);

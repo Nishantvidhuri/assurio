@@ -27,7 +27,7 @@ export class User {
   @Prop({ default: 'owner' })
   role: string;
 
-  /** WhatsApp / mobile number — used for client notifications. */
+  /** Mobile number — used for client notifications. */
   @Prop({ type: String, default: null, trim: true })
   phone: string | null;
 

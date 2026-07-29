@@ -129,7 +129,7 @@ export default function BulkInvitePage() {
 
         {/* Header */}
         <div style={{ marginBottom: 32 }}>
-          <h1 style={{ fontFamily: 'var(--font-display,serif)', fontSize: 26, fontWeight: 500, color: 'var(--ink)', margin: 0 }}>
+          <h1 style={{ fontFamily: 'var(--font-display,sans-serif)', fontSize: 26, fontWeight: 500, color: 'var(--ink)', margin: 0 }}>
             Bulk Invite
           </h1>
           <p style={{ color: 'var(--ink-2)', fontSize: 13.5, marginTop: 6, margin: '6px 0 0' }}>
@@ -201,11 +201,11 @@ export default function BulkInvitePage() {
         {/* Parse errors */}
         {parseErrors.length > 0 && (
           <div style={{ background: '#fdf3f3', border: '1px solid #f5c6c6', borderRadius: 8, padding: '10px 14px', marginBottom: 16 }}>
-            <p style={{ margin: '0 0 4px', fontSize: 12.5, fontWeight: 600, color: '#9c3936' }}>
+            <p style={{ margin: '0 0 4px', fontSize: 12.5, fontWeight: 600, color: '#dc2626' }}>
               {parseErrors.length} issue{parseErrors.length > 1 ? 's' : ''} found
             </p>
             {parseErrors.map((e, i) => (
-              <p key={i} style={{ margin: '2px 0', fontSize: 12, color: '#9c3936' }}>• {e}</p>
+              <p key={i} style={{ margin: '2px 0', fontSize: 12, color: '#dc2626' }}>• {e}</p>
             ))}
           </div>
         )}
@@ -282,24 +282,24 @@ export default function BulkInvitePage() {
             <div style={{ height: 6, background: 'var(--rule)', borderRadius: 999, overflow: 'hidden', marginBottom: 14 }}>
               <div style={{
                 height: '100%', width: `${pct}%`,
-                background: isDone && batch && batch.failed === 0 ? '#2f6649' : isDone ? '#b3771e' : 'var(--ink)',
+                background: isDone && batch && batch.failed === 0 ? '#059669' : isDone ? '#d97706' : 'var(--ink)',
                 borderRadius: 999, transition: 'width 0.4s ease',
               }} />
             </div>
 
             {batch && (
               <div style={{ display: 'flex', gap: 20, fontSize: 13 }}>
-                <span style={{ color: '#2f6649' }}>✓ {batch.done} sent</span>
-                {batch.failed > 0 && <span style={{ color: '#9c3936' }}>✗ {batch.failed} failed</span>}
+                <span style={{ color: '#059669' }}>✓ {batch.done} sent</span>
+                {batch.failed > 0 && <span style={{ color: '#dc2626' }}>✗ {batch.failed} failed</span>}
                 {!isDone && <span style={{ color: 'var(--ink-2)' }}>{batch.total - batch.done - batch.failed} queued</span>}
               </div>
             )}
 
             {batch && batch.failedRows.length > 0 && (
               <div style={{ marginTop: 14, background: '#fdf3f3', border: '1px solid #f5c6c6', borderRadius: 8, padding: '10px 14px' }}>
-                <p style={{ margin: '0 0 6px', fontSize: 12.5, fontWeight: 600, color: '#9c3936' }}>Failed rows</p>
+                <p style={{ margin: '0 0 6px', fontSize: 12.5, fontWeight: 600, color: '#dc2626' }}>Failed rows</p>
                 {batch.failedRows.map((e, i) => (
-                  <p key={i} style={{ margin: '2px 0', fontSize: 12, color: '#9c3936' }}>
+                  <p key={i} style={{ margin: '2px 0', fontSize: 12, color: '#dc2626' }}>
                     Row {e.row + 1} ({e.email}): {e.reason}
                   </p>
                 ))}

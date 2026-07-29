@@ -6,7 +6,6 @@ import { BulkController } from './bulk.controller';
 import { BulkService } from './bulk.service';
 import { BulkProcessor } from './bulk.processor';
 import { SubjectsService } from '../subjects/subjects.service';
-import { UsersService } from '../users/users.service';
 import { AuthModule } from '../auth/auth.module';
 
 @Module({
@@ -19,6 +18,6 @@ import { AuthModule } from '../auth/auth.module';
     }),
   ],
   controllers: [BulkController],
-  providers: [BulkService, BulkProcessor, SubjectsService, UsersService],
+  providers: [BulkService, BulkProcessor, SubjectsService],
 })
 export class BulkModule {}

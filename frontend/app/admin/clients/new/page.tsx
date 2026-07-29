@@ -27,7 +27,6 @@ const ADMIN_NAV: SidebarItem[] = [
   { href: '/admin', label: 'Dashboard', icon: ICONS.dashboard },
   { href: '/admin/clients', label: 'Clients', icon: ICONS.clients },
   { href: '/admin/invoices', label: 'Invoices', icon: ICONS.invoices },
-  { href: '/admin/whatsapp', label: 'WhatsApp', icon: ICONS.whatsapp },
   { href: '/admin/operations', label: 'Operations', icon: ICONS.operations },
 ];
 

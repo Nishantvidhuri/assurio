@@ -22,7 +22,6 @@ const ADMIN_NAV: SidebarItem[] = [
   { href: '/admin', label: 'Dashboard', icon: ICONS.dashboard },
   { href: '/admin/clients', label: 'Clients', icon: ICONS.clients },
   { href: '/admin/invoices', label: 'Invoices', icon: ICONS.invoices },
-  { href: '/admin/whatsapp', label: 'WhatsApp', icon: ICONS.whatsapp },
   { href: '/admin/operations', label: 'Operations', icon: ICONS.operations },
 ];
 
@@ -391,7 +390,7 @@ function VerificationLogSection({ log }: { log: VerificationLogEntry[] }) {
                   </span>
                   <span style={{ fontSize: 11, color: '#7a6e60' }}>{fmt(TYPE_PRICE[type])} / call</span>
                 </div>
-                <div style={{ fontSize: 22, fontWeight: 700, color: '#1a1612', lineHeight: 1.1 }}>{n}</div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: '#0f172a', lineHeight: 1.1 }}>{n}</div>
                 <div style={{ fontSize: 12, color: '#7a6e60', marginTop: 2 }}>
                   {n === 1 ? 'call' : 'calls'} · {fmt(cost)}
                 </div>
@@ -401,12 +400,12 @@ function VerificationLogSection({ log }: { log: VerificationLogEntry[] }) {
           <div style={{
             flex: '1 1 120px', minWidth: 120,
             border: '1.5px solid #c9bfa8', borderRadius: 10,
-            padding: '10px 14px', background: '#f3ecdc',
+            padding: '10px 14px', background: '#f6f7f9',
           }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: '#5a4e3a', marginBottom: 6, letterSpacing: '0.04em' }}>
               TOTAL COST
             </div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: '#1a1612', lineHeight: 1.1 }}>{fmt(total)}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: '#0f172a', lineHeight: 1.1 }}>{fmt(total)}</div>
             <div style={{ fontSize: 12, color: '#7a6e60', marginTop: 2 }}>{log.length} total calls</div>
           </div>
         </div>
@@ -462,7 +461,7 @@ function VerificationLogSection({ log }: { log: VerificationLogEntry[] }) {
                     {isOpen && (
                       <pre style={{
                         margin: 0, padding: '12px 14px',
-                        background: '#1a1612', color: '#e8dfc8',
+                        background: '#0f172a', color: '#e0e7ff',
                         fontSize: 11.5, lineHeight: 1.6, overflowX: 'auto',
                         borderTop: '1px solid #e8e0d0',
                       }}>

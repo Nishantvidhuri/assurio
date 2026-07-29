@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 
@@ -427,9 +428,15 @@ export default function AssurioLanding() {
       <header className="ep-nav">
         <div className="ep-container ep-nav-inner">
           <Link href="/" className="ep-logo">
-            <span className="ep-logo-mark">
-              <Icon name="shield" />
-            </span>
+            <Image
+              className="ep-logo-mark"
+              src="/logo-mark.png"
+              alt=""
+              width={34}
+              height={34}
+              priority
+              aria-hidden="true"
+            />
             <span className="ep-logo-text">Assurio</span>
           </Link>
           <nav className="ep-nav-links">
@@ -968,9 +975,14 @@ export default function AssurioLanding() {
         <div className="ep-container ep-footer-grid">
           <div className="ep-footer-brand">
             <Link href="/" className="ep-logo">
-              <span className="ep-logo-mark">
-                <Icon name="shield" />
-              </span>
+              <Image
+                className="ep-logo-mark"
+                src="/logo-mark.png"
+                alt=""
+                width={34}
+                height={34}
+                aria-hidden="true"
+              />
               <span className="ep-logo-text">Assurio</span>
             </Link>
             <p className="ep-footer-tag">

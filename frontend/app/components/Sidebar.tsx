@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
-import { Activity, ExternalLink, FileText, LayoutDashboard, Menu, MessageCircle, Receipt, Users, X } from 'lucide-react';
+import { Activity, ExternalLink, FileText, LayoutDashboard, Menu, Receipt, Users, X } from 'lucide-react';
 import Brand from './Brand';
 
 // Proxied through Next.js rewrites — accessible at the same port as the app.
@@ -163,6 +163,5 @@ export const ICONS = {
   billing: <Receipt size={18} strokeWidth={1.7} />,
   clients: <Users size={18} strokeWidth={1.7} />,
   invoices: <FileText size={18} strokeWidth={1.7} />,
-  whatsapp: <MessageCircle size={18} strokeWidth={1.7} />,
   operations: <Activity size={18} strokeWidth={1.7} />,
 };

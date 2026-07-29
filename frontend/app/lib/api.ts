@@ -673,60 +673,6 @@ export async function fetchPdfBlobUrl(
 }
 
 
-export function sendDemoInvoice(
-  token: string,
-  phone: string,
-  invoiceId?: string,
-): Promise<{ ok: boolean; invoiceNumber: string }> {
-  return request<{ ok: boolean; invoiceNumber: string }>('/payments/admin/demo-invoice', {
-    method: 'POST',
-    body: JSON.stringify({ phone, invoiceId })
-  });
-}
-
-export function sendDemoInvite(token: string, phone: string): Promise<{ ok: boolean }> {
-  return request<{ ok: boolean }>('/whatsapp/demo-invite', {
-    method: 'POST',
-    body: JSON.stringify({ phone })
-  });
-}
-
-export function checkWhatsAppNumber(
-  token: string,
-  phone: string,
-): Promise<{ phone: string; onWhatsApp: boolean | null }> {
-  return request<{ phone: string; onWhatsApp: boolean | null }>(
-    `/whatsapp/check/${encodeURIComponent(phone)}`,
-  );
-}
-
-export function sendWhatsAppPdf(
-  token: string,
-  phone: string,
-  base64: string,
-  filename: string,
-  caption?: string,
-): Promise<{ ok: boolean }> {
-  return request<{ ok: boolean }>('/whatsapp/send-pdf', {
-    method: 'POST',
-    body: JSON.stringify({ phone, base64, filename, caption })
-  });
-}
-
-export function sendWhatsAppImage(
-  token: string,
-  phone: string,
-  base64: string,
-  mimetype: string,
-  filename: string,
-  caption?: string,
-): Promise<{ ok: boolean }> {
-  return request<{ ok: boolean }>('/whatsapp/send-image', {
-    method: 'POST',
-    body: JSON.stringify({ phone, base64, mimetype, filename, caption })
-  });
-}
-
 export interface BulkCandidate {
   name: string;
   email: string;

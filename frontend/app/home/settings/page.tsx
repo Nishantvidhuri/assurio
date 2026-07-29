@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { CheckCircle2, MessageCircle, Settings, User } from 'lucide-react';
+import { CheckCircle2, Phone, Settings, User } from 'lucide-react';
 import { me, updateMe, type AuthUser } from '../../lib/api';
 import { getToken } from '../../lib/session';
 import { doLogout } from '../../lib/logout';
@@ -102,20 +102,20 @@ export default function SettingsPage() {
               </div>
             </section>
 
-            {/* Notifications card — editable */}
+            {/* Contact card — editable */}
             <section className="st-card">
               <div className="st-card-header">
-                <span className="st-card-icon"><MessageCircle size={16} strokeWidth={1.8} /></span>
-                <h2 className="st-card-title">WhatsApp Notifications</h2>
+                <span className="st-card-icon"><Phone size={16} strokeWidth={1.8} /></span>
+                <h2 className="st-card-title">Contact Number</h2>
               </div>
               <p className="st-card-desc">
-                Get instant WhatsApp alerts when candidates are added, checks are started, or reports arrive.
+                Your mobile number, kept on file for your account.
               </p>
 
               <form onSubmit={handleSave} className="st-form">
                 <div className="st-field">
                   <label className="st-label" htmlFor="st-phone">
-                    Mobile / WhatsApp number
+                    Mobile number
                   </label>
                   <div className="st-input-wrap">
                     <span className="st-prefix">+91</span>
@@ -136,7 +136,7 @@ export default function SettingsPage() {
                     )}
                   </div>
                   <p className="st-hint">
-                    Enter your 10-digit number. We&apos;ll send notifications to this WhatsApp.
+                    Enter your 10-digit mobile number.
                   </p>
                 </div>
 
@@ -146,7 +146,7 @@ export default function SettingsPage() {
                 {saved && (
                   <div className="st-alert st-alert-ok">
                     <CheckCircle2 size={14} />
-                    Number saved — you&apos;ll receive WhatsApp notifications from now on.
+                    Number saved.
                   </div>
                 )}
 

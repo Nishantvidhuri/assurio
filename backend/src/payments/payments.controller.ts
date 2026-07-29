@@ -15,11 +15,7 @@ import type { Request, Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PaymentsService } from './payments.service';
 import { Invoice } from '../../generated/prisma/client';
-import { WhatsAppService } from '../common/whatsapp.service';
-import { PdfService } from '../common/pdf.service';
 import { S3Service } from '../common/s3.service';
-import { UsersService } from '../users/users.service';
-import { OutboxService } from '../outbox/outbox.service';
 
 interface RequestWithUser extends Request {
   user?: { sub?: string; role?: string; email?: string };
@@ -73,11 +69,7 @@ export class PaymentsController {
 
   constructor(
     private readonly payments: PaymentsService,
-    private readonly whatsapp: WhatsAppService,
-    private readonly pdf: PdfService,
     private readonly s3: S3Service,
-    private readonly users: UsersService,
-    private readonly outbox: OutboxService,
   ) {}
 
   @UseGuards(JwtAuthGuard)
@@ -160,37 +152,6 @@ export class PaymentsController {
           body.razorpay_payment_link_reference_id ?? undefined,
       });
 
-      // Send invoice PDF to the CLIENT (account holder) via WhatsApp.
-      // Note: inv.customerPhone is the CANDIDATE's phone (from the form),
-      // so we look up the owner user's own phone instead.
-      const ownerUser = userId
-        ? await this.users.findById(userId).catch(() => null)
-        : null;
-
-      if (ownerUser?.phone) {
-        const fmtAmt = (n: number) =>
-          '₹' + n.toLocaleString('en-IN', { minimumFractionDigits: 2 });
-        const caption =
-          `✅ *Payment confirmed — ${inv.invoiceNumber}*\n\n` +
-          `Amount: *${fmtAmt(inv.total)}* (incl. GST)\n` +
-          `For: ${((inv.lineItems ?? []) as Array<{ description: string }>)[0]?.description || 'background verification'}\n\n` +
-          `_Assurio · assurio.com_`;
-        await this.outbox.emit(
-          'billing.invoice-notification',
-          {
-            phone: ownerUser.phone,
-            pdfHtml: this.payments.renderInvoiceHtml(inv),
-            invoiceNumber: inv.invoiceNumber,
-            caption,
-          },
-          { idempotencyKey: `invoice-notification-${inv.razorpayPaymentId}` },
-        );
-      } else {
-        this.logger.warn(
-          `Owner ${userId ?? '?'} has no phone — WhatsApp invoice notification skipped`,
-        );
-      }
-
       return { verified: true, invoice: toInvoiceResponse(inv) }; // pdfUrl filled in async above
     } catch (err) {
       // Verification succeeded but invoice creation hiccup'd — surface
@@ -234,43 +195,6 @@ export class PaymentsController {
         return toInvoiceResponse(inv, pdfUrl);
       }),
     );
-  }
-
-  /**
-   * Admin: send the most-recent invoice as a PDF to any WhatsApp number.
-   * Used by the admin invoices page to demo the invoice design.
-   */
-  @UseGuards(JwtAuthGuard)
-  @Post('admin/demo-invoice')
-  async sendDemoInvoice(
-    @Req() req: RequestWithUser,
-    @Body() body: { phone?: string; invoiceId?: string },
-  ) {
-    if (req.user?.role !== 'admin') throw new BadRequestException('Admin only');
-    const phone = (body.phone || '').replace(/\D/g, '');
-    if (phone.length < 10) throw new BadRequestException('Valid phone required');
-
-    // Use a specific invoice or fall back to the most-recent one
-    let inv: Invoice | null = null;
-    if (body.invoiceId) {
-      inv = await this.payments.findInvoiceById(body.invoiceId);
-    }
-    if (!inv) {
-      inv = await this.payments.findLatestInvoice();
-    }
-    if (!inv) throw new NotFoundException('No invoices found to use as demo');
-
-    const html = this.payments.renderInvoiceHtml(inv);
-    const pdfBuffer = await this.pdf.htmlToPdf(html);
-    const caption =
-      `🧾 *Demo Invoice — ${inv.invoiceNumber}*\n\n` +
-      `Amount: *₹${inv.total.toLocaleString('en-IN', { minimumFractionDigits: 2 })}* (incl. GST)\n` +
-      `Billed to: ${inv.customerName}\n\n` +
-      `_Assurio · assurio.com_`;
-
-    const fullPhone = phone.startsWith('91') ? phone : `91${phone}`;
-    const sent = await this.whatsapp.sendInvoicePdf(fullPhone, pdfBuffer, inv.invoiceNumber, caption);
-    return { ok: sent, invoiceNumber: inv.invoiceNumber };
   }
 
   /** Print-friendly HTML — opened in a new tab; user can Cmd+P to save as PDF.

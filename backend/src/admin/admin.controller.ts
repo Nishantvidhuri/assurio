@@ -3,7 +3,6 @@ import {
   Controller,
   ForbiddenException,
   Get,
-  Logger,
   Param,
   Patch,
   Req,
@@ -12,9 +11,6 @@ import {
 import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SubjectsService } from '../subjects/subjects.service';
-import { UsersService } from '../users/users.service';
-import { WhatsAppService } from '../common/whatsapp.service';
-import { PdfService } from '../common/pdf.service';
 import { AdminService } from './admin.service';
 
 interface RequestWithUser extends Request {
@@ -24,14 +20,9 @@ interface RequestWithUser extends Request {
 @Controller('admin')
 @UseGuards(JwtAuthGuard)
 export class AdminController {
-  private readonly logger = new Logger(AdminController.name);
-
   constructor(
     private readonly admin: AdminService,
     private readonly subjectsSvc: SubjectsService,
-    private readonly users: UsersService,
-    private readonly whatsapp: WhatsAppService,
-    private readonly pdf: PdfService,
   ) {}
 
   @Get('overview')
@@ -95,38 +86,7 @@ export class AdminController {
       if (key in body) patch[key] = body[key];
     }
 
-    // Detect if crimeResult is being set for the first time
-    const before = await this.subjectsSvc.findById(id).catch(() => null);
-    const settingCrimeResult =
-      'crimeResult' in patch &&
-      patch.crimeResult != null &&
-      !before?.crimeResult;
-
     const doc = await this.subjectsSvc.patchAny(id, patch);
-
-    // Notify the client (owner) when crime check report arrives — send as PDF
-    if (settingCrimeResult && doc.crimeResult) {
-      const ownerUser = await this.users.findById(doc.userId).catch(() => null);
-      if (ownerUser?.phone) {
-        const phone = ownerUser.phone;
-        const name = doc.name;
-        const crimeResult = doc.crimeResult;
-        // Fire-and-forget: generate PDF then send
-        (async () => {
-          try {
-            const html = this.whatsapp.renderCrimeReportHtml(name, crimeResult as Record<string, unknown>);
-            const pdfBuffer = await this.pdf.htmlToPdf(html);
-            await this.whatsapp.sendCrimeReportPdf(phone, pdfBuffer, name);
-          } catch (err) {
-            this.logger.error('WhatsApp crime report PDF failed', err);
-          }
-        })();
-      } else {
-        this.logger.warn(
-          `Owner ${doc.userId} has no phone — WhatsApp crime report notification skipped`,
-        );
-      }
-    }
 
     return this.admin.getSubject(doc.id);
   }
