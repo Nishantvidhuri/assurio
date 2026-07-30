@@ -35,6 +35,7 @@ import { ICONS, type SidebarItem } from '../components/Sidebar';
 import AppShell from '../components/AppShell';
 import {
   Button,
+  Pagination,
   SearchBar,
   Table,
   TableBody,
@@ -42,6 +43,7 @@ import {
   TableHeader,
   TableHeaderCell,
   TableRow,
+  type StatusVariant,
 } from '@/shared/components/ui';
 
 const CLIENT_NAV: SidebarItem[] = [
@@ -66,6 +68,51 @@ function getCrimeRisk(s: Subject): string | undefined {
   return data?.risk_assessment?.risk_type;
 }
 
+// Maps a crime-risk label onto an RDS status-chip variant.
+function crimeVariant(risk: string): StatusVariant {
+  const r = risk.toLowerCase();
+  if (r.includes('high') || r.includes('serious') || r.includes('critical'))
+    return 'Failure';
+  if (r.includes('medium') || r.includes('moderate') || r.includes('low'))
+    return 'Warning';
+  return 'Success'; // no risk
+}
+
+// Numeric rank for sorting the Crime column (not started → high risk).
+function crimeRank(s: Subject): number {
+  const risk = getCrimeRisk(s);
+  if (risk) {
+    const r = risk.toLowerCase();
+    if (r.includes('high') || r.includes('serious') || r.includes('critical'))
+      return 5;
+    if (r.includes('medium') || r.includes('moderate')) return 4;
+    if (r.includes('low')) return 3;
+    return 2; // no risk
+  }
+  if (s.crimeRequestId && !s.crimeResult) return 1; // pending
+  return 0; // not started
+}
+
+// Sort key per column — strings compare lexically, numbers numerically.
+function subjectSortValue(s: Subject, field: string): string | number {
+  switch (field) {
+    case 'name':
+      return (s.name || '').toLowerCase();
+    case 'role':
+      return (s.role || '').toLowerCase();
+    case 'status':
+      return (s.status || 'invited').toLowerCase();
+    case 'pan':
+      return s.panResult ? 1 : 0;
+    case 'aadhaar':
+      return s.aadhaarResult ? 1 : 0;
+    case 'crime':
+      return crimeRank(s);
+    default:
+      return '';
+  }
+}
+
 export default function HomePage() {
   const router = useRouter();
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -73,6 +120,24 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [sortBy, setSortBy] = useState<string | null>(null);
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
+
+  // asc → desc → clear, matching the vendor tables' sort behaviour.
+  const toggleSort = (field: string) => {
+    setPage(1);
+    if (sortBy === field) {
+      if (sortOrder === 'asc') setSortOrder('desc');
+      else setSortBy(null);
+    } else {
+      setSortBy(field);
+      setSortOrder('asc');
+    }
+  };
+  const getSortOrder = (field: string): 'asc' | 'desc' | null =>
+    sortBy === field ? sortOrder : null;
 
   useEffect(() => {
     const token = getToken();
@@ -132,6 +197,33 @@ export default function HomePage() {
     );
   }, [subjects, query]);
 
+  // Reset to the first page whenever the search narrows the list.
+  useEffect(() => {
+    setPage(1);
+  }, [query]);
+
+  const sorted = useMemo(() => {
+    if (!sortBy) return filtered;
+    const arr = [...filtered];
+    arr.sort((a, b) => {
+      const av = subjectSortValue(a, sortBy);
+      const bv = subjectSortValue(b, sortBy);
+      const cmp =
+        typeof av === 'number' && typeof bv === 'number'
+          ? av - bv
+          : String(av).localeCompare(String(bv));
+      return sortOrder === 'desc' ? -cmp : cmp;
+    });
+    return arr;
+  }, [filtered, sortBy, sortOrder]);
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pageItems = useMemo(
+    () => sorted.slice((safePage - 1) * pageSize, safePage * pageSize),
+    [sorted, safePage, pageSize],
+  );
+
   if (!user) return <div className="loading">Loading...</div>;
 
   return (
@@ -181,13 +273,49 @@ export default function HomePage() {
             <Table bordered className="bg-white">
               <TableHeader>
                 <TableRow>
-                  <TableHeaderCell label="Candidate" />
-                  <TableHeaderCell label="Role" className="cd-col-hide" />
-                  <TableHeaderCell label="Status" className="cd-col-hide" />
-                  <TableHeaderCell label="PAN" className="cd-col-hide" />
-                  <TableHeaderCell label="Aadhaar" className="cd-col-hide" />
-                  <TableHeaderCell label="Crime" className="cd-col-hide" />
-                  <TableHeaderCell type="empty" />
+                  <TableHeaderCell
+                    label="Candidate"
+                    sortable
+                    sortOrder={getSortOrder('name')}
+                    onSort={() => toggleSort('name')}
+                    roundedLeft
+                  />
+                  <TableHeaderCell
+                    label="Role"
+                    className="cd-col-hide"
+                    sortable
+                    sortOrder={getSortOrder('role')}
+                    onSort={() => toggleSort('role')}
+                  />
+                  <TableHeaderCell
+                    label="Status"
+                    className="cd-col-hide"
+                    sortable
+                    sortOrder={getSortOrder('status')}
+                    onSort={() => toggleSort('status')}
+                  />
+                  <TableHeaderCell
+                    label="PAN"
+                    className="cd-col-hide"
+                    sortable
+                    sortOrder={getSortOrder('pan')}
+                    onSort={() => toggleSort('pan')}
+                  />
+                  <TableHeaderCell
+                    label="Aadhaar"
+                    className="cd-col-hide"
+                    sortable
+                    sortOrder={getSortOrder('aadhaar')}
+                    onSort={() => toggleSort('aadhaar')}
+                  />
+                  <TableHeaderCell
+                    label="Crime"
+                    className="cd-col-hide"
+                    sortable
+                    sortOrder={getSortOrder('crime')}
+                    onSort={() => toggleSort('crime')}
+                  />
+                  <TableHeaderCell type="empty" roundedRight />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -224,7 +352,7 @@ export default function HomePage() {
                     />
                   </TableRow>
                 ) : (
-                  filtered.map((s) => (
+                  pageItems.map((s) => (
                     <SubjectRow
                       key={s.id}
                       s={s}
@@ -240,6 +368,17 @@ export default function HomePage() {
                 )}
               </TableBody>
             </Table>
+          )}
+
+          {!loading && filtered.length > 0 && totalPages > 1 && (
+            <div className="mt-4 flex justify-center">
+              <Pagination
+                currentPage={safePage}
+                totalPages={totalPages}
+                onPageChange={setPage}
+                pageSize={pageSize}
+              />
+            </div>
           )}
         </div>
       </AppShell>
@@ -267,6 +406,14 @@ function SubjectRow({
   const crimeRisk = getCrimeRisk(s);
   const crimePending = Boolean(s.crimeRequestId) && !s.crimeResult;
   const initial = (s.name || '?').charAt(0).toUpperCase();
+  const statusLabel = s.status || 'invited';
+  const statusVariant: StatusVariant =
+    s.status === 'active' ? 'Success' : 'Warning';
+  const crimeChip: { label: string; variant: StatusVariant } = crimeRisk
+    ? { label: crimeRisk, variant: crimeVariant(crimeRisk) }
+    : crimePending
+      ? { label: 'Pending', variant: 'Warning' }
+      : { label: 'Not started', variant: 'Default' };
 
   return (
     <TableRow
@@ -346,28 +493,26 @@ function SubjectRow({
       <TableCell
         className="cd-col-hide"
         type="status"
-        statusLabel={s.status || 'invited'}
-        statusVariant={s.status === 'active' ? 'Success' : 'Warning'}
+        statusLabel={statusLabel}
+        statusVariant={statusVariant}
       />
       <TableCell
         className="cd-col-hide"
-        value={panOk ? <CheckCircle2 size={14} className="cd-check" /> : <span className="cd-cell-sub">—</span>}
+        type="status"
+        statusLabel={panOk ? 'Verified' : 'Pending'}
+        statusVariant={panOk ? 'Success' : 'Default'}
       />
       <TableCell
         className="cd-col-hide"
-        value={aadhaarOk ? <CheckCircle2 size={14} className="cd-check" /> : <span className="cd-cell-sub">—</span>}
+        type="status"
+        statusLabel={aadhaarOk ? 'Verified' : 'Pending'}
+        statusVariant={aadhaarOk ? 'Success' : 'Default'}
       />
       <TableCell
         className="cd-col-hide"
-        value={
-          crimeRisk ? (
-            <span className={`badge ${riskClassMini(crimeRisk)}`}>{crimeRisk}</span>
-          ) : crimePending ? (
-            <span className="cd-status cd-status-pending">pending</span>
-          ) : (
-            <span className="cd-not-started">not started</span>
-          )
-        }
+        type="status"
+        statusLabel={crimeChip.label}
+        statusVariant={crimeChip.variant}
       />
       <TableCell
         value={

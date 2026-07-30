@@ -33,3 +33,10 @@ export function getUser(): AuthUser | null {
 export function clearSession(): void {
   localStorage.removeItem(USER_KEY);
 }
+
+/** Landing path for a signed-in user, keyed by role. */
+export function homePathForRole(role: string | undefined | null): string {
+  if (role === 'admin') return '/admin';
+  if (role === 'candidate') return '/candidate';
+  return '/home';
+}

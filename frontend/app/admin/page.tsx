@@ -19,6 +19,8 @@ const ADMIN_NAV: SidebarItem[] = [
   { href: '/admin/clients', label: 'Clients', icon: ICONS.clients },
   { href: '/admin/invoices', label: 'Invoices', icon: ICONS.invoices },
   { href: '/admin/operations', label: 'Operations', icon: ICONS.operations },
+  { href: '/admin/vendors', label: 'Vendors', icon: ICONS.vendors },
+  { href: '/admin/test-verification', label: 'Test Verification', icon: ICONS.testVerification },
 ];
 
 function monthName(): string {

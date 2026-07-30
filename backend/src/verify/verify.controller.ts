@@ -11,6 +11,7 @@ import {
 import type { Response as ExpressResponse } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import {
+  CreditCheckDto,
   CrimeCheckDto,
   DrivingLicenseCheckDto,
   EmploymentHistoryDto,
@@ -86,6 +87,18 @@ export class VerifyController {
   @Get('crime-check/:requestId')
   crimeCheckReport(@Param('requestId') requestId: string) {
     return this.verify.crimeCheckReport(requestId);
+  }
+
+  /* ── KonnectNxt: Credit report (v2 BGV) ── */
+
+  @Post('credit-check')
+  creditCheck(@Body() dto: CreditCheckDto) {
+    return this.verify.creditCheck(dto);
+  }
+
+  @Get('credit-check/:caseId')
+  creditCheckReport(@Param('caseId') caseId: string) {
+    return this.verify.creditCheckReport(caseId);
   }
 
   /* ── PDF proxy ── */

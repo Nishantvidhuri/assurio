@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { fetchCsrf, signup } from '../lib/api';
-import { saveSession } from '../lib/session';
+import { getUser, homePathForRole, saveSession } from '../lib/session';
 import { Eye, EyeOff } from 'lucide-react';
 import { IconApple, IconGoogle } from '../components/AuthIcons';
 import Brand from '../components/Brand';
@@ -27,6 +27,16 @@ export default function SignupPage() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [redirecting, setRedirecting] = useState(false);
+
+  // Already signed in? Skip the signup form and go straight to the dashboard.
+  useEffect(() => {
+    const user = getUser();
+    if (user) {
+      setRedirecting(true);
+      router.replace(homePathForRole(user.role));
+    }
+  }, [router]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -51,6 +61,9 @@ export default function SignupPage() {
   function handleSocial() {
     setError('Social sign-in is coming soon — please use your email for now.');
   }
+
+  // Avoid flashing the form while we bounce an already-signed-in user.
+  if (redirecting) return null;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#F4F7FC] px-4 py-10">

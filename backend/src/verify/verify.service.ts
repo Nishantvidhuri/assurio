@@ -4,7 +4,9 @@ import {
   InternalServerErrorException,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { VendorName } from '../../generated/prisma/client';
 import { KONNECT_NXT, SUREPASS } from '../common/vendors';
+import { VendorCallRecorderService } from '../modules/internal/vendors/vendor-call-recorder.service';
 
 export interface AadhaarAddress {
   careOf: string | null;
@@ -29,6 +31,8 @@ export interface AadhaarKyc {
 
 @Injectable()
 export class VerifyService {
+  constructor(private readonly recorder: VendorCallRecorderService) {}
+
   /* ── credentials ── */
 
   private get surepassToken(): string {
@@ -43,112 +47,236 @@ export class VerifyService {
     return k;
   }
 
+  /* ── base URLs ── */
+
+  // The endpoint paths (e.g. `/pan/pan`) assume the base already carries its
+  // API-version segment. Some deploys set the env base as the bare host, so we
+  // normalise it here — otherwise every call resolves without `/api/vN` and 404s.
+  private get surepassBase(): string {
+    return this.withVersion(
+      process.env.SUREPASS_BASE_URL || SUREPASS.baseUrl,
+      '/api/v1',
+    );
+  }
+
+  private get konnectnxtBase(): string {
+    return this.withVersion(
+      process.env.KONNECTNXT_BASE_URL || KONNECT_NXT.baseUrl,
+      '/api/v2',
+    );
+  }
+
+  // The v2 BGV endpoints live under /api (not /api/v2), so normalise to that
+  // root regardless of whether the env base carries a version segment.
+  private get konnectnxtBgvBase(): string {
+    return this.withVersion(
+      process.env.KONNECTNXT_BASE_URL || KONNECT_NXT.bgvBaseUrl,
+      '/api',
+    );
+  }
+
+  /** Append the version segment unless the base already ends with it. */
+  private withVersion(base: string, versionSuffix: string): string {
+    const trimmed = base.replace(/\/+$/, '');
+    return trimmed.endsWith(versionSuffix) ? trimmed : `${trimmed}${versionSuffix}`;
+  }
+
   /* ── low-level helpers ── */
 
   private async spPost<T>(path: string, body?: unknown): Promise<T> {
-    const base = process.env.SUREPASS_BASE_URL || SUREPASS.baseUrl;
-    let res: Response;
+    const base = this.surepassBase;
+    const startedAt = Date.now();
+    let status: number | undefined;
+    let success = false;
+    let errorMessage: string | undefined;
+    let json: Record<string, unknown> | null = null;
     try {
-      res = await fetch(`${base}${path}`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${this.surepassToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: body !== undefined ? JSON.stringify(body) : undefined,
+      let res: Response;
+      try {
+        res = await fetch(`${base}${path}`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${this.surepassToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: body !== undefined ? JSON.stringify(body) : undefined,
+        });
+      } catch {
+        errorMessage = 'Could not reach the verification service';
+        throw new ServiceUnavailableException(errorMessage);
+      }
+      status = res.status;
+      json = await res.json().catch(() => null);
+      if (!res.ok || !(json as Record<string, unknown>)?.success) {
+        const msg =
+          (json as Record<string, unknown>)?.message ||
+          (json as Record<string, unknown>)?.message_code ||
+          `Verification failed (HTTP ${res.status})`;
+        errorMessage = typeof msg === 'string' ? msg : JSON.stringify(msg);
+        throw new BadRequestException(msg);
+      }
+      success = true;
+      return (json as Record<string, unknown>).data as T;
+    } finally {
+      this.recorder.record({
+        vendor: VendorName.SUREPASS,
+        endpoint: path,
+        httpMethod: 'POST',
+        startedAt,
+        httpStatusCode: status,
+        success,
+        errorMessage,
+        responseForCost: success ? json : undefined,
       });
-    } catch {
-      throw new ServiceUnavailableException('Could not reach the verification service');
     }
-    const json = await res.json().catch(() => null);
-    if (!res.ok || !(json as Record<string, unknown>)?.success) {
-      const msg =
-        (json as Record<string, unknown>)?.message ||
-        (json as Record<string, unknown>)?.message_code ||
-        `Verification failed (HTTP ${res.status})`;
-      throw new BadRequestException(msg);
-    }
-    return (json as Record<string, unknown>).data as T;
   }
 
   private async spGet<T>(path: string): Promise<T> {
-    const base = process.env.SUREPASS_BASE_URL || SUREPASS.baseUrl;
-    let res: Response;
+    const base = this.surepassBase;
+    const startedAt = Date.now();
+    let status: number | undefined;
+    let success = false;
+    let errorMessage: string | undefined;
+    let json: Record<string, unknown> | null = null;
     try {
-      res = await fetch(`${base}${path}`, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${this.surepassToken}`,
-          Accept: 'application/json',
-        },
+      let res: Response;
+      try {
+        res = await fetch(`${base}${path}`, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${this.surepassToken}`,
+            Accept: 'application/json',
+          },
+        });
+      } catch {
+        errorMessage = 'Could not reach the verification service';
+        throw new ServiceUnavailableException(errorMessage);
+      }
+      status = res.status;
+      json = await res.json().catch(() => null);
+      if (!res.ok || !(json as Record<string, unknown>)?.success) {
+        const msg =
+          (json as Record<string, unknown>)?.message ||
+          (json as Record<string, unknown>)?.message_code ||
+          `Verification failed (HTTP ${res.status})`;
+        errorMessage = typeof msg === 'string' ? msg : JSON.stringify(msg);
+        throw new BadRequestException(msg);
+      }
+      success = true;
+      return (json as Record<string, unknown>).data as T;
+    } finally {
+      this.recorder.record({
+        vendor: VendorName.SUREPASS,
+        endpoint: path,
+        httpMethod: 'GET',
+        startedAt,
+        httpStatusCode: status,
+        success,
+        errorMessage,
+        responseForCost: success ? json : undefined,
       });
-    } catch {
-      throw new ServiceUnavailableException('Could not reach the verification service');
     }
-    const json = await res.json().catch(() => null);
-    if (!res.ok || !(json as Record<string, unknown>)?.success) {
-      const msg =
-        (json as Record<string, unknown>)?.message ||
-        (json as Record<string, unknown>)?.message_code ||
-        `Verification failed (HTTP ${res.status})`;
-      throw new BadRequestException(msg);
-    }
-    return (json as Record<string, unknown>).data as T;
   }
 
-  private async knPost<T>(path: string, body?: unknown): Promise<T> {
-    const base = process.env.KONNECTNXT_BASE_URL || KONNECT_NXT.baseUrl;
-    let res: Response;
-    try {
-      res = await fetch(`${base}${path}`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${this.konnectnxtKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: body !== undefined ? JSON.stringify(body) : undefined,
-      });
-    } catch {
-      throw new ServiceUnavailableException('Could not reach the crime check service');
-    }
-    const text = await res.text();
+  private async knPost<T>(
+    path: string,
+    body?: unknown,
+    baseUrl?: string,
+  ): Promise<T> {
+    const base = baseUrl ?? this.konnectnxtBase;
+    const startedAt = Date.now();
+    let status: number | undefined;
+    let success = false;
+    let errorMessage: string | undefined;
     let json: Record<string, unknown> | null = null;
-    try { json = text ? JSON.parse(text) as Record<string, unknown> : null; } catch { /**/ }
-    if (!res.ok) {
-      const candidate = json && (json.message || json.detail || json.error);
-      const msg = typeof candidate === 'string' ? candidate
-        : candidate ? JSON.stringify(candidate)
-        : `Request failed (HTTP ${res.status})`;
-      throw new BadRequestException(msg);
+    try {
+      let res: Response;
+      try {
+        res = await fetch(`${base}${path}`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${this.konnectnxtKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: body !== undefined ? JSON.stringify(body) : undefined,
+        });
+      } catch {
+        errorMessage = 'Could not reach the crime check service';
+        throw new ServiceUnavailableException(errorMessage);
+      }
+      status = res.status;
+      const text = await res.text();
+      try { json = text ? JSON.parse(text) as Record<string, unknown> : null; } catch { /**/ }
+      if (!res.ok) {
+        const candidate = json && (json.message || json.detail || json.error);
+        const msg = typeof candidate === 'string' ? candidate
+          : candidate ? JSON.stringify(candidate)
+          : `Request failed (HTTP ${res.status})`;
+        errorMessage = msg;
+        throw new BadRequestException(msg);
+      }
+      success = true;
+      return (json ?? { raw: text }) as T;
+    } finally {
+      this.recorder.record({
+        vendor: VendorName.KONNECTNXT,
+        endpoint: path,
+        httpMethod: 'POST',
+        startedAt,
+        httpStatusCode: status,
+        success,
+        errorMessage,
+        responseForCost: success ? json : undefined,
+      });
     }
-    return (json ?? { raw: text }) as T;
   }
 
-  private async knGet<T>(path: string): Promise<T> {
-    const base = process.env.KONNECTNXT_BASE_URL || KONNECT_NXT.baseUrl;
-    let res: Response;
-    try {
-      res = await fetch(`${base}${path}`, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${this.konnectnxtKey}`,
-          Accept: 'application/json',
-        },
-      });
-    } catch {
-      throw new ServiceUnavailableException('Could not reach the crime check service');
-    }
-    const text = await res.text();
+  private async knGet<T>(path: string, baseUrl?: string): Promise<T> {
+    const base = baseUrl ?? this.konnectnxtBase;
+    const startedAt = Date.now();
+    let status: number | undefined;
+    let success = false;
+    let errorMessage: string | undefined;
     let json: Record<string, unknown> | null = null;
-    try { json = text ? JSON.parse(text) as Record<string, unknown> : null; } catch { /**/ }
-    if (!res.ok) {
-      const candidate = json && (json.message || json.detail || json.error);
-      const msg = typeof candidate === 'string' ? candidate
-        : candidate ? JSON.stringify(candidate)
-        : `Request failed (HTTP ${res.status})`;
-      throw new BadRequestException(msg);
+    try {
+      let res: Response;
+      try {
+        res = await fetch(`${base}${path}`, {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${this.konnectnxtKey}`,
+            Accept: 'application/json',
+          },
+        });
+      } catch {
+        errorMessage = 'Could not reach the crime check service';
+        throw new ServiceUnavailableException(errorMessage);
+      }
+      status = res.status;
+      const text = await res.text();
+      try { json = text ? JSON.parse(text) as Record<string, unknown> : null; } catch { /**/ }
+      if (!res.ok) {
+        const candidate = json && (json.message || json.detail || json.error);
+        const msg = typeof candidate === 'string' ? candidate
+          : candidate ? JSON.stringify(candidate)
+          : `Request failed (HTTP ${res.status})`;
+        errorMessage = msg;
+        throw new BadRequestException(msg);
+      }
+      success = true;
+      return (json ?? { raw: text }) as T;
+    } finally {
+      this.recorder.record({
+        vendor: VendorName.KONNECTNXT,
+        endpoint: path,
+        httpMethod: 'GET',
+        startedAt,
+        httpStatusCode: status,
+        success,
+        errorMessage,
+        responseForCost: success ? json : undefined,
+      });
     }
-    return (json ?? { raw: text }) as T;
   }
 
   /* ── Surepass: PAN ── */
@@ -282,6 +410,59 @@ export class VerifyService {
   async crimeCheckReport(requestId: string) {
     return this.knGet(
       `${KONNECT_NXT.endpoints.crimeCheck}?request_id=${encodeURIComponent(requestId)}`,
+    );
+  }
+
+  /* ── KonnectNxt: Credit report (v2 BGV) ── */
+
+  // Submits a credit-report check via the KonnectNxt v2 BGV flow (ported from
+  // Recriauth). The credit bureau keys its search on PAN and rejects
+  // submissions without a complete structured address (address_type
+  // "Current"). Returns the vendor envelope carrying cases_created[].case_id,
+  // which is then passed to creditCheckReport to fetch the report PDF.
+  async creditCheck(input: {
+    name: string;
+    fatherName?: string;
+    dob?: string;
+    panNumber: string;
+    street: string;
+    city: string;
+    state: string;
+    pincode: string;
+    country?: string;
+  }) {
+    const candidate: Record<string, unknown> = {
+      name: input.name,
+      ...(input.fatherName ? { father_name: input.fatherName } : {}),
+      ...(input.dob ? { dob: input.dob } : {}),
+      pan: input.panNumber.toUpperCase(),
+      // Backwards-compat string kept alongside the canonical structured address.
+      permanent_address: `${input.street}, ${input.city}, ${input.state} ${input.pincode}`,
+      addresses: [
+        {
+          address_type: 'Current',
+          street: input.street,
+          city: input.city,
+          state: input.state,
+          country: input.country || 'India',
+          pincode: input.pincode,
+        },
+      ],
+    };
+    return this.knPost(
+      KONNECT_NXT.bgvEndpoints.submit,
+      { checks: ['credit_report_check'], candidates: [candidate] },
+      this.konnectnxtBgvBase,
+    );
+  }
+
+  // Fetches the credit-report download URL for a submitted case. The vendor
+  // returns the signed PDF URL in `data` once the case completes (null while
+  // still processing).
+  async creditCheckReport(caseId: string) {
+    return this.knGet(
+      `${KONNECT_NXT.bgvEndpoints.download}?case_id=${encodeURIComponent(caseId)}&type=pdf`,
+      this.konnectnxtBgvBase,
     );
   }
 

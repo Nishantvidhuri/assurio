@@ -60,3 +60,44 @@ export class CrimeCheckDto {
   })
   panNumber?: string;
 }
+
+export class CreditCheckDto {
+  @IsString()
+  @MinLength(1, { message: 'Name is required' })
+  name: string;
+
+  @IsOptional()
+  @IsString()
+  fatherName?: string;
+
+  @IsOptional()
+  @IsString()
+  dob?: string;
+
+  // The credit bureau keys its search on PAN, so it is required here.
+  @Matches(/^[A-Za-z]{5}[0-9]{4}[A-Za-z]$/, {
+    message: 'PAN must be in format ABCDE1234F',
+  })
+  panNumber: string;
+
+  // KonnectNXT rejects credit submissions without a complete structured
+  // address, so street/city/state/pincode are all required.
+  @IsString()
+  @MinLength(1, { message: 'Street is required' })
+  street: string;
+
+  @IsString()
+  @MinLength(1, { message: 'City is required' })
+  city: string;
+
+  @IsString()
+  @MinLength(1, { message: 'State is required' })
+  state: string;
+
+  @Matches(/^\d{6}$/, { message: 'Pincode must be 6 digits' })
+  pincode: string;
+
+  @IsOptional()
+  @IsString()
+  country?: string;
+}

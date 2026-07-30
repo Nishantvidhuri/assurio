@@ -15,6 +15,7 @@ import { PrismaModule } from './common/prisma.module';
 import { CommonModule } from './common/common.module';
 import { EventsModule } from './common/events.module';
 import { DraftModule } from './draft/draft.module';
+import { InternalVendorsModule } from './modules/internal/vendors/internal-vendors.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { DraftModule } from './draft/draft.module';
     AdminModule,
     PaymentsModule,
     BulkModule,
+    InternalVendorsModule,
   ],
 })
 export class AppModule implements NestModule {

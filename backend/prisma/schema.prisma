@@ -129,3 +129,217 @@ model OutboxEvent {
   @@index([status])
   @@index([processAfter])
 }
+
+// =====================================================================
+// Vendor Management — ported 1:1 from Recriauth (server/prisma/schema.prisma).
+// Relations to Recriauth-only models (Organization, CandidateCase,
+// CandidateCaseCheck, VendorVerification, User) are dropped; their scalar
+// FK columns are kept so audit rows and all queries stay shape-identical.
+// =====================================================================
+
+enum VendorName {
+  SUREPASS
+  KONNECTNXT
+  IN_HOUSE_OCR
+  TELECMI
+}
+
+enum VendorCategory {
+  KYC
+  BGV
+  TELEPHONY
+  OCR
+}
+
+enum VendorStatus {
+  ACTIVE
+  DEGRADED
+  DISABLED
+  DEPRECATED
+}
+
+enum VendorBillingModel {
+  PREPAID
+  POSTPAID
+  INTERNAL
+  SUBSCRIPTION
+}
+
+enum CurrencyCode {
+  USD
+  EUR
+  JPY
+  INR
+  GBP
+}
+
+enum VendorVerificationType {
+  DIGILOCKER_INIT
+  DIGILOCKER_STATUS
+  AADHAAR_V2
+  PAN_PAN
+  VOTER_ID
+  PASSPORT
+  DRIVING_LICENSE
+  AADHAAR_OCR_FRONT
+  AADHAAR_OCR_BACK
+  VOTER_OCR_FRONT
+  VOTER_OCR_BACK
+  PAN_OCR
+  PASSPORT_OCR_FRONT
+  PASSPORT_OCR_BACK
+  DRIVING_LICENSE_OCR
+  EMPLOYMENT_HISTORY
+  CRIMINAL_CHECK
+  CREDIT_REPORT_CHECK
+  AML_CHECK
+}
+
+enum VendorCapabilityRole {
+  PRIMARY
+  FALLBACK
+}
+
+enum VendorCostSource {
+  RATE_CARD
+  VENDOR_RESPONSE
+  INTERNAL
+  NONE
+}
+
+model Vendor {
+  id                     String             @id @default(uuid())
+  code                   VendorName         @unique
+  displayName            String
+  category               VendorCategory
+  status                 VendorStatus       @default(ACTIVE)
+  billingModel           VendorBillingModel
+  website                String?
+  supportEmail           String?
+  accountManager         String?
+  slaNotes               String?
+  currencyCode           CurrencyCode       @default(INR)
+  lowBalanceThreshold    Decimal?           @db.Decimal(14, 2)
+  requestTimeoutMs       Int?
+  syncReportedBalance    Boolean            @default(true)
+  subscriptionAnnualCost Decimal?           @db.Decimal(14, 2)
+  subscriptionRenewalAt  DateTime?
+  metadataJson           Json?
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+  deletedAt              DateTime?
+
+  capabilities    VendorCapability[]
+  costRates       VendorCostRate[]
+  balanceSnapshot VendorBalanceSnapshot?
+  balanceReadings VendorBalanceReading[]
+
+  @@index([status])
+  @@index([category])
+}
+
+model VendorCostRate {
+  id               String                  @id @default(uuid())
+  vendorId         String
+  endpointPrefix   String
+  verificationType VendorVerificationType?
+  unitCost         Decimal                 @db.Decimal(14, 4)
+  currencyCode     CurrencyCode            @default(INR)
+  effectiveFrom    DateTime                @default(now())
+  effectiveTo      DateTime?
+  note             String?
+  createdByUserId  String?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@unique([vendorId, endpointPrefix, effectiveFrom])
+  @@index([vendorId, endpointPrefix, effectiveFrom])
+  @@index([vendorId, verificationType])
+}
+
+model VendorBalanceSnapshot {
+  id               String        @id @default(uuid())
+  vendorId         String        @unique
+  reportedBalance  Decimal?      @db.Decimal(14, 2)
+  reportedUnit     String?
+  reportedCurrency CurrencyCode?
+  reportedAt       DateTime?
+  source           String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+}
+
+model VendorBalanceReading {
+  id               String        @id @default(uuid())
+  vendorId         String
+  reportedBalance  Decimal       @db.Decimal(14, 2)
+  reportedUnit     String?
+  reportedCurrency CurrencyCode?
+  source           String?
+  readAt           DateTime      @default(now())
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId, readAt])
+}
+
+model VendorCapability {
+  id               String                  @id @default(uuid())
+  vendorId         String
+  code             String
+  verificationType VendorVerificationType?
+  endpointPrefix   String?
+  displayName      String
+  enabled          Boolean                 @default(true)
+  role             VendorCapabilityRole    @default(PRIMARY)
+  priority         Int                     @default(0)
+  metadataJson     Json?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@unique([vendorId, code])
+  @@index([vendorId])
+  @@index([verificationType])
+}
+
+model VendorApiCallAudit {
+  id                   String            @id @default(uuid())
+  tenantId             String?
+  candidateCaseId      String?
+  candidateCaseCheckId String?
+  vendorVerificationId String?
+  vendor               VendorName
+  endpoint             String
+  httpMethod           String
+  httpStatusCode       Int?
+  durationMs           Int?
+  requestPayload       Json
+  responseBody         Json?
+  success              Boolean
+  errorMessage         String?
+  actorUserId          String?
+  ipAddress            String?
+  userAgent            String?
+  requestId            String?
+  attemptNumber        Int?
+  maxAttempts          Int?
+  billable             Boolean           @default(false)
+  costAmount           Decimal?          @db.Decimal(14, 2)
+  costCurrency         CurrencyCode?
+  costSource           VendorCostSource?
+  createdAt            DateTime          @default(now())
+
+  @@index([candidateCaseId, createdAt])
+  @@index([candidateCaseCheckId, createdAt])
+  @@index([vendor, endpoint, createdAt])
+  @@index([vendor, success, createdAt])
+  @@index([vendor, costSource])
+  @@index([actorUserId, createdAt])
+  @@index([vendorVerificationId])
+}

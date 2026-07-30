@@ -9053,3 +9053,28 @@ body > * {
 .rp-progress-fill {
   background: var(--color-icon-success, #059669);
 }
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * Client "Fill Details Yourself" form (app/home/new) — nudge the RDS
+ * defaults (12px labels / 14px field text) up a notch so the form reads
+ * comfortably on wide desktops. Scoped to `.bgv-fill-form` so it never
+ * affects the shared RDS components elsewhere in the app. Unlayered, so it
+ * wins over the Tailwind utility layer without needing !important. Popover
+ * menus are portaled outside this wrapper and keep their default size.
+ * ─────────────────────────────────────────────────────────────────────── */
+.bgv-fill-form :where(label) {
+  font-size: 14px;
+}
+/* 16px on fields: unchanged on mobile (already 16px, avoids iOS focus-zoom)
+ * and a clear bump on desktop, where the RDS default is 14px. */
+.bgv-fill-form :where(input, textarea) {
+  font-size: 16px;
+}
+.bgv-fill-form :where(input, textarea)::placeholder {
+  font-size: 16px;
+}
+/* Select / Date / Phone triggers and the nav buttons. */
+.bgv-fill-form :where(button),
+.bgv-fill-form :where(button) span {
+  font-size: 16px;
+}

@@ -3,7 +3,7 @@
 // null until the cost slice lands.
 
 export type VendorRange = '7d' | '30d' | '90d';
-export type VendorCode = 'SUREPASS' | 'KONNECTNXT' | 'TELECMI' | 'IN_HOUSE_OCR';
+export type VendorCode = 'SUREPASS' | 'KONNECTNXT' | 'IN_HOUSE_OCR';
 export type VendorCategory = 'KYC' | 'BGV' | 'TELEPHONY' | 'OCR';
 export type VendorStatus = 'ACTIVE' | 'DEGRADED' | 'DISABLED' | 'DEPRECATED';
 export type VendorBillingModel =

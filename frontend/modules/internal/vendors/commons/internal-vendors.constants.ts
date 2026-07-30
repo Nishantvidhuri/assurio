@@ -4,7 +4,6 @@ import type { VendorCode, VendorStatus } from './internal-vendors.types';
 export const VENDOR_SERIES_COLORS: Record<VendorCode, string> = {
   SUREPASS: '#4B67D1',
   KONNECTNXT: '#22C8A9',
-  TELECMI: '#8B5CF6',
   IN_HOUSE_OCR: '#F2785C',
 };
 
@@ -49,7 +48,6 @@ export const CALL_OUTCOME_OPTIONS = [
 export const VENDOR_FILTER_OPTIONS: { value: VendorCode; label: string }[] = [
   { value: 'SUREPASS', label: 'Surepass' },
   { value: 'KONNECTNXT', label: 'KonnectNXT' },
-  { value: 'TELECMI', label: 'TeleCMI' },
   { value: 'IN_HOUSE_OCR', label: 'OCR (In House)' },
 ];
 
@@ -83,12 +81,6 @@ export const ENDPOINT_FILTER_OPTIONS = [
   { value: '/verification/gst-certificate', label: 'KonnectNXT · GST Certificate' },
   { value: '/verification/crime-check', label: 'KonnectNXT · Crime Check (legacy)' },
   { value: '/credits/transactions', label: 'KonnectNXT · Credit Ledger' },
-  // TeleCMI — all telephony endpoints under one option.
-  {
-    value:
-      '/webrtc/click2call|/out_answered|/c2c/hangup|/play|/token|/balance|/user/*',
-    label: 'TeleCMI',
-  },
 ];
 
 // Threshold presets for the Settings modal's low-balance dropdown (INR).

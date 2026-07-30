@@ -53,4 +53,12 @@ export const KONNECT_NXT = {
   endpoints: {
     crimeCheck: '/verification/crime-check/',
   },
+  // v2 BGV endpoints live under /api (NOT /api/v2). One submit endpoint serves
+  // all BGV checks (criminal / credit-report / AML); one download endpoint
+  // returns the report for a given case_id. Ported from Recriauth.
+  bgvBaseUrl: 'https://bgv.konnectnxt.com/api',
+  bgvEndpoints: {
+    submit: '/async/v2/bgv-submit/',
+    download: '/verification/bgv/download',
+  },
 } as const;

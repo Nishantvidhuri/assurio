@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
-import { Activity, LayoutDashboard, FileText, LogOut, Menu, Receipt, Users } from 'lucide-react';
+import { Boxes, Activity, LayoutDashboard, FileText, FlaskConical, LogOut, Menu, Receipt, Users } from 'lucide-react';
 import {
   Sidebar as RdsSidebar,
   SidebarItem as RdsSidebarItem,
@@ -206,4 +206,6 @@ export const ICONS = {
   clients: <Users />,
   invoices: <FileText />,
   operations: <Activity />,
+  vendors: <Boxes />,
+  testVerification: <FlaskConical />,
 };

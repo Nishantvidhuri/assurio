@@ -40,7 +40,17 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={manrope.variable}>
-      <body className={`${display.variable} ${logo.variable}`}>{children}</body>
+      {/* suppressHydrationWarning: browser extensions (ColorZilla, Grammarly,
+       * LastPass…) inject attributes such as `cz-shortcut-listen` onto <body>
+       * before React hydrates, which React reports as a hydration mismatch.
+       * The warning is scoped to this element's attributes only — mismatches
+       * in the tree below still surface normally. */}
+      <body
+        suppressHydrationWarning
+        className={`${display.variable} ${logo.variable}`}
+      >
+        {children}
+      </body>
     </html>
   );
 }

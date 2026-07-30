@@ -303,8 +303,6 @@ const FAQS = [
 export default function AssurioLanding() {
   const root = useRef<HTMLDivElement>(null);
   const [openFaq, setOpenFaq] = useState<number | null>(0);
-  const [heroVerified, setHeroVerified] = useState(false);
-
   useIsoLayout(() => {
     const el = root.current;
     if (!el) return;
@@ -337,18 +335,10 @@ export default function AssurioLanding() {
         )
         .from('.ep-hero-trustline', { autoAlpha: 0, duration: 0.5 }, '-=0.3')
         .from(
-          '.ep-panel',
+          '.ep-hero-illustration',
           { y: 64, autoAlpha: 0, duration: 0.95 },
           '-=1.15',
-        )
-        .from(
-          '.ep-chip',
-          { scale: 0.82, autoAlpha: 0, duration: 0.5, stagger: 0.16 },
-          '-=0.35',
         );
-
-      /* ---- The "Verified" badge floats in after the panel settles ---- */
-      gsap.delayedCall(1.6, () => setHeroVerified(true));
 
       /* ---- Scroll-revealed sections (the story unfolds) ---- */
       el.querySelectorAll<HTMLElement>('.ep-reveal').forEach((node) => {
@@ -453,7 +443,7 @@ export default function AssurioLanding() {
             >
               Book Demo
             </a>
-            <Link className="ep-btn ep-btn-primary" href="/signup">
+            <Link className="ep-btn ep-btn-primary" href="/login">
               Verify Now
             </Link>
           </div>
@@ -495,7 +485,7 @@ export default function AssurioLanding() {
               ))}
             </ul>
             <div className="ep-hero-actions">
-              <Link className="ep-btn ep-btn-primary ep-btn-lg" href="/signup">
+              <Link className="ep-btn ep-btn-primary ep-btn-lg" href="/login">
                 Verify Now
                 <Icon name="arrow" className="ep-arrow" />
               </Link>
@@ -513,32 +503,12 @@ export default function AssurioLanding() {
           </div>
 
           <div className="ep-hero-visual">
-            <div className="ep-panel ep-report-shot">
+            <div className="ep-hero-illustration">
               <img
-                src="/landing/candidate-report.png"
-                alt="Sample Assurio verification report"
+                src="/landing/heroimage.png"
+                alt="Verified domestic workers, drivers and service professionals — cook, driver, nanny, maid, security guard and office professional, each marked Verified / No Risk"
                 loading="eager"
               />
-              {heroVerified && (
-                <span className="ep-report-badge">
-                  <Icon name="check" className="ep-chip-icon ep-chip-icon-green" />
-                  Verified
-                </span>
-              )}
-            </div>
-            <div className="ep-chip ep-chip-a">
-              <Icon name="check" className="ep-chip-icon ep-chip-icon-green" />
-              <div>
-                <div className="ep-chip-title">PAN Verified</div>
-                <div className="ep-chip-sub">Identity matched</div>
-              </div>
-            </div>
-            <div className="ep-chip ep-chip-b">
-              <Icon name="shield" className="ep-chip-icon" />
-              <div>
-                <div className="ep-chip-title">Risk: No Risk</div>
-                <div className="ep-chip-sub">No adverse signals</div>
-              </div>
             </div>
           </div>
         </div>
@@ -773,7 +743,7 @@ export default function AssurioLanding() {
                   </li>
                 ))}
               </ul>
-              <Link className="ep-btn ep-btn-primary ep-btn-block" href="/signup">
+              <Link className="ep-btn ep-btn-primary ep-btn-block" href="/login">
                 Verify Now
               </Link>
             </article>
@@ -956,7 +926,7 @@ export default function AssurioLanding() {
             employees.
           </p>
           <div className="ep-finalcta-actions">
-            <Link className="ep-btn ep-btn-light ep-btn-lg" href="/signup">
+            <Link className="ep-btn ep-btn-light ep-btn-lg" href="/login">
               Verify Now
               <Icon name="arrow" className="ep-arrow" />
             </Link>

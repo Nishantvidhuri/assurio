@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { fetchCsrf, login } from '../lib/api';
-import { saveSession } from '../lib/session';
+import { getUser, homePathForRole, saveSession } from '../lib/session';
 import { Eye, EyeOff } from 'lucide-react';
 import { IconApple, IconGoogle } from '../components/AuthIcons';
 import Brand from '../components/Brand';
@@ -24,6 +24,16 @@ export default function LoginPage() {
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [redirecting, setRedirecting] = useState(false);
+
+  // Already signed in? Skip the login form and go straight to the dashboard.
+  useEffect(() => {
+    const user = getUser();
+    if (user) {
+      setRedirecting(true);
+      router.replace(homePathForRole(user.role));
+    }
+  }, [router]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -33,13 +43,7 @@ export default function LoginPage() {
       await fetchCsrf();                        // get CSRF cookie before mutation
       const { user } = await login(email, password);
       saveSession('', user);                    // token lives in httpOnly cookie
-      router.push(
-        user.role === 'admin'
-          ? '/admin'
-          : user.role === 'candidate'
-            ? '/candidate'
-            : '/home',
-      );
+      router.push(homePathForRole(user.role));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {
@@ -54,6 +58,9 @@ export default function LoginPage() {
   function handleForgot() {
     router.push('/forgot-password');
   }
+
+  // Avoid flashing the form while we bounce an already-signed-in user.
+  if (redirecting) return null;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#F4F7FC] px-4 py-10">
