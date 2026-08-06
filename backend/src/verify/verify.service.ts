@@ -29,6 +29,63 @@ export interface AadhaarKyc {
   address: AadhaarAddress | null;
 }
 
+/**
+ * Shown when the candidate finished DigiLocker consent but did not share their
+ * Aadhaar (selected a different document, or none). Actionable: they can retry
+ * and pick Aadhaar. Surfaced verbatim to the candidate; the frontend offers a
+ * "Try again" that mints a fresh DigiLocker session (new client_id).
+ */
+export const NO_AADHAAR_SHARED =
+  "No Aadhaar was shared from your DigiLocker account. Please try again and select 'Aadhaar' when DigiLocker asks which document to share.";
+
+
+/**
+ * SurePass 4xx/5xx responses carry a human-readable reason on `message`
+ * (e.g. "PAN Not Found." / "Aadhaar Not Found.") with a stable identifier on
+ * `message_code` (e.g. "pan_not_found"). Ported verbatim from Recriauth:
+ *
+ *   • 4xx (incl. 422) = a GENUINE verification outcome (invalid / not found) —
+ *     surface the vendor's message untouched. Retrying will NOT help.
+ *   • 5xx = the vendor's upstream source is down — reframe as vendor-side so
+ *     ops know a retry later is the right move.
+ */
+function extractUpstreamMessage(
+  parsedBody: unknown,
+  statusCode: number,
+): string {
+  let upstream: string | null = null;
+  if (parsedBody && typeof parsedBody === 'object') {
+    const body = parsedBody as { message?: unknown; message_code?: unknown };
+    if (typeof body.message === 'string' && body.message.trim().length > 0) {
+      upstream = body.message.trim();
+    } else if (
+      typeof body.message_code === 'string' &&
+      body.message_code.trim().length > 0
+    ) {
+      upstream = body.message_code.trim();
+    }
+  }
+  if (statusCode >= 500) {
+    return upstream
+      ? `Source unavailable at verification vendor (SurePass ${statusCode}: ${upstream}) — retry later`
+      : `Source unavailable at verification vendor (SurePass HTTP ${statusCode}) — retry later`;
+  }
+  return upstream ?? `Upstream responded with status ${statusCode}`;
+}
+
+/**
+ * KonnectNxt wraps payloads in `{ status, code, message, data, credits_* }`.
+ * Its `message` carries the reason on failure; fall back to the bare status.
+ * (Ported from Recriauth's KonnectNxt client.)
+ */
+function knUpstreamMessage(body: unknown, status: number): string {
+  if (body && typeof body === 'object' && !Array.isArray(body)) {
+    const m = (body as Record<string, unknown>).message;
+    if (typeof m === 'string' && m.trim().length > 0) return m;
+  }
+  return `HTTP ${status}`;
+}
+
 @Injectable()
 export class VerifyService {
   constructor(private readonly recorder: VendorCallRecorderService) {}
@@ -108,12 +165,13 @@ export class VerifyService {
       status = res.status;
       json = await res.json().catch(() => null);
       if (!res.ok || !(json as Record<string, unknown>)?.success) {
-        const msg =
-          (json as Record<string, unknown>)?.message ||
-          (json as Record<string, unknown>)?.message_code ||
-          `Verification failed (HTTP ${res.status})`;
-        errorMessage = typeof msg === 'string' ? msg : JSON.stringify(msg);
-        throw new BadRequestException(msg);
+        const msg = extractUpstreamMessage(json, res.status);
+        errorMessage = msg;
+        // 5xx = vendor source down (retryable); 4xx = genuine outcome
+        // (invalid / not found — retrying won't help).
+        throw res.status >= 500
+          ? new ServiceUnavailableException(msg)
+          : new BadRequestException(msg);
       }
       success = true;
       return (json as Record<string, unknown>).data as T;
@@ -155,12 +213,13 @@ export class VerifyService {
       status = res.status;
       json = await res.json().catch(() => null);
       if (!res.ok || !(json as Record<string, unknown>)?.success) {
-        const msg =
-          (json as Record<string, unknown>)?.message ||
-          (json as Record<string, unknown>)?.message_code ||
-          `Verification failed (HTTP ${res.status})`;
-        errorMessage = typeof msg === 'string' ? msg : JSON.stringify(msg);
-        throw new BadRequestException(msg);
+        const msg = extractUpstreamMessage(json, res.status);
+        errorMessage = msg;
+        // 5xx = vendor source down (retryable); 4xx = genuine outcome
+        // (invalid / not found — retrying won't help).
+        throw res.status >= 500
+          ? new ServiceUnavailableException(msg)
+          : new BadRequestException(msg);
       }
       success = true;
       return (json as Record<string, unknown>).data as T;
@@ -208,12 +267,12 @@ export class VerifyService {
       const text = await res.text();
       try { json = text ? JSON.parse(text) as Record<string, unknown> : null; } catch { /**/ }
       if (!res.ok) {
-        const candidate = json && (json.message || json.detail || json.error);
-        const msg = typeof candidate === 'string' ? candidate
-          : candidate ? JSON.stringify(candidate)
-          : `Request failed (HTTP ${res.status})`;
+        const msg = knUpstreamMessage(json, res.status);
         errorMessage = msg;
-        throw new BadRequestException(msg);
+        // 5xx = vendor source down (retryable); 4xx = genuine outcome.
+        throw res.status >= 500
+          ? new ServiceUnavailableException(msg)
+          : new BadRequestException(msg);
       }
       success = true;
       return (json ?? { raw: text }) as T;
@@ -255,13 +314,16 @@ export class VerifyService {
       status = res.status;
       const text = await res.text();
       try { json = text ? JSON.parse(text) as Record<string, unknown> : null; } catch { /**/ }
-      if (!res.ok) {
-        const candidate = json && (json.message || json.detail || json.error);
-        const msg = typeof candidate === 'string' ? candidate
-          : candidate ? JSON.stringify(candidate)
-          : `Request failed (HTTP ${res.status})`;
+      // 202 (processing) and 404 (report not ready yet) are expected,
+      // non-error states for the report GET — the poller branches on
+      // `data.status`. Everything else non-2xx is a real failure.
+      const isExpectedPending = res.status === 202 || res.status === 404;
+      if (!res.ok && !isExpectedPending) {
+        const msg = knUpstreamMessage(json, res.status);
         errorMessage = msg;
-        throw new BadRequestException(msg);
+        throw res.status >= 500
+          ? new ServiceUnavailableException(msg)
+          : new BadRequestException(msg);
       }
       success = true;
       return (json ?? { raw: text }) as T;
@@ -282,7 +344,15 @@ export class VerifyService {
   /* ── Surepass: PAN ── */
 
   async pan(idNumber: string) {
-    return this.spPost(SUREPASS.endpoints.pan, { id_number: idNumber });
+    const data = (await this.spPost(SUREPASS.endpoints.pan, {
+      id_number: idNumber,
+    })) as Record<string, unknown> | null;
+    // A well-formatted but non-existent PAN returns HTTP 200 with empty data.
+    // A real record always carries a PAN number + name — otherwise it's invalid.
+    if (!data || (!data.pan_number && !data.full_name)) {
+      throw new BadRequestException('This PAN is invalid or does not exist');
+    }
+    return data;
   }
 
   /* ── Surepass: Voter ID ── */
@@ -291,10 +361,24 @@ export class VerifyService {
     return this.spPost(SUREPASS.endpoints.voterId, { id_number: idNumber });
   }
 
+  /**
+   * Surepass expects DOB as `YYYY-MM-DD`, but the candidate form stores it as
+   * `DD-MM-YYYY` (or `DD/MM/YYYY`). Normalise so DL/passport payloads validate.
+   */
+  private toIsoDob(dob: string): string {
+    const m = dob.match(/^(\d{2})[-/](\d{2})[-/](\d{4})$/);
+    return m ? `${m[3]}-${m[2]}-${m[1]}` : dob;
+  }
+
   /* ── Surepass: Passport ── */
 
   async passport(fileNumber: string, dob: string) {
-    return this.spPost(SUREPASS.endpoints.passport, { file_number: fileNumber, dob });
+    // Surepass passport-details keys the file number on `id_number` (NOT
+    // `file_number`, which it rejects with "Input payload validation failed").
+    return this.spPost(SUREPASS.endpoints.passport, {
+      id_number: fileNumber,
+      dob: this.toIsoDob(dob),
+    });
   }
 
   /* ── Surepass: Driving licence ── */
@@ -302,7 +386,7 @@ export class VerifyService {
   async drivingLicense(idNumber: string, dob: string) {
     return this.spPost(SUREPASS.endpoints.drivingLicense, {
       id_number: idNumber,
-      dob,
+      dob: this.toIsoDob(dob),
     });
   }
 
@@ -335,30 +419,55 @@ export class VerifyService {
     };
   }
 
+  /**
+   * Fetch the verified Aadhaar KYC via the Surepass DigiLocker document flow:
+   *   1. list-documents/:clientId       → find the Aadhaar file_id
+   *   2. download-document/:clientId/:id → short-lived signed URL
+   *   3. GET that URL                    → the signed eAadhaar XML
+   *   4. parse the XML                   → AadhaarKyc
+   * Unlike `download-aadhaar` (one-time, "already_downloaded" on re-call), this
+   * flow can be re-run — list-documents + download-document mint a fresh URL.
+   * The raw XML / photo are never persisted here; the caller decides what to
+   * store (currently: KYC fields minus the photo).
+   */
   async digilockerAadhaar(clientId: string): Promise<AadhaarKyc> {
-    // 1. List documents
-    const listData = await this.spGet<{ documents?: Array<{ file_id?: string; name?: string; doc_type?: string }> }>(
-      SUREPASS.endpoints.digilockerListDocuments(clientId),
-    );
+    // 1. Enumerate documents and locate the Aadhaar entry. list-documents
+    // returns two Aadhaar rows — a PDF (file_id "aadhaar") and the parseable
+    // XML (file_id "digilocker_file_...", file_type "xml"). We need the XML.
+    const listData = await this.spGet<{
+      documents?: Array<{
+        file_id?: string;
+        name?: string;
+        doc_type?: string;
+        file_type?: string;
+      }>;
+    }>(SUREPASS.endpoints.digilockerListDocuments(clientId));
 
     const docs = listData.documents ?? [];
-    const aadhaarDoc = docs.find((d) => {
+    const isAadhaar = (d: { doc_type?: string; name?: string }): boolean => {
       const dt = (d.doc_type || '').toUpperCase();
       const nm = (d.name || '').toLowerCase();
       return dt === 'ADHAR' || dt === 'AADHAAR' || nm.includes('aadhaar');
-    });
+    };
+    // Aadhaar-only: prefer the parseable XML row, else any Aadhaar row. We do
+    // NOT fall back to a non-Aadhaar document — if the candidate shared some
+    // other doc (e.g. PAN), that's a "no Aadhaar" outcome, not a success.
+    const aadhaarDoc =
+      docs.find(
+        (d) => isAadhaar(d) && (d.file_type || '').toLowerCase() === 'xml',
+      ) ?? docs.find(isAadhaar);
 
     if (!aadhaarDoc?.file_id) {
-      throw new BadRequestException(
-        'Aadhaar document was not found in this DigiLocker account.',
-      );
+      throw new BadRequestException(NO_AADHAAR_SHARED);
     }
 
-    // 2. Download document — returns a download_url
+    // 2. Resolve a signed download URL for that document.
     const dlData = await this.spGet<{ download_url?: string }>(
-      SUREPASS.endpoints.digilockerAadhaarPdf(clientId),
+      SUREPASS.endpoints.digilockerDownloadDocument(
+        clientId,
+        aadhaarDoc.file_id,
+      ),
     );
-
     const downloadUrl = dlData.download_url;
     if (!downloadUrl) {
       throw new BadRequestException(
@@ -366,7 +475,7 @@ export class VerifyService {
       );
     }
 
-    // 3. Fetch the eAadhaar XML from the signed URL
+    // 3. Fetch the signed eAadhaar XML.
     let xmlRes: Response;
     try {
       xmlRes = await fetch(downloadUrl);
@@ -375,19 +484,63 @@ export class VerifyService {
         'Could not download the Aadhaar XML from DigiLocker.',
       );
     }
-
     if (!xmlRes.ok) {
       throw new BadRequestException(
         `Could not download Aadhaar XML (HTTP ${xmlRes.status})`,
       );
     }
-
     const xml = await xmlRes.text();
+
+    // 4. Parse the XML into our KYC shape. If it carries neither a name nor a
+    // masked UID it isn't a usable Aadhaar (e.g. a non-Aadhaar doc slipped
+    // through) — treat as "no Aadhaar shared" so the candidate can retry.
     const parsed = this.parseAadhaarXml(xml);
-    if (!parsed) {
-      throw new BadRequestException('Could not parse the Aadhaar XML response.');
+    if (!parsed || (!parsed.name && !parsed.uidMasked)) {
+      throw new BadRequestException(NO_AADHAAR_SHARED);
     }
     return parsed;
+  }
+
+  /**
+   * Parse a signed eAadhaar XML (Certificate → KycRes → UidData) into KYC.
+   * Attribute-order-independent; reads the English `Poi`/`Poa` (not the
+   * localised `LData`). `Pht` carries the base64 photo.
+   */
+  private parseAadhaarXml(xml: string): AadhaarKyc | null {
+    try {
+      const getAttr = (tag: string, attr: string): string | null => {
+        const re = new RegExp(`<${tag}\\b[^>]*?\\b${attr}="([^"]*)"`, 'i');
+        return xml.match(re)?.[1] ?? null;
+      };
+      const getContent = (tag: string): string | null => {
+        const re = new RegExp(`<${tag}[^>]*>([^<]*)</${tag}>`, 'i');
+        return xml.match(re)?.[1]?.trim() || null;
+      };
+
+      const uid = getAttr('UidData', 'uid');
+      const address: AadhaarAddress = {
+        careOf: getAttr('Poa', 'co'),
+        country: getAttr('Poa', 'country'),
+        district: getAttr('Poa', 'dist'),
+        house: getAttr('Poa', 'house'),
+        locality: getAttr('Poa', 'loc'),
+        pincode: getAttr('Poa', 'pc'),
+        postOffice: getAttr('Poa', 'po'),
+        state: getAttr('Poa', 'state'),
+        vtc: getAttr('Poa', 'vtc'),
+      };
+
+      return {
+        uidMasked: uid ? `XXXX XXXX ${uid.slice(-4)}` : null,
+        name: getAttr('Poi', 'name'),
+        dob: getAttr('Poi', 'dob'),
+        gender: getAttr('Poi', 'gender'),
+        photo: getContent('Pht'),
+        address,
+      };
+    } catch {
+      return null;
+    }
   }
 
   /* ── KonnectNxt: Crime check ── */
@@ -468,40 +621,4 @@ export class VerifyService {
 
   /* ── XML parser ── */
 
-  private parseAadhaarXml(xml: string): AadhaarKyc | null {
-    try {
-      const getAttr = (tag: string, attr: string): string | null => {
-        const re = new RegExp(`<${tag}\\b[^>]*?\\b${attr}="([^"]*)"`, 'i');
-        return xml.match(re)?.[1] ?? null;
-      };
-      const getContent = (tag: string): string | null => {
-        const re = new RegExp(`<${tag}[^>]*>([^<]*)</${tag}>`, 'i');
-        return xml.match(re)?.[1]?.trim() || null;
-      };
-
-      const uid = getAttr('UidData', 'uid');
-      const address: AadhaarAddress = {
-        careOf: getAttr('Poa', 'co'),
-        country: getAttr('Poa', 'country'),
-        district: getAttr('Poa', 'dist'),
-        house: getAttr('Poa', 'house'),
-        locality: getAttr('Poa', 'loc'),
-        pincode: getAttr('Poa', 'pc'),
-        postOffice: getAttr('Poa', 'po'),
-        state: getAttr('Poa', 'state'),
-        vtc: getAttr('Poa', 'vtc'),
-      };
-
-      return {
-        uidMasked: uid ? `XXXX XXXX ${uid.slice(-4)}` : null,
-        name: getAttr('Poi', 'name'),
-        dob: getAttr('Poi', 'dob'),
-        gender: getAttr('Poi', 'gender'),
-        photo: getContent('Pht'),
-        address,
-      };
-    } catch {
-      return null;
-    }
-  }
 }

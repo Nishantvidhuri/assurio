@@ -30,8 +30,10 @@ export { Tag, tagVariants, type TagProps } from './tag';
 export {
   Breadcrumbs,
   BreadcrumbItem,
+  BreadcrumbSwitcher,
   type BreadcrumbsProps,
   type BreadcrumbItemProps,
+  type BreadcrumbMenuItem,
 } from './breadcrumbs';
 export { Button, buttonVariants, type ButtonProps } from './button';
 export {

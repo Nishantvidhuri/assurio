@@ -6,9 +6,11 @@ import { ScrollText } from 'lucide-react';
 interface TermsBoxProps {
   onAgreedChange: (agreed: boolean) => void;
   agreed: boolean;
+  /** Checkbox label — defaults to the inviter wording; candidates pass their own. */
+  label?: React.ReactNode;
 }
 
-export default function TermsBox({ onAgreedChange, agreed }: TermsBoxProps) {
+export default function TermsBox({ onAgreedChange, agreed, label }: TermsBoxProps) {
   const [scrolled, setScrolled] = useState(false);
   const tcRef = useRef<HTMLDivElement>(null);
 
@@ -160,9 +162,13 @@ export default function TermsBox({ onAgreedChange, agreed }: TermsBoxProps) {
           style={{ marginTop: 2, flexShrink: 0 }}
         />
         <span style={{ fontSize: 12.5, color: 'var(--ink)', lineHeight: 1.55 }}>
-          I confirm that I have obtained the candidate's consent and I agree to the
-          Terms &amp; Conditions of Handy Online Solution Private Limited,
-          operating the Assurio platform.
+          {label ?? (
+            <>
+              I confirm that I have obtained the candidate's consent and I agree to
+              the Terms &amp; Conditions of Handy Online Solution Private Limited,
+              operating the Assurio platform.
+            </>
+          )}
         </span>
       </label>
       {!scrolled && (

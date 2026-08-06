@@ -1,6 +1,7 @@
 'use client';
 
 import dynamic from 'next/dynamic';
+import { Loader } from '@/shared/components/ui';
 
 /**
  * Dynamic-only (no SSR) import of echarts-for-react. Loaded by dashboard
@@ -10,8 +11,8 @@ import dynamic from 'next/dynamic';
 export const ReactECharts = dynamic(() => import('echarts-for-react'), {
   ssr: false,
   loading: () => (
-    <div className="flex min-h-[272px] items-center justify-center text-caption text-text-disabled">
-      Loading chart…
+    <div className="flex min-h-[272px] items-center justify-center">
+      <Loader description="Loading chart…" />
     </div>
   ),
 });

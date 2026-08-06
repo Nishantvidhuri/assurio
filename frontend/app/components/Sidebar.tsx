@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
-import { Boxes, Activity, LayoutDashboard, FileText, FlaskConical, LogOut, Menu, Receipt, Users } from 'lucide-react';
+import { Boxes, Activity, LayoutDashboard, FileText, FlaskConical, LogOut, Menu, Package, Receipt, Settings, Users } from 'lucide-react';
 import {
   Sidebar as RdsSidebar,
   SidebarItem as RdsSidebarItem,
@@ -208,4 +208,17 @@ export const ICONS = {
   operations: <Activity />,
   vendors: <Boxes />,
   testVerification: <FlaskConical />,
+  packages: <Package />,
+  settings: <Settings />,
 };
+
+/**
+ * Client (owner) sidebar nav — single source of truth so every page shows the
+ * same items. Previously each page redeclared this and they drifted (Settings
+ * was missing on a couple of pages).
+ */
+export const CLIENT_NAV: SidebarItem[] = [
+  { href: '/home', label: 'Dashboard', icon: ICONS.dashboard },
+  { href: '/home/billing', label: 'Billing', icon: ICONS.billing },
+  { href: '/home/settings', label: 'Settings', icon: ICONS.settings },
+];

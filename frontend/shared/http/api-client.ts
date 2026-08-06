@@ -125,6 +125,8 @@ async function performRequest(
       ...(options.body && !passthroughBody
         ? { 'Content-Type': 'application/json' }
         : {}),
+      // Skip ngrok's free-tier interstitial so the API returns JSON, not HTML.
+      'ngrok-skip-browser-warning': 'true',
       ...(options.headers ?? {}),
     },
     body: passthroughBody
@@ -152,6 +154,7 @@ async function tryRefreshSession(): Promise<boolean> {
         cache: 'no-store',
         headers: {
           'X-CSRF-Token': csrfToken,
+          'ngrok-skip-browser-warning': 'true',
         },
       });
 

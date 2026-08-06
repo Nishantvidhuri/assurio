@@ -5060,6 +5060,117 @@ body > * {
   color: var(--ink-2);
 }
 
+/* ===== Review: checks we can / can't perform ===== */
+.co-checks-head {
+  margin-bottom: 20px;
+}
+
+.co-checks-h {
+  margin: 0;
+  font-family: var(--font-display), sans-serif;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+}
+
+.co-checks-sub {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.co-checks-group + .co-checks-group {
+  margin-top: 18px;
+}
+
+.co-checks-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 8px;
+}
+
+.co-checks-list {
+  display: grid;
+  gap: 8px;
+}
+
+.co-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--rule);
+  font-size: 13.5px;
+}
+
+.co-check-icon {
+  flex-shrink: 0;
+}
+
+.co-check-name {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.co-check-ok {
+  background: var(--card-2);
+}
+
+.co-check-ok .co-check-icon {
+  color: var(--ok);
+}
+
+.co-check-ok .co-check-tag {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--ink-3);
+}
+
+.co-check-miss {
+  background: var(--warn-soft);
+  border-color: color-mix(in srgb, var(--warn) 28%, transparent);
+}
+
+.co-check-miss .co-check-icon {
+  color: var(--warn);
+}
+
+.co-check-missing {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--warn);
+  text-align: right;
+}
+
+.co-checks-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.co-checks-add:hover {
+  text-decoration: underline;
+}
+
+.co-checks-divider {
+  height: 1px;
+  background: var(--rule);
+  margin: 26px 0;
+}
+
 /* Methods grid */
 .co-methods {
   display: grid;
@@ -5955,6 +6066,7 @@ body > * {
 .inv-page-toolbar {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 14px;
   margin-bottom: 18px;
   flex-wrap: wrap;
@@ -5962,7 +6074,7 @@ body > * {
 
 /* ---------- Premium search bar ---------- */
 .inv-searchbar {
-  flex: 1;
+  flex: 0 1 520px;
   max-width: 520px;
   min-width: 280px;
   position: relative;

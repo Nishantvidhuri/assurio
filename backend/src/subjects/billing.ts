@@ -1,32 +1,70 @@
 import { Subject } from '../../generated/prisma/client';
 
+// Buy-side vendor cost per check (INR), matching the active VendorCostRate card.
 export const COST = {
-  pan: 3,
-  aadhaar: 3,
+  pan: 2.64,
+  aadhaar: 3.24,
   crime: 100,
+  dl: 3,
+  voter: 3,
+  passport: 3,
+  employment: 5,
+  credit: 100,
 } as const;
+
+export type BillType = keyof typeof COST;
 
 export interface BillingEvent {
   subjectId: string;
   subjectName: string;
-  type: 'pan' | 'aadhaar' | 'crime';
+  type: BillType;
   label: string;
   credits: number;
   at?: Date;
 }
 
+// result field → billing type + label.
+const RESULT_FIELDS: Array<[keyof Subject, BillType, string]> = [
+  ['panResult', 'pan', 'PAN verification'],
+  ['aadhaarResult', 'aadhaar', 'Aadhaar (DigiLocker)'],
+  ['crimeResult', 'crime', 'Crime check'],
+  ['dlResult', 'dl', 'Driving licence'],
+  ['voterResult', 'voter', 'Voter ID'],
+  ['passportResult', 'passport', 'Passport'],
+  ['employmentResult', 'employment', 'Employment history'],
+  ['creditResult', 'credit', 'Credit check'],
+];
+
+/**
+ * Billable vendor calls for a subject. Counts from the subject's
+ * `verificationLog` (one entry per real call — so recalls add up), and falls
+ * back to result-presence for legacy subjects whose calls predate logging.
+ */
+function isCheckError(v: unknown): boolean {
+  return Boolean(v && typeof v === 'object' && '__checkError' in v);
+}
+
 export function eventsForSubject(doc: Subject): BillingEvent[] {
-  const id = doc.id;
-  const at = doc.updatedAt;
+  const log = Array.isArray(doc.verificationLog)
+    ? (doc.verificationLog as Array<{ type?: string }>)
+    : [];
   const list: BillingEvent[] = [];
-  if (doc.panResult) {
-    list.push({ subjectId: id, subjectName: doc.name, type: 'pan', label: 'PAN verification', credits: COST.pan, at });
-  }
-  if (doc.aadhaarResult) {
-    list.push({ subjectId: id, subjectName: doc.name, type: 'aadhaar', label: 'Aadhaar (DigiLocker)', credits: COST.aadhaar, at });
-  }
-  if (doc.crimeResult) {
-    list.push({ subjectId: id, subjectName: doc.name, type: 'crime', label: 'Crime check', credits: COST.crime, at });
+  for (const [field, type, label] of RESULT_FIELDS) {
+    const logged = log.filter((e) => e?.type === type).length;
+    const value = (doc as Record<string, unknown>)[field];
+    // A stored error is a failed lookup — not a billable success.
+    const resultPresent = Boolean(value) && !isCheckError(value);
+    const count = logged > 0 ? logged : resultPresent ? 1 : 0;
+    for (let i = 0; i < count; i++) {
+      list.push({
+        subjectId: doc.id,
+        subjectName: doc.name,
+        type,
+        label,
+        credits: COST[type],
+        at: doc.updatedAt,
+      });
+    }
   }
   return list;
 }

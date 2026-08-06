@@ -1,4 +1,5 @@
 'use client';
+import PageLoader from '@/app/components/PageLoader';
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -92,7 +93,7 @@ export default function CheckoutPage() {
     }
   }
 
-  if (!draft) return <div className="loading">Loading…</div>;
+  if (!draft) return <PageLoader />;
 
   return (
     <div className="co">

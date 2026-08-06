@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   Patch,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -12,6 +13,10 @@ import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SubjectsService } from '../subjects/subjects.service';
 import { AdminService } from './admin.service';
+import {
+  InvoiceLifecycleService,
+  type ListFilters,
+} from '../payments/invoice-lifecycle.service';
 
 interface RequestWithUser extends Request {
   user?: { sub?: string; role?: string };
@@ -23,7 +28,31 @@ export class AdminController {
   constructor(
     private readonly admin: AdminService,
     private readonly subjectsSvc: SubjectsService,
+    private readonly invoiceLifecycle: InvoiceLifecycleService,
   ) {}
+
+  // ── Internal per-client invoices ledger (read-only) ──
+  // Our billing is pay-first: the client pays (Razorpay) and the invoice is
+  // generated instantly. So this is a per-client ledger of those paid invoices
+  // — no operator create / mark-paid / void lifecycle.
+
+  @Get('clients/:id/invoices')
+  clientInvoices(
+    @Req() req: RequestWithUser,
+    @Param('id') id: string,
+    @Query() q: Record<string, string>,
+  ) {
+    this.requireAdmin(req);
+    const filters: ListFilters = {
+      businessStatus: q.businessStatus as ListFilters['businessStatus'],
+      search: q.search,
+      minAmount: q.minAmount ? Number(q.minAmount) : undefined,
+      maxAmount: q.maxAmount ? Number(q.maxAmount) : undefined,
+      page: q.page ? Number(q.page) : undefined,
+      pageSize: q.pageSize ? Number(q.pageSize) : undefined,
+    };
+    return this.invoiceLifecycle.listForClient(id, filters);
+  }
 
   @Get('overview')
   overview(@Req() req: RequestWithUser) {
@@ -71,6 +100,12 @@ export class AdminController {
   subject(@Req() req: RequestWithUser, @Param('id') id: string) {
     this.requireAdmin(req);
     return this.admin.getSubject(id);
+  }
+
+  @Get('drafts/:id')
+  draft(@Req() req: RequestWithUser, @Param('id') id: string) {
+    this.requireAdmin(req);
+    return this.admin.getDraft(id);
   }
 
   @Patch('subjects/:id')

@@ -1,4 +1,5 @@
 'use client';
+import PageLoader from '@/app/components/PageLoader';
 
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
@@ -22,6 +23,8 @@ import { getToken } from '../../../lib/session';
 import { doLogout } from '../../../lib/logout';
 import { ICONS, type SidebarItem } from '../../../components/Sidebar';
 import AppShell from '../../../components/AppShell';
+import { useAdminSwitchers } from '../../../components/useAdminSwitchers';
+import InvoicesTab from './InvoicesTab';
 import {
   FilterChip,
   Pagination,
@@ -39,10 +42,30 @@ const ADMIN_NAV: SidebarItem[] = [
   { href: '/admin', label: 'Dashboard', icon: ICONS.dashboard },
   { href: '/admin/clients', label: 'Clients', icon: ICONS.clients },
   { href: '/admin/invoices', label: 'Invoices', icon: ICONS.invoices },
-  { href: '/admin/operations', label: 'Operations', icon: ICONS.operations },
   { href: '/admin/vendors', label: 'Vendors', icon: ICONS.vendors },
+  { href: '/admin/packages', label: 'Packages', icon: ICONS.packages },
+  { href: '/admin/operations', label: 'Operations', icon: ICONS.operations },
   { href: '/admin/test-verification', label: 'Test Verification', icon: ICONS.testVerification },
 ];
+
+/**
+ * Status shown for a submitted candidate: "Completed" when all checks are done,
+ * "In progress · X/Y" while some are still running (crime/credit take time),
+ * else the raw account status.
+ */
+function checkProgressStatus(
+  done: number,
+  total: number,
+  status: string,
+): { label: string; variant: 'Success' | 'Warning' } {
+  if (total > 0) {
+    if (done >= total) return { label: 'Completed', variant: 'Success' };
+    return { label: `In progress · ${done}/${total}`, variant: 'Warning' };
+  }
+  if ((status || '').toLowerCase() === 'active')
+    return { label: 'Active', variant: 'Success' };
+  return { label: status || 'Invited', variant: 'Warning' };
+}
 
 function riskClassBadge(risk?: string | null): string {
   const r = (risk || '').toLowerCase();
@@ -70,11 +93,12 @@ export default function AdminClientPage() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [detail, setDetail] = useState<AdminClientDetail | null>(null);
   const [error, setError] = useState('');
+  const { clientMenu } = useAdminSwitchers(params?.id);
+  const [tab, setTab] = useState<'candidates' | 'invoices'>('candidates');
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [sortKey, setSortKey] = useState<'name' | 'status' | null>('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
@@ -156,31 +180,7 @@ export default function AdminClientPage() {
     [sortedSubjects, currentPage, pageSize],
   );
 
-  const allPagedSelected =
-    pagedSubjects.length > 0 && pagedSubjects.every((x) => selected.has(x.id));
-  const somePagedSelected = pagedSubjects.some((x) => selected.has(x.id));
-
-  function toggleSelectAll(checked: boolean) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      for (const x of pagedSubjects) {
-        if (checked) next.add(x.id);
-        else next.delete(x.id);
-      }
-      return next;
-    });
-  }
-
-  function toggleSelect(id: string, checked: boolean) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (checked) next.add(id);
-      else next.delete(id);
-      return next;
-    });
-  }
-
-  if (!user) return <div className="loading">Loading...</div>;
+  if (!user) return <PageLoader />;
 
   return (
     <AppShell
@@ -190,7 +190,7 @@ export default function AdminClientPage() {
       breadcrumbs={[
         { label: 'Home', href: '/admin' },
         { label: 'Clients', href: '/admin/clients' },
-        { label: detail?.client.name ?? '…' },
+        { label: detail?.client.name ?? '…', menu: clientMenu },
       ]}
     >
         {error && <div className="error">{error}</div>}
@@ -215,6 +215,31 @@ export default function AdminClientPage() {
               </span>
             </header>
 
+            {/* ── Tabs: Candidates | Invoices ── */}
+            <div className="mb-2 flex items-center gap-1 border-b border-border-default">
+              {(['candidates', 'invoices'] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setTab(t)}
+                  className={`-mb-px border-b-2 px-4 py-2.5 text-body-md font-medium capitalize transition-colors ${
+                    tab === t
+                      ? 'border-primary text-primary'
+                      : 'border-transparent text-text-placeholder hover:text-text-body'
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+
+            {tab === 'invoices' && (
+              <section className="mt-6">
+                <InvoicesTab clientId={params?.id ?? ''} />
+              </section>
+            )}
+
+            {tab === 'candidates' && (
             <section className="mt-6">
               <h2 className="mb-3 text-lg font-semibold text-text-heading">Candidates</h2>
 
@@ -236,6 +261,10 @@ export default function AdminClientPage() {
               <div className="mb-2 flex flex-wrap items-end justify-between gap-3">
                 <p className="text-body-sm text-text-placeholder">
                   Showing {pagedSubjects.length} out of {sortedSubjects.length}
+                  {detail.drafts.length > 0 &&
+                    ` · ${detail.drafts.length} draft${
+                      detail.drafts.length === 1 ? '' : 's'
+                    }`}
                 </p>
                 <div className="w-full sm:w-[280px]">
                   <SearchBar
@@ -250,12 +279,6 @@ export default function AdminClientPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHeaderCell
-                      type="checkbox"
-                      checked={allPagedSelected}
-                      indeterminate={!allPagedSelected && somePagedSelected}
-                      onCheckedChange={toggleSelectAll}
-                    />
-                    <TableHeaderCell
                       label="Candidate"
                       sortable
                       sortOrder={sortKey === 'name' ? sortDir : null}
@@ -268,38 +291,86 @@ export default function AdminClientPage() {
                       sortOrder={sortKey === 'status' ? sortDir : null}
                       onSort={() => toggleSort('status')}
                     />
-                    <TableHeaderCell label="PAN" className="cd-col-hide" />
-                    <TableHeaderCell label="Aadhaar" className="cd-col-hide" />
                     <TableHeaderCell label="Crime" className="cd-col-hide" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
+                      {/* In-progress drafts — shows what the client started and
+                          which fields they've filled (✓) vs left blank (—). */}
+                      {detail.drafts.map((d) => {
+                        const dn =
+                          (d.data.name || '').trim() || 'Untitled candidate';
+                        const addressFilled = Boolean(
+                          (d.data.permanentAddress || '').trim(),
+                        );
+                        return (
+                          <TableRow
+                            key={`draft-${d.id}`}
+                            hoverable
+                            className="cd-row cursor-pointer"
+                            onClick={() =>
+                              router.push(`/admin/draft/${d.id}`)
+                            }
+                          >
+                            <TableCell
+                              type="primary"
+                              primaryText={dn}
+                              subtext={
+                                (d.data.email || '').trim() ||
+                                'Draft — in progress'
+                              }
+                            />
+                            <TableCell
+                              className="cd-col-hide"
+                              value={(d.data.role || '').trim() || '—'}
+                            />
+                            <TableCell
+                              type="status"
+                              statusLabel="Draft"
+                              statusVariant="Default"
+                            />
+                            <TableCell
+                              className="cd-col-hide"
+                              value={
+                                addressFilled ? (
+                                  <span className="text-body-sm text-text-subheading">
+                                    Filled
+                                  </span>
+                                ) : (
+                                  <span className="text-text-placeholder">—</span>
+                                )
+                              }
+                            />
+                          </TableRow>
+                        );
+                      })}
+
                       {detail.subjects.length === 0 ? (
-                        <TableRow>
-                          <TableCell colSpan={7} className="text-center" value={<span className="text-text-placeholder">This client hasn&apos;t added any candidates yet.</span>} />
-                        </TableRow>
+                        detail.drafts.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={4} className="text-center" value={<span className="text-text-placeholder">This client hasn&apos;t added any candidates yet.</span>} />
+                          </TableRow>
+                        ) : null
                       ) : filteredSubjects.length === 0 ? (
                         <TableRow>
-                          <TableCell colSpan={7} className="text-center" value={
+                          <TableCell colSpan={4} className="text-center" value={
                             <span className="text-text-placeholder">No candidates match <strong>&ldquo;{query}&rdquo;</strong>.</span>
                           } />
                         </TableRow>
                       ) : (
-                        pagedSubjects.map((s) => (
+                        pagedSubjects.map((s) => {
+                          const prog = checkProgressStatus(
+                            s.checksDone ?? 0,
+                            s.checksTotal ?? 0,
+                            s.status,
+                          );
+                          return (
                           <TableRow
                             key={s.id}
                             hoverable
                             className="cursor-pointer"
-                            onClick={(e) => {
-                              if ((e.target as HTMLElement).closest('input,label')) return;
-                              router.push(`/admin/subject/${s.id}`);
-                            }}
+                            onClick={() => router.push(`/admin/subject/${s.id}`)}
                           >
-                            <TableCell
-                              type="checkbox"
-                              checked={selected.has(s.id)}
-                              onCheckedChange={(checked) => toggleSelect(s.id, checked)}
-                            />
                             <TableCell
                               type="primary"
                               primaryText={s.name}
@@ -309,16 +380,8 @@ export default function AdminClientPage() {
                             <TableCell className="cd-col-hide" value={s.role || '—'} />
                             <TableCell
                               type="status"
-                              statusLabel={s.status}
-                              statusVariant={s.status === 'active' ? 'Success' : 'Warning'}
-                            />
-                            <TableCell
-                              className="cd-col-hide"
-                              value={s.hasPan ? <CheckCircle2 size={14} className="cd-check" /> : '—'}
-                            />
-                            <TableCell
-                              className="cd-col-hide"
-                              value={s.hasAadhaar ? <CheckCircle2 size={14} className="cd-check" /> : '—'}
+                              statusLabel={prog.label}
+                              statusVariant={prog.variant}
                             />
                             <TableCell
                               className="cd-col-hide"
@@ -331,7 +394,8 @@ export default function AdminClientPage() {
                               }
                             />
                           </TableRow>
-                        ))
+                          );
+                        })
                       )}
                 </TableBody>
               </Table>
@@ -348,6 +412,7 @@ export default function AdminClientPage() {
                 />
               </div>
             </section>
+            )}
           </>
         )}
       </AppShell>

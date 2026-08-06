@@ -1,4 +1,5 @@
 'use client';
+import PageLoader from '@/app/components/PageLoader';
 
 import {
   useCallback,
@@ -24,10 +25,12 @@ import {
 } from 'lucide-react';
 import {
   adminInvoices,
+  invoiceDetail,
   invoicePrintUrl,
   me,
   type AdminInvoiceRow,
   type AuthUser,
+  type InvoiceDetailResponse,
 } from '../../lib/api';
 import { getToken } from '../../lib/session';
 import { doLogout } from '../../lib/logout';
@@ -35,7 +38,8 @@ import { ICONS, type SidebarItem } from '../../components/Sidebar';
 import AppShell from '../../components/AppShell';
 import StatCard from '../../components/StatCard';
 import {
-  DialogBox,
+  Button,
+  Divider,
   Pagination,
   Tag,
   Table,
@@ -50,8 +54,9 @@ const ADMIN_NAV: SidebarItem[] = [
   { href: '/admin', label: 'Dashboard', icon: ICONS.dashboard },
   { href: '/admin/clients', label: 'Clients', icon: ICONS.clients },
   { href: '/admin/invoices', label: 'Invoices', icon: ICONS.invoices },
-  { href: '/admin/operations', label: 'Operations', icon: ICONS.operations },
   { href: '/admin/vendors', label: 'Vendors', icon: ICONS.vendors },
+  { href: '/admin/packages', label: 'Packages', icon: ICONS.packages },
+  { href: '/admin/operations', label: 'Operations', icon: ICONS.operations },
   { href: '/admin/test-verification', label: 'Test Verification', icon: ICONS.testVerification },
 ];
 
@@ -186,6 +191,11 @@ export default function InvoicesPage() {
     () => filtered.reduce((s, r) => s + r.total, 0),
     [filtered],
   );
+  const apiSpend = useMemo(
+    () => filtered.reduce((s, r) => s + (r.apiCost ?? 0), 0),
+    [filtered],
+  );
+  const profit = total - apiSpend;
 
   const sorted = useMemo(() => {
     if (!sortKey) return filtered;
@@ -239,7 +249,7 @@ export default function InvoicesPage() {
     });
   }
 
-  if (!user) return <div className="loading">Loading…</div>;
+  if (!user) return <PageLoader />;
 
   return (
     <AppShell nav={ADMIN_NAV} user={user} onLogout={handleLogout}>
@@ -255,9 +265,17 @@ export default function InvoicesPage() {
               paid for.
             </p>
           </div>
-          <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatCard label="Total invoices" value={filtered.length} />
+          <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
             <StatCard label="Collected" value={fmtINR(total)} />
+            <StatCard label="API spend" value={fmtINR(apiSpend)} />
+            <StatCard
+              label="Profit"
+              value={
+                <span className={profit >= 0 ? 'text-success' : 'text-failure'}>
+                  {fmtINR(profit)}
+                </span>
+              }
+            />
           </div>
 
           {/* Toolbar */}
@@ -288,12 +306,6 @@ export default function InvoicesPage() {
               )}
               <kbd className="inv-searchbar-kbd" aria-hidden="true">⌘K</kbd>
             </label>
-            <div className="inv-page-count">
-              <span className="inv-page-count-n">{filtered.length}</span>
-              <span className="inv-page-count-l">
-                {filtered.length === 1 ? 'result' : 'results'}
-              </span>
-            </div>
           </div>
 
           {error && <div className="error">{error}</div>}
@@ -421,7 +433,6 @@ function InvoiceRow({
   const dt = fmtDate(row.paidAt);
   // Prefer the S3 presigned URL when available; fall back to the backend print renderer.
   const printUrl = invoicePrintUrl(row.id);
-  const preview = row.pdfUrl ?? printUrl;
   const download = row.pdfUrl ?? (printUrl + '?download=1');
 
   return (
@@ -431,7 +442,7 @@ function InvoiceRow({
         type="primary"
         primaryText={row.invoiceNumber}
         showSubtext={false}
-        onPrimaryClick={() => window.open(preview, '_blank', 'noopener')}
+        onPrimaryClick={onDetails}
       />
       <TableCell value={row.candidateName} />
       <TableCell className="cd-col-hide" value={row.candidateEmail || '—'} />
@@ -450,15 +461,63 @@ function InvoiceRow({
 }
 
 
-/* ---------- Recriauth-style invoice details slide-over ---------- */
+/* ---------- Invoice detail side panel — 1:1 with Recriauth's
+   invoice-detail-dialog.tsx (client/modules/client/invoices/components) ---- */
 
-function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+const SELLER_PARTY = [
+  'Recrivio Technologies Private Limited',
+  'Ram Ganga Nagar, Awas Yojana M.O 2, R.K. University, Bareilly, Uttar Pradesh, India, 243006',
+  'support@recrivio.com',
+  '+91 9084693702',
+  'GSTIN: 09AAOCR5701J1Z0',
+  'PAN: AAOCR5701J',
+  'CIN: U78300UP2025PTC222138',
+];
+
+function KeyValueRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid grid-cols-[160px_1fr] gap-4 py-1.5">
-      <span className="text-body-md text-text-placeholder">{label}</span>
-      <span className="text-body-md text-text-body">{value}</span>
+    <div className="flex items-center gap-4">
+      <span className="w-[250px] text-sm font-medium leading-5 text-text-subheading">
+        {label}
+      </span>
+      <span className="whitespace-nowrap text-sm font-medium leading-5 text-text-body">
+        {value}
+      </span>
     </div>
   );
+}
+
+function PartyBlock({ label, lines }: { label: string; lines: string[] }) {
+  return (
+    <div className="flex w-[250px] flex-col gap-1">
+      <span className="text-body-sm font-medium leading-5 text-text-subheading">
+        {label}
+      </span>
+      <div className="flex flex-col text-body-sm font-medium leading-5 text-text-body">
+        {lines.map((line, idx) => (
+          <span key={idx}>{line}</span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function fmtDetailDateTime(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} | ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+function fmtDetailDate(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+  });
 }
 
 function InvoiceDetailsDialog({
@@ -468,125 +527,207 @@ function InvoiceDetailsDialog({
   row: AdminInvoiceRow | null;
   onClose: () => void;
 }) {
-  if (!row) return null;
+  const [detail, setDetail] = useState<InvoiceDetailResponse | null>(null);
 
-  const dt = fmtDate(row.paidAt);
-  // Totals are GST-inclusive (18%) — derive the split the same way the backend does.
-  const subtotal = Math.round((row.total / 1.18) * 100) / 100;
-  const gst = Math.round((row.total - subtotal) * 100) / 100;
-  const checkLabels = [
-    row.checks.pan && 'PAN',
-    row.checks.aadhaar && 'Aadhaar (DigiLocker)',
-    row.checks.crime && 'Criminal records',
-  ].filter(Boolean) as string[];
-  const description =
-    checkLabels.length > 0
-      ? `Background verification (${checkLabels.join(', ')})`
-      : 'Background verification bundle';
-  const printUrl = invoicePrintUrl(row.id);
-  const download = row.pdfUrl ?? (printUrl + '?download=1');
+  useEffect(() => {
+    if (!row) {
+      setDetail(null);
+      return;
+    }
+    let cancelled = false;
+    invoiceDetail(row.id)
+      .then((res) => {
+        if (!cancelled) setDetail(res);
+      })
+      .catch(() => {
+        if (!cancelled) setDetail(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [row]);
+
+  // Plain fixed slide-over — guaranteed visible. (The RDS DialogBox's enter
+  // transition wasn't firing here, leaving the panel translated off-screen.)
+  useEffect(() => {
+    if (!row) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [row, onClose]);
+
+  if (!row) return null;
+  const download = row.pdfUrl ?? invoicePrintUrl(row.id) + '?download=1';
 
   return (
-    <DialogBox
-      open={Boolean(row)}
-      onClose={onClose}
-      placement="right"
-      className="w-full max-w-[560px]"
-      secondaryAction={{ label: 'Cancel', onClick: onClose }}
-      primaryAction={{
-        label: 'Download Invoice',
-        onClick: () => window.open(download, '_blank', 'noopener'),
-      }}
+    <div
+      className="fixed inset-0 z-[100] flex justify-end"
+      role="dialog"
+      aria-modal="true"
     >
-      <div className="flex flex-col gap-6 overflow-y-auto p-6">
-        {/* Title */}
-        <div className="flex items-center gap-3">
-          <h2 className="text-xl font-semibold text-text-heading">
+      <div
+        className="absolute inset-0 bg-neutral-900/30"
+        onClick={onClose}
+      />
+      <div className="relative flex h-full w-full max-w-[720px] flex-col bg-white shadow-2xl">
+        <div className="flex-1 overflow-y-auto p-5">
+          <InvoiceDetailBody row={row} detail={detail} />
+        </div>
+        <div className="flex justify-end gap-2 border-t border-border-default p-4">
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => window.open(download, '_blank', 'noopener')}
+          >
+            Download Invoice
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InvoiceDetailBody({
+  row,
+  detail,
+}: {
+  row: AdminInvoiceRow;
+  detail: InvoiceDetailResponse | null;
+}) {
+  // Render from the row we already have (always available) and enrich with the
+  // fetched detail when it arrives — the panel must never gate on the fetch.
+  const isPaid = row.status === 'paid';
+  const subtotal = detail ? detail.subtotal : Math.round((row.total / 1.18) * 100) / 100;
+  const gst = detail ? detail.tax : Math.round((row.total - subtotal) * 100) / 100;
+  const total = detail ? detail.total : row.total;
+  const gstRate = detail ? detail.taxRatePercent : 18;
+  const invoiceDate = detail?.paidAt ?? detail?.createdAt ?? row.paidAt;
+  const razorpayId = detail?.razorpayPaymentId ?? row.razorpayPaymentId;
+  const buyerLines = [
+    row.clientName,
+    row.clientEmail,
+    'GSTIN: Unregistered',
+  ].filter(Boolean) as string[];
+  const items =
+    detail?.lineItems && detail.lineItems.length > 0
+      ? detail.lineItems.map((it) => ({
+          description: it.description ?? 'Background verification services',
+          amount: Number(it.total ?? it.lineSubtotal ?? 0),
+        }))
+      : [
+          {
+            description: `Assurio verification${row.candidateName ? ` · ${row.candidateName}` : ''}`,
+            amount: subtotal,
+          },
+        ];
+
+  return (
+      <>
+        {/* Header: invoice number + status chip */}
+        <div className="flex items-center gap-2">
+          <h2 className="text-h3 font-semibold leading-[31px] tracking-[-0.25px] text-text-heading">
             #{row.invoiceNumber}
           </h2>
           <Tag
-            label={row.status === 'paid' ? 'Paid' : row.status}
-            variant={row.status === 'paid' ? 'Success' : 'Failure'}
+            className="px-[12px] py-[4px]"
+            variant={isPaid ? 'Success' : 'Warning'}
+            label={isPaid ? 'Paid' : 'Payment Due'}
           />
         </div>
 
-        {/* Invoice meta */}
-        <div>
-          <DetailRow label="Invoice No." value={row.invoiceNumber} />
-          <DetailRow label="Invoice Date" value={dt.date} />
-          <DetailRow label="Payment Reference" value={row.razorpayPaymentId} />
-        </div>
+        <div className="flex flex-col gap-8">
+          {/* Key-value rows */}
+          <div className="flex flex-col gap-2">
+            <KeyValueRow label="Invoice No." value={row.invoiceNumber} />
+            <KeyValueRow label="Invoice Date" value={fmtDetailDate(invoiceDate)} />
+            <KeyValueRow
+              label="Payment Terms"
+              value={isPaid ? 'Paid on Receipt' : 'Due on Receipt'}
+            />
+          </div>
 
-        {/* Billed By / Billed To */}
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-          <div>
-            <div className="mb-1 text-body-sm font-medium text-text-placeholder">Billed By</div>
-            <div className="text-body-md leading-6 text-text-body">
-              Assurio
-              <br />
-              Consent-first background checks
-              <br />
-              assurio.com
-            </div>
+          {/* Billed By / Billed To */}
+          <div className="flex gap-5">
+            <PartyBlock label="Billed By" lines={SELLER_PARTY} />
+            <PartyBlock label="Billed To" lines={buyerLines} />
           </div>
-          <div>
-            <div className="mb-1 text-body-sm font-medium text-text-placeholder">Billed To</div>
-            <div className="text-body-md leading-6 text-text-body">
-              {row.clientName}
-              <br />
-              {row.clientEmail || '—'}
-            </div>
-          </div>
-        </div>
 
-        {/* Whom the verification was performed against */}
-        <div>
-          <div className="mb-1 text-body-sm font-medium text-text-placeholder">
-            Verification Against
-          </div>
-          <div className="text-body-md leading-6 text-text-body">
-            {row.candidateName}
-            <br />
-            {row.candidateEmail || '—'}
-          </div>
-        </div>
+          {/* Billing Summary */}
+          <div className="flex flex-col gap-3">
+            <h3 className="text-subtitle-md font-semibold leading-6 text-text-body">
+              Billing Summary
+            </h3>
+            <div className="overflow-hidden rounded-lg">
+              <div className="flex bg-neutral-100">
+                <div className="flex-1 px-3 py-[13px] text-body-sm font-medium leading-5 text-text-body">
+                  Item Description
+                </div>
+                <div className="w-[130px] px-3 py-[13px] text-right text-body-sm font-medium leading-5 text-text-body">
+                  Total Amount
+                </div>
+              </div>
+              <div className="py-1">
+                {items.map((it, idx) => (
+                  <div key={idx} className="flex items-center">
+                    <div className="flex-1 px-3 py-1 text-body-md leading-[22px] text-text-body">
+                      {it.description}
+                    </div>
+                    <div className="w-[130px] px-3 py-1 text-right text-body-md leading-[22px] text-text-body">
+                      {fmtINR(it.amount)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
 
-        {/* Billing Summary */}
-        <div>
-          <h3 className="mb-2 text-body-lg font-semibold text-text-heading">Billing Summary</h3>
-          <div className="border-t border-border-default">
-            <div className="flex items-center justify-between border-b border-border-default py-2.5">
-              <span className="text-body-sm font-medium text-text-placeholder">Item Description</span>
-              <span className="text-body-sm font-medium text-text-placeholder">Total Amount</span>
-            </div>
-            <div className="flex items-center justify-between border-b border-border-default py-3">
-              <span className="text-body-md text-text-body">{description}</span>
-              <span className="text-body-md text-text-body">{fmtINR(subtotal)}</span>
-            </div>
-            <div className="flex items-center justify-between py-2 pt-3">
-              <span className="text-body-md text-text-placeholder">Subtotal</span>
-              <span className="text-body-md text-text-body">{fmtINR(subtotal)}</span>
-            </div>
-            <div className="flex items-center justify-between border-b border-border-default py-2">
-              <span className="text-body-md text-text-placeholder">GST (18%)</span>
-              <span className="text-body-md text-text-body">{fmtINR(gst)}</span>
-            </div>
-            <div className="flex items-center justify-between py-3">
-              <span className="text-body-lg font-semibold text-text-heading">Total Paid</span>
-              <span className="text-body-lg font-semibold text-text-heading">{fmtINR(row.total)}</span>
+            <div className="flex flex-col gap-3 pb-2">
+              <Divider orientation="Horizontal" emphasis="Low" />
+              <div className="flex items-center justify-between px-3 text-body-sm font-medium leading-5 text-text-body">
+                <span>Subtotal</span>
+                <span>{fmtINR(subtotal)}</span>
+              </div>
+              <div className="flex items-center justify-between px-3 text-body-sm font-medium leading-5 text-text-body">
+                <span>GST ({gstRate}%)</span>
+                <span>{fmtINR(gst)}</span>
+              </div>
+              <Divider orientation="Horizontal" emphasis="Low" />
+              <div className="flex items-center justify-between px-3 text-subtitle-md font-semibold leading-6 text-text-body">
+                <span>{isPaid ? 'Total Paid' : 'Total Due'}</span>
+                <span>{fmtINR(total)}</span>
+              </div>
+              <Divider orientation="Horizontal" emphasis="Low" />
             </div>
           </div>
-        </div>
 
-        {/* Payment Information */}
-        <div>
-          <h3 className="mb-2 text-body-lg font-semibold text-text-heading">Payment Information</h3>
-          <DetailRow label="Payment Mode" value="Razorpay" />
-          <DetailRow label="Payment ID" value={row.razorpayPaymentId} />
-          <DetailRow label="Payment Date & Time" value={dt.date + (dt.time ? ` | ${dt.time}` : '')} />
+          {/* Payment Information — PAID only */}
+          {isPaid ? (
+            <div className="flex flex-col gap-3">
+              <h3 className="text-subtitle-md font-semibold leading-6 text-text-body">
+                Payment Information
+              </h3>
+              <div className="flex flex-col gap-2">
+                <KeyValueRow label="Payment Mode" value="Razorpay" />
+                {razorpayId ? (
+                  <KeyValueRow label="Payment ID" value={razorpayId} />
+                ) : null}
+                <KeyValueRow
+                  label="Payment Date & Time"
+                  value={fmtDetailDateTime(invoiceDate)}
+                />
+              </div>
+            </div>
+          ) : null}
         </div>
-      </div>
-    </DialogBox>
+      </>
   );
 }
 

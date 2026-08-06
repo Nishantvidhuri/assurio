@@ -259,7 +259,9 @@ const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
         className={cn(
           inputBoxVariants({ state }),
           'items-start',
-          // focus-within handled in inputBoxVariants default state
+          // Box-level className (e.g. bg overrides) so it fills edge-to-edge —
+          // matches how Input forwards className to its box.
+          className,
         )}
       >
         <textarea
@@ -274,7 +276,6 @@ const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
             'text-text-body placeholder:text-base lg:placeholder:text-sm placeholder:text-text-disabled',
             disabled && 'cursor-not-allowed',
             readOnly && 'text-text-subheading cursor-not-allowed',
-            className,
           )}
           {...props}
         />

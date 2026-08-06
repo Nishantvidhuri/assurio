@@ -99,6 +99,38 @@ export class EmailService {
     );
   }
 
+  /** Emailed when a verification is started — sends the candidate to the public
+   *  consent + details + Aadhaar (DigiLocker) flow at /verify/:token. */
+  async sendVerificationLink(
+    to: string,
+    name: string,
+    clientName: string,
+    verifyUrl: string,
+  ): Promise<boolean> {
+    const firstName = name.split(' ')[0] || name;
+    const body = `
+      <p style="margin:0 0 18px;font-size:16px;line-height:1.6;color:#0c1c39">Hi ${this.esc(firstName)},</p>
+      <p style="margin:0 0 14px;font-size:16px;line-height:1.6;color:#3a4660">
+        <strong style="color:#0c1c39">${this.esc(clientName)}</strong> has started a background verification and needs your confirmation.
+      </p>
+      <p style="margin:0 0 36px;font-size:16px;line-height:1.6;color:#3a4660">
+        Please review and agree to the terms, confirm your details, and complete your Aadhaar verification — it only takes a minute.
+      </p>
+      ${this.button(verifyUrl, 'Start verification')}
+      ${this.linkFallback(verifyUrl)}
+      <p style="margin:40px 0 0;font-size:16px;line-height:1.6;color:#0c1c39"><strong>The Assurio Team.</strong></p>
+    `;
+    return this.send(
+      to,
+      `${this.esc(clientName)} requested your verification on Assurio`,
+      this.wrap({
+        preheader: `${clientName} has started your background verification — complete it in a minute.`,
+        heading: 'Complete your verification',
+        bodyHtml: body,
+      }),
+    );
+  }
+
   /* -------------------------- Layout & primitives ------------------------ */
 
   private wrap(args: {

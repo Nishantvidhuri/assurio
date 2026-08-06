@@ -18,12 +18,16 @@ export const SUREPASS = {
     // list-documents returns 404 "File ID not found".
     digilockerListDocuments: (clientId: string) =>
       `/digilocker/list-documents/${encodeURIComponent(clientId)}`,
-    // Structured Aadhaar data (name, dob, address, masked aadhaar, etc.)
+    // Structured Aadhaar data (name, dob, address, masked aadhaar, etc.).
+    // NOTE: one-time — returns "already_downloaded" on a second call; we use
+    // the document-download flow below instead so it can be re-fetched.
     digilockerAadhaar: (clientId: string) =>
       `/digilocker/download-aadhaar/${encodeURIComponent(clientId)}`,
-    // Returns a short-lived presigned URL for the raw Aadhaar PDF.
-    digilockerAadhaarPdf: (clientId: string) =>
-      `/digilocker/download-document/${encodeURIComponent(clientId)}/aadhaar`,
+    // Returns a short-lived presigned URL for a specific document. The fileId
+    // comes from list-documents (e.g. "digilocker_file_..."); the URL resolves
+    // to the signed eAadhaar XML (Certificate → KycRes → UidData/Poi/Poa/Pht).
+    digilockerDownloadDocument: (clientId: string, fileId: string) =>
+      `/digilocker/download-document/${encodeURIComponent(clientId)}/${encodeURIComponent(fileId)}`,
     ocrAadhaar: '/ocr/aadhaar',
     // SurePass /ocr/voter currently returns HTTP 500 (contact_support).
     // Scaffolded so the OCR pipeline lights up once upstream is fixed.
@@ -35,7 +39,9 @@ export const SUREPASS = {
     // one combined payload, so we only call it once both sides have
     // been uploaded.
     ocrLicense: '/ocr/license',
-    pan: '/pan/pan',
+    // Comprehensive PAN returns dob, gender, name (split), masked aadhaar and
+    // address — the plain `/pan/pan` only returned name + number.
+    pan: '/pan/pan-comprehensive',
     voterId: '/voter-id/voter-id',
     passport: '/passport/passport/passport-details',
     drivingLicense: '/driving-license/driving-license',

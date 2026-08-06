@@ -1,0 +1,25 @@
+# Tunnels for the Assurio dev stack (frontend + backend).
+# No authtoken here — it stays in your default ngrok config. Run with BOTH
+# config files so ngrok merges your token with these tunnels:
+#
+#   ngrok start --all \
+#     --config "$HOME/Library/Application Support/ngrok/ngrok.yml" \
+#     --config ./ngrok.yml
+#
+# You'll get two https URLs. Then point the apps at them and restart both:
+#   frontend/.env.local : NEXT_PUBLIC_API_URL=<api-url>
+#   backend/.env        : APP_URL=<web-url>
+#                         PUBLIC_APP_URL=<web-url>
+#                         CLIENT_APP_URLS=<web-url>
+#
+# Tip: reserve static domains in the ngrok dashboard and add e.g.
+#   domain: your-web.ngrok-free.app   under a tunnel, so the URLs don't
+# change on every restart.
+version: "3"
+tunnels:
+  web:
+    addr: 3000
+    proto: http
+  api:
+    addr: 3001
+    proto: http

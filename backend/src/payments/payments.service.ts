@@ -14,7 +14,7 @@ export interface InvoiceLineItem {
 interface CreateLinkInput {
   amount: number; // in rupees
   description: string;
-  customer: { name: string; email: string; contact?: string };
+  customer: { name: string; email?: string; contact?: string };
   notes?: Record<string, string>;
   callbackUrl: string;
   referenceId?: string;
@@ -26,6 +26,18 @@ export interface PaymentLink {
   status: string;
   amount: number;
   reference_id?: string;
+}
+
+interface CreateOrderInput {
+  amount: number; // in rupees
+  notes?: Record<string, string>;
+  receipt?: string;
+}
+
+export interface PaymentOrder {
+  id: string;
+  amount: number; // in paise
+  currency: string;
 }
 
 interface PaymentLinkFetched {
@@ -95,6 +107,53 @@ export class PaymentsService {
       reference_id:
         typeof link.reference_id === 'string' ? link.reference_id : undefined,
     };
+  }
+
+  /** Public key id for initialising Razorpay Checkout on the client. */
+  get publicKeyId(): string | null {
+    return process.env.RAZORPAY_KEY_ID || null;
+  }
+
+  /**
+   * Create a Razorpay Order for the embedded Checkout modal (keeps the payer on
+   * our page instead of redirecting to Razorpay's hosted link).
+   */
+  async createOrder(input: CreateOrderInput): Promise<PaymentOrder> {
+    const rzp = this.requireClient();
+    const currency = process.env.RAZORPAY_CURRENCY || 'INR';
+    const order = await rzp.orders.create({
+      amount: Math.round(input.amount * 100),
+      currency,
+      receipt: input.receipt,
+      notes: input.notes,
+    });
+    return {
+      id: order.id,
+      amount: Number(order.amount),
+      currency: order.currency,
+    };
+  }
+
+  /**
+   * Verify the signature returned by Checkout's handler. Razorpay signs
+   * `${order_id}|${payment_id}` with the key secret.
+   */
+  verifyOrderSignature(params: {
+    order_id: string;
+    payment_id: string;
+    signature: string;
+  }): boolean {
+    const key_secret = process.env.RAZORPAY_KEY_SECRET;
+    if (!key_secret) return false;
+    const expected = crypto
+      .createHmac('sha256', key_secret)
+      .update(`${params.order_id}|${params.payment_id}`)
+      .digest('hex');
+    if (expected.length !== params.signature.length) return false;
+    return crypto.timingSafeEqual(
+      Buffer.from(expected),
+      Buffer.from(params.signature),
+    );
   }
 
   verifyLinkCallback(params: {
@@ -182,12 +241,80 @@ export class PaymentsService {
     }
   }
 
+  async createOrGetInvoiceFromOrder(args: {
+    userId: string;
+    razorpayOrderId: string;
+    razorpayPaymentId: string;
+  }): Promise<Invoice> {
+    const existing = await this.prisma.invoice.findUnique({
+      where: { razorpayPaymentId: args.razorpayPaymentId },
+    });
+    if (existing) return existing;
+
+    const rzp = this.requireClient();
+    const order = (await rzp.orders.fetch(args.razorpayOrderId)) as unknown as {
+      amount: number | string;
+      currency?: string;
+      notes?: Record<string, string>;
+    };
+    const notes = order.notes || {};
+    const totalRupees = Math.round(Number(order.amount)) / 100;
+    const taxRate = 18;
+    const subtotal = Math.round((totalRupees / (1 + taxRate / 100)) * 100) / 100;
+    const tax = Math.round((totalRupees - subtotal) * 100) / 100;
+
+    const description =
+      notes.description || 'Assurio background verification bundle';
+    const lineItems: InvoiceLineItem[] = [
+      { description, quantity: 1, rate: subtotal, total: subtotal },
+    ];
+
+    const invoiceNumber = await this.nextInvoiceNumber();
+
+    try {
+      return await this.prisma.invoice.create({
+        data: {
+          invoiceNumber,
+          userId: args.userId,
+          customerName: notes.customer_name?.trim() || 'Customer',
+          customerEmail: notes.customer_email?.trim() || '',
+          customerPhone: notes.customer_contact?.trim() || undefined,
+          lineItems: lineItems as any,
+          subtotal,
+          tax,
+          total: totalRupees,
+          taxRatePercent: taxRate,
+          currency: order.currency || 'INR',
+          status: 'paid',
+          razorpayPaymentId: args.razorpayPaymentId,
+          razorpayOrderId: args.razorpayOrderId,
+          paidAt: new Date(),
+          notes: notes as any,
+        },
+      });
+    } catch (err) {
+      const again = await this.prisma.invoice.findUnique({
+        where: { razorpayPaymentId: args.razorpayPaymentId },
+      });
+      if (again) return again;
+      throw err;
+    }
+  }
+
   async updatePdfS3Key(invoiceId: string, key: string): Promise<void> {
     await this.prisma.invoice.update({ where: { id: invoiceId }, data: { pdfS3Key: key } });
   }
 
   findInvoiceById(id: string): Promise<Invoice | null> {
     return this.prisma.invoice.findUnique({ where: { id } });
+  }
+
+  /** The client (account holder) an invoice is billed to — for "Billed To". */
+  async billingClient(
+    userId: string,
+  ): Promise<{ name: string; email: string | null; phone: string | null } | null> {
+    const u = await this.prisma.user.findUnique({ where: { id: userId } });
+    return u ? { name: u.name, email: u.email, phone: u.phone ?? null } : null;
   }
 
   listInvoicesForUser(userId: string): Promise<Invoice[]> {
@@ -316,7 +443,7 @@ export class PaymentsService {
       <div class="meta-right">
         <div class="meta-label">Invoice date</div>
         <div class="meta-value">${fmtDate(inv.paidAt)}</div>
-        <div class="meta-sub">Payment ID: ${escapeHtml(inv.razorpayPaymentId)}</div>
+        <div class="meta-sub">Payment ID: ${escapeHtml(inv.razorpayPaymentId || '—')}</div>
       </div>
     </div>
     <table>

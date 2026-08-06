@@ -16,6 +16,8 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PaymentsService } from './payments.service';
 import { Invoice } from '../../generated/prisma/client';
 import { S3Service } from '../common/s3.service';
+import { PdfService } from '../common/pdf.service';
+import { renderTaxInvoiceHtml } from './tax-invoice-html';
 
 interface RequestWithUser extends Request {
   user?: { sub?: string; role?: string; email?: string };
@@ -30,7 +32,18 @@ interface CreateLinkBody {
   referenceId?: string;
 }
 
+interface CreateOrderBody {
+  amount?: number;
+  description?: string;
+  customer?: { name?: string; email?: string; contact?: string };
+  notes?: Record<string, string>;
+  receipt?: string;
+}
+
 interface VerifyBody {
+  // Embedded-checkout (Order) flow.
+  razorpay_order_id?: string;
+  // Hosted payment-link flow.
   razorpay_payment_id?: string;
   razorpay_payment_link_id?: string;
   razorpay_payment_link_reference_id?: string;
@@ -55,6 +68,7 @@ function toInvoiceResponse(inv: Invoice, pdfUrl?: string | null) {
     taxRatePercent: inv.taxRatePercent,
     currency: inv.currency,
     razorpayPaymentId: inv.razorpayPaymentId,
+    razorpayOrderId: inv.razorpayOrderId,
     razorpayPaymentLinkId: inv.razorpayPaymentLinkId,
     paidAt: inv.paidAt,
     createdAt: inv.createdAt,
@@ -70,6 +84,7 @@ export class PaymentsController {
   constructor(
     private readonly payments: PaymentsService,
     private readonly s3: S3Service,
+    private readonly pdf: PdfService,
   ) {}
 
   @UseGuards(JwtAuthGuard)
@@ -115,10 +130,79 @@ export class PaymentsController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Post('order')
+  async createOrder(@Req() req: RequestWithUser, @Body() body: CreateOrderBody) {
+    if (!req.user?.sub) throw new BadRequestException('Not authenticated');
+
+    const amount = Number(body.amount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException('amount must be a positive number');
+    }
+    const name = (body.customer?.name || '').trim();
+    if (!name) throw new BadRequestException('customer.name is required');
+    const email = (body.customer?.email || '').trim();
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new BadRequestException('customer.email is invalid');
+    }
+
+    // Customer + description ride along in notes so the invoice can be rebuilt
+    // from the fetched order at verify time (orders don't store a customer).
+    const notes: Record<string, string> = {
+      ...(body.notes || {}),
+      customer_name: name,
+      customer_email: email,
+      customer_contact: (body.customer?.contact || '').trim(),
+      description: (body.description || 'Assurio verification').slice(0, 512),
+    };
+
+    const order = await this.payments.createOrder({
+      amount,
+      notes,
+      receipt: body.receipt,
+    });
+
+    return {
+      orderId: order.id,
+      amount: order.amount,
+      currency: order.currency,
+      keyId: this.payments.publicKeyId,
+    };
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post('verify')
   async verify(@Req() req: RequestWithUser, @Body() body: VerifyBody) {
     const userId = req.user?.sub;
     if (!userId) throw new BadRequestException('Not authenticated');
+
+    // Embedded-checkout (Order) flow.
+    if (body.razorpay_order_id) {
+      if (!body.razorpay_payment_id || !body.razorpay_signature) {
+        throw new BadRequestException('Missing Razorpay callback parameters');
+      }
+      const ok = this.payments.verifyOrderSignature({
+        order_id: body.razorpay_order_id,
+        payment_id: body.razorpay_payment_id,
+        signature: body.razorpay_signature,
+      });
+      if (!ok) return { verified: false };
+      try {
+        const inv = await this.payments.createOrGetInvoiceFromOrder({
+          userId,
+          razorpayOrderId: body.razorpay_order_id,
+          razorpayPaymentId: body.razorpay_payment_id,
+        });
+        return { verified: true, invoice: toInvoiceResponse(inv) };
+      } catch (err) {
+        return {
+          verified: true,
+          invoice: null,
+          invoiceError:
+            err instanceof Error ? err.message : 'Failed to create invoice',
+        };
+      }
+    }
+
     if (
       !body.razorpay_payment_id ||
       !body.razorpay_payment_link_id ||
@@ -174,10 +258,15 @@ export class PaymentsController {
     if (inv.userId !== req.user.sub && req.user.role !== 'admin') {
       throw new NotFoundException('Invoice not found');
     }
-    const pdfUrl = inv.pdfS3Key && this.s3.isConfigured
-      ? await this.s3.presignedUrl(inv.pdfS3Key).catch(() => null)
-      : null;
-    return toInvoiceResponse(inv, pdfUrl);
+    const [pdfUrl, buyer] = await Promise.all([
+      inv.pdfS3Key && this.s3.isConfigured
+        ? this.s3.presignedUrl(inv.pdfS3Key).catch(() => null)
+        : Promise.resolve(null),
+      this.payments.billingClient(inv.userId),
+    ]);
+    // buyer = the client (account holder) → "Billed To"; the stored customer* is
+    // the candidate that was verified → the line item.
+    return { ...toInvoiceResponse(inv, pdfUrl), buyer };
   }
 
   /** Invoices for the currently signed-in user (client view). */
@@ -197,8 +286,8 @@ export class PaymentsController {
     );
   }
 
-  /** Print-friendly HTML — opened in a new tab; user can Cmd+P to save as PDF.
-   *  Pass ?download=1 to auto-trigger the browser's print dialog on load. */
+  /** Recriauth-style Tax Invoice. Default: HTML preview (open in a new tab).
+   *  Pass ?download=1 to get a real server-generated PDF attachment. */
   @Get('invoice/:id/print')
   async invoicePrint(
     @Param('id') id: string,
@@ -210,14 +299,26 @@ export class PaymentsController {
       res.status(404).type('text/plain').send('Invoice not found');
       return;
     }
-    let html = this.payments.renderInvoiceHtml(inv);
-    const autoPrint =
-      req.query?.download === '1' || req.query?.print === '1';
-    if (autoPrint) {
-      html = html.replace(
-        '</body>',
-        '<script>window.addEventListener("load",()=>setTimeout(()=>window.print(),250));</script></body>',
+    // Billed To = the client (account holder), not the candidate stored in the
+    // invoice's customer* fields (which becomes the line item).
+    const buyer = await this.payments.billingClient(inv.userId);
+    const html = renderTaxInvoiceHtml(inv, buyer ?? undefined);
+
+    if (req.query?.download === '1' || req.query?.print === '1') {
+      // 600px-wide document, height trimmed to content — matches Recriauth's
+      // fixed-size invoice PDF (no A4 side margins or bottom gap).
+      const buffer = await this.pdf.htmlToPdf(html, {
+        printBackground: true,
+        pageWidthPx: 600,
+        fitHeight: true,
+      });
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="${inv.invoiceNumber}.pdf"`,
       );
+      res.send(buffer);
+      return;
     }
     res.type('text/html').send(html);
   }

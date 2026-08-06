@@ -1,4 +1,5 @@
 'use client';
+import PageLoader from '@/app/components/PageLoader';
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -7,14 +8,23 @@ import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
+  Clock,
   ExternalLink,
   Lock,
+  Pencil,
   ShieldCheck,
+  XCircle,
+  Zap,
 } from 'lucide-react';
-import { createPaymentLink, me, type AuthUser } from '../../../lib/api';
+import { createOrder, me, type AuthUser } from '../../../lib/api';
+import {
+  openRazorpayCheckout,
+  type RazorpaySuccess,
+} from '../../../lib/razorpay';
 import { getToken } from '../../../lib/session';
 import { doLogout } from '../../../lib/logout';
 import { loadDraft, maskAadhaar, type CandidateDraft } from '../draft';
+import { checkEta, missingLabels, splitChecks } from '../checks';
 
 const PRICE_INR = 399;
 
@@ -65,13 +75,14 @@ export default function CandidateCheckoutPage() {
     try {
       const token = getToken();
       if (!token) throw new Error('Session expired');
+
       const aadhaarDigits = draft.aadhaar.replace(/\s/g, '');
-      const link = await createPaymentLink(token, {
+      const order = await createOrder(token, {
         amount: PRICE_INR,
         description: `Assurio verification · ${draft.name}`,
         customer: {
           name: draft.name,
-          email: draft.email,
+          email: draft.email || undefined,
           contact: draft.phone || undefined,
         },
         notes: {
@@ -79,10 +90,47 @@ export default function CandidateCheckoutPage() {
           aadhaar_masked: 'XXXX XXXX ' + aadhaarDigits.slice(-4),
           flow: 'client-add-candidate',
         },
-        callbackPath: '/home/new/success',
       });
-      // Hand off to Razorpay's hosted page.
-      window.location.href = link.short_url;
+      if (!order.keyId) {
+        throw new Error('Payments are not configured. Please contact support.');
+      }
+
+      // Opens as an overlay on this page — the address bar stays on
+      // /home/new/checkout; no redirect to Razorpay's hosted page.
+      let response: RazorpaySuccess;
+      try {
+        response = await openRazorpayCheckout({
+          key: order.keyId,
+          orderId: order.orderId,
+          amount: order.amount,
+          currency: order.currency,
+          name: 'Assurio',
+          description: `Verification · ${draft.name}`,
+          prefill: {
+            name: draft.name,
+            email: draft.email || undefined,
+            contact: draft.phone || undefined,
+          },
+          themeColor: '#0f172a',
+        });
+      } catch {
+        // User dismissed the modal — stay on the page, let them retry.
+        setCreating(false);
+        return;
+      }
+
+      if (!response.razorpay_order_id || !response.razorpay_signature) {
+        throw new Error('Payment could not be confirmed. Please try again.');
+      }
+
+      // Payment captured on our page — hand the signed result to the success
+      // page for server verification + candidate creation.
+      const qs = new URLSearchParams({
+        razorpay_order_id: response.razorpay_order_id,
+        razorpay_payment_id: response.razorpay_payment_id,
+        razorpay_signature: response.razorpay_signature,
+      });
+      router.push(`/home/new/success?${qs.toString()}`);
     } catch (err) {
       setError(
         err instanceof Error
@@ -93,8 +141,9 @@ export default function CandidateCheckoutPage() {
     }
   }
 
-  if (!draft) return <div className="loading">Loading…</div>;
+  if (!draft) return <PageLoader />;
   const aadhaarDigits = draft.aadhaar.replace(/\s/g, '');
+  const { performable, blocked } = splitChecks(draft);
 
   return (
     <div className="co">
@@ -144,7 +193,9 @@ export default function CandidateCheckoutPage() {
 
             <div className="co-side-customer">
               <div className="co-side-customer-name">{draft.name}</div>
-              <div className="co-side-customer-sub">{draft.email}</div>
+              {draft.email && (
+                <div className="co-side-customer-sub">{draft.email}</div>
+              )}
               {draft.phone && (
                 <div className="co-side-customer-sub">{draft.phone}</div>
               )}
@@ -160,38 +211,66 @@ export default function CandidateCheckoutPage() {
           </aside>
 
           <section className="co-pane">
-            <h2 className="co-pane-title">
-              Continue to <em>Razorpay</em>
-            </h2>
-            <p className="co-pane-sub">
-              You&apos;ll be redirected to Razorpay&apos;s secure checkout to
-              complete your payment. After payment, we&apos;ll bring you back
-              to finalise the candidate.
-            </p>
-
-            <div className="rp-card">
-              <div className="rp-card-head">
-                <span className="rp-card-mark">RZP</span>
-                <div>
-                  <div className="rp-card-title">Razorpay Checkout</div>
-                  <div className="rp-card-sub">Cards · UPI · Netbanking · Wallets</div>
-                </div>
+            <div className="co-checks">
+              <div className="co-checks-head">
+                <h2 className="co-checks-h">Review &amp; pay</h2>
+                <p className="co-checks-sub">
+                  Verify details before proceeding to payment.
+                </p>
               </div>
-              <ul className="rp-card-list">
-                <li>
-                  <CheckCircle2 size={14} />
-                  PCI-DSS Level 1 secure
-                </li>
-                <li>
-                  <CheckCircle2 size={14} />
-                  100+ payment methods
-                </li>
-                <li>
-                  <CheckCircle2 size={14} />
-                  No card details stored on Assurio
-                </li>
-              </ul>
+
+              {performable.length > 0 && (
+                <div className="co-checks-group">
+                  <div className="co-checks-label">
+                    Checks we&apos;ll perform
+                  </div>
+                  <div className="co-checks-list">
+                    {performable.map((c) => {
+                      const eta = checkEta(c.id);
+                      return (
+                        <div key={c.id} className="co-check co-check-ok">
+                          <CheckCircle2 size={16} className="co-check-icon" />
+                          <span className="co-check-name">{c.label}</span>
+                          <span className="co-check-tag">
+                            {eta === '24h' ? (
+                              <Clock size={11} />
+                            ) : (
+                              <Zap size={11} />
+                            )}
+                            {eta}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {blocked.length > 0 && (
+                <div className="co-checks-group">
+                  <div className="co-checks-label">
+                    Checks we can&apos;t perform
+                  </div>
+                  <div className="co-checks-list">
+                    {blocked.map((c) => (
+                      <div key={c.id} className="co-check co-check-miss">
+                        <XCircle size={16} className="co-check-icon" />
+                        <span className="co-check-name">{c.label}</span>
+                        <span className="co-check-missing">
+                          {missingLabels(c.missing)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <Link href="/home/new" className="co-checks-add">
+                    <Pencil size={13} />
+                    Add missing info to enable more checks
+                  </Link>
+                </div>
+              )}
             </div>
+
+            <div className="co-checks-divider" />
 
             {error && <div className="ac-error">{error}</div>}
 
@@ -203,7 +282,7 @@ export default function CandidateCheckoutPage() {
               {creating ? (
                 <>
                   <span className="co-spinner" />
-                  Redirecting to Razorpay…
+                  Opening secure checkout…
                 </>
               ) : (
                 <>

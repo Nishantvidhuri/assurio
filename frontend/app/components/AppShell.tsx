@@ -20,6 +20,8 @@ import {
   TopBar,
   Breadcrumbs,
   BreadcrumbItem,
+  BreadcrumbSwitcher,
+  type BreadcrumbMenuItem,
   type ProfileMenuItem,
 } from '@/shared/components/ui';
 import { cn } from '@/shared/lib/utils';
@@ -28,6 +30,8 @@ import type { SidebarItem, SidebarUser } from './Sidebar';
 export interface Crumb {
   label: string;
   href?: string;
+  /** When present, this crumb becomes a switcher (dropdown of siblings). */
+  menu?: BreadcrumbMenuItem[];
 }
 
 export default function AppShell({
@@ -35,6 +39,7 @@ export default function AppShell({
   user,
   onLogout,
   breadcrumbs,
+  hideMobileTopBar = false,
   children,
 }: {
   nav: SidebarItem[];
@@ -42,6 +47,8 @@ export default function AppShell({
   onLogout: () => void;
   /** Hierarchical breadcrumb trail; falls back to the active nav item. */
   breadcrumbs?: Crumb[];
+  /** Hide the top bar on mobile (e.g. while filling a full-screen form). */
+  hideMobileTopBar?: boolean;
   children: ReactNode;
 }) {
   const pathname = usePathname();
@@ -171,6 +178,7 @@ export default function AppShell({
 
       {/* ── Main column: TopBar + scrollable content ───────────── */}
       <div className="relative flex min-w-0 flex-1 flex-col">
+        <div className={hideMobileTopBar ? 'hidden lg:block' : ''}>
         <TopBar
           onMenuClick={() => setMobileOpen(true)}
           logoHref={home}
@@ -180,23 +188,33 @@ export default function AppShell({
           breadcrumbs={
             <Breadcrumbs>
               {(breadcrumbs ?? [{ label: activeItem?.label ?? 'Dashboard' }]).map(
-                (crumb, i, arr) => (
-                  <BreadcrumbItem
-                    key={`${crumb.label}-${i}`}
-                    isActive={i === arr.length - 1}
-                    onClick={
-                      crumb.href && i !== arr.length - 1
-                        ? () => router.push(crumb.href!)
-                        : undefined
-                    }
-                  >
-                    {crumb.label}
-                  </BreadcrumbItem>
-                ),
+                (crumb, i, arr) =>
+                  crumb.menu && crumb.menu.length > 0 ? (
+                    <BreadcrumbSwitcher
+                      key={`${crumb.label}-${i}`}
+                      label={crumb.label}
+                      isActive={i === arr.length - 1}
+                      items={crumb.menu}
+                      onNavigate={(href) => router.push(href)}
+                    />
+                  ) : (
+                    <BreadcrumbItem
+                      key={`${crumb.label}-${i}`}
+                      isActive={i === arr.length - 1}
+                      onClick={
+                        crumb.href && i !== arr.length - 1
+                          ? () => router.push(crumb.href!)
+                          : undefined
+                      }
+                    >
+                      {crumb.label}
+                    </BreadcrumbItem>
+                  ),
               )}
             </Breadcrumbs>
           }
         />
+        </div>
         {/* Recriauth look: F4F7FC frame (sidebar + topbar + shell) with the
          * content as a white panel, rounded where it meets the frame corner. */}
         <main className="min-h-0 flex-1 overflow-y-auto">

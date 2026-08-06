@@ -6,6 +6,7 @@ import './globals.css';
 import './epalify.css';
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
+import DocumentTitle from './components/DocumentTitle';
 import { Plus_Jakarta_Sans } from 'next/font/google';
 import localFont from 'next/font/local';
 
@@ -49,6 +50,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         suppressHydrationWarning
         className={`${display.variable} ${logo.variable}`}
       >
+        <DocumentTitle />
         {children}
       </body>
     </html>

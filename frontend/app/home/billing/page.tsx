@@ -17,7 +17,6 @@ import {
   MoreHorizontal,
   Receipt,
   Search,
-  Settings,
   Wallet,
   X,
 } from 'lucide-react';
@@ -30,7 +29,7 @@ import {
 } from '../../lib/api';
 import { getToken } from '../../lib/session';
 import { doLogout } from '../../lib/logout';
-import { ICONS, type SidebarItem } from '../../components/Sidebar';
+import { CLIENT_NAV } from '../../components/Sidebar';
 import AppShell from '../../components/AppShell';
 import StatCard from '../../components/StatCard';
 import {
@@ -46,11 +45,6 @@ import {
   Tag,
 } from '@/shared/components/ui';
 
-const CLIENT_NAV: SidebarItem[] = [
-  { href: '/home', label: 'Dashboard', icon: ICONS.dashboard },
-  { href: '/home/billing', label: 'Billing', icon: ICONS.billing },
-  { href: '/home/settings', label: 'Settings', icon: <Settings size={18} strokeWidth={1.7} /> },
-];
 
 function fmtINR(n: number): string {
   return '₹' + n.toLocaleString('en-IN', { minimumFractionDigits: 2 });

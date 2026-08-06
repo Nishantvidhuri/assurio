@@ -1,4 +1,5 @@
 'use client';
+import PageLoader from '@/app/components/PageLoader';
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -28,8 +29,9 @@ const ADMIN_NAV: SidebarItem[] = [
   { href: '/admin', label: 'Dashboard', icon: ICONS.dashboard },
   { href: '/admin/clients', label: 'Clients', icon: ICONS.clients },
   { href: '/admin/invoices', label: 'Invoices', icon: ICONS.invoices },
-  { href: '/admin/operations', label: 'Operations', icon: ICONS.operations },
   { href: '/admin/vendors', label: 'Vendors', icon: ICONS.vendors },
+  { href: '/admin/packages', label: 'Packages', icon: ICONS.packages },
+  { href: '/admin/operations', label: 'Operations', icon: ICONS.operations },
   { href: '/admin/test-verification', label: 'Test Verification', icon: ICONS.testVerification },
 ];
 
@@ -116,7 +118,7 @@ export default function AddClientPage() {
     router.push('/admin/clients/new/checkout');
   }
 
-  if (!user) return <div className="loading">Loading…</div>;
+  if (!user) return <PageLoader />;
 
   return (
     <AppShell nav={ADMIN_NAV} user={user} onLogout={handleLogout}>

@@ -12,5 +12,42 @@ services:
     volumes:
       - assurio_postgres_data:/var/lib/postgresql/data
 
+  # Redis — backing store for the BullMQ queues (outbox, drafts, bulk invites).
+  # App connects at localhost:6379 (REDIS_HOST/REDIS_PORT in .env).
+  redis:
+    image: redis:7-alpine
+    container_name: bgv-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - assurio_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ClamAV daemon — virus-scans ID document uploads (fail-closed).
+  # App connects at localhost:3310 (CLAMAV_HOST/CLAMAV_PORT in .env).
+  # The volume persists the signature DB so it isn't re-downloaded on recreate.
+  clamav:
+    image: clamav/clamav-debian:latest
+    container_name: clamav
+    restart: unless-stopped
+    ports:
+      - "3310:3310"
+    volumes:
+      - assurio_clamav_data:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "clamdscan", "--ping", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
 volumes:
   assurio_postgres_data:
+  assurio_redis_data:
+  assurio_clamav_data:

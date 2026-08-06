@@ -1,4 +1,5 @@
 'use client';
+import PageLoader from '@/app/components/PageLoader';
 
 import {
   useCallback,
@@ -7,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ReactNode,
 } from 'react';
 import { useRouter } from 'next/navigation';
 import { createPortal } from 'react-dom';
@@ -14,16 +16,16 @@ import {
   ArrowRight,
   CheckCircle2,
   ChevronDown,
+  Download,
   Eye,
+  FileText,
   MoreHorizontal,
   Plus,
   Search,
-  Settings,
   Trash2,
   X,
 } from 'lucide-react';
 import {
-  deleteSubject,
   listSubjects,
   me,
   type AuthUser,
@@ -31,8 +33,13 @@ import {
 } from '../lib/api';
 import { getToken } from '../lib/session';
 import { doLogout } from '../lib/logout';
-import { ICONS, type SidebarItem } from '../components/Sidebar';
+import { CLIENT_NAV } from '../components/Sidebar';
 import AppShell from '../components/AppShell';
+import {
+  listServerDrafts,
+  deleteServerDraft,
+  type DraftSummary,
+} from './new/server-draft';
 import {
   Button,
   Pagination,
@@ -46,11 +53,6 @@ import {
   type StatusVariant,
 } from '@/shared/components/ui';
 
-const CLIENT_NAV: SidebarItem[] = [
-  { href: '/home', label: 'Dashboard', icon: ICONS.dashboard },
-  { href: '/home/billing', label: 'Billing', icon: ICONS.billing },
-  { href: '/home/settings', label: 'Settings', icon: <Settings size={18} strokeWidth={1.7} /> },
-];
 
 function riskClassMini(risk?: string): string {
   const r = (risk || '').toLowerCase();
@@ -108,15 +110,31 @@ function subjectSortValue(s: Subject, field: string): string | number {
       return s.aadhaarResult ? 1 : 0;
     case 'crime':
       return crimeRank(s);
+    case 'dateInitiated':
+      return s.createdAt ? new Date(s.createdAt).getTime() : 0;
     default:
       return '';
   }
+}
+
+/** Short, locale-friendly date for the "Date initiated" column. */
+function fmtDate(iso?: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime())
+    ? '—'
+    : d.toLocaleDateString('en-IN', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      });
 }
 
 export default function HomePage() {
   const router = useRouter();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [drafts, setDrafts] = useState<DraftSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [openMenu, setOpenMenu] = useState<string | null>(null);
@@ -154,6 +172,12 @@ export default function HomePage() {
         const list = await listSubjects(token);
         if (cancelled) return;
         setSubjects(list);
+        try {
+          const draftList = await listServerDrafts();
+          if (!cancelled) setDrafts(draftList);
+        } catch {
+          /* drafts are best-effort — never block the candidate list */
+        }
       } catch {
         if (cancelled) return;
         doLogout(router);
@@ -170,19 +194,17 @@ export default function HomePage() {
     doLogout(router);
   }
 
-  function openAdd() {
-    router.push('/home/new');
+  async function discardDraft(id: string) {
+    try {
+      await deleteServerDraft(id);
+      setDrafts((prev) => prev.filter((d) => d.id !== id));
+    } catch {
+      /* ignore — user can retry */
+    }
   }
 
-  async function handleDelete(id: string) {
-    try {
-      const token = getToken();
-      if (!token) return;
-      await deleteSubject(token, id);
-      setSubjects((prev) => prev.filter((s) => s.id !== id));
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete');
-    }
+  function openAdd() {
+    router.push('/home/new');
   }
 
   const filtered = useMemo(() => {
@@ -224,7 +246,7 @@ export default function HomePage() {
     [sorted, safePage, pageSize],
   );
 
-  if (!user) return <div className="loading">Loading...</div>;
+  if (!user) return <PageLoader />;
 
   return (
     <AppShell nav={CLIENT_NAV} user={user} onLogout={handleLogout}>
@@ -240,10 +262,12 @@ export default function HomePage() {
                 verifying.
               </p>
             </div>
-            <Button variant="primary" onClick={openAdd}>
-              <Plus size={15} strokeWidth={2.5} />
-              Add candidate
-            </Button>
+            <div className="hidden sm:block">
+              <Button variant="primary" onClick={openAdd}>
+                <Plus size={15} strokeWidth={2.5} />
+                Start New Verification
+              </Button>
+            </div>
           </header>
 
           {/* Toolbar */}
@@ -270,6 +294,9 @@ export default function HomePage() {
               </div>
             </div>
           ) : (
+            <>
+            {/* ── Desktop / tablet: full table ── */}
+            <div className="hidden sm:block">
             <Table bordered className="bg-white">
               <TableHeader>
                 <TableRow>
@@ -288,61 +315,132 @@ export default function HomePage() {
                     onSort={() => toggleSort('role')}
                   />
                   <TableHeaderCell
-                    label="Status"
-                    className="cd-col-hide"
-                    sortable
-                    sortOrder={getSortOrder('status')}
-                    onSort={() => toggleSort('status')}
-                  />
-                  <TableHeaderCell
-                    label="PAN"
-                    className="cd-col-hide"
-                    sortable
-                    sortOrder={getSortOrder('pan')}
-                    onSort={() => toggleSort('pan')}
-                  />
-                  <TableHeaderCell
-                    label="Aadhaar"
-                    className="cd-col-hide"
-                    sortable
-                    sortOrder={getSortOrder('aadhaar')}
-                    onSort={() => toggleSort('aadhaar')}
-                  />
-                  <TableHeaderCell
                     label="Crime"
                     className="cd-col-hide"
                     sortable
                     sortOrder={getSortOrder('crime')}
                     onSort={() => toggleSort('crime')}
                   />
+                  <TableHeaderCell
+                    label="Date initiated"
+                    className="cd-col-hide"
+                    sortable
+                    sortOrder={getSortOrder('dateInitiated')}
+                    onSort={() => toggleSort('dateInitiated')}
+                  />
+                  <TableHeaderCell
+                    label="Status"
+                    className="cd-col-hide"
+                    sortable
+                    sortOrder={getSortOrder('status')}
+                    onSort={() => toggleSort('status')}
+                  />
                   <TableHeaderCell type="empty" roundedRight />
                 </TableRow>
               </TableHeader>
               <TableBody>
+                {/* In-progress drafts — shown at the top with a Draft status. */}
+                {drafts.map((d) => {
+                  const draftName =
+                    (d.data.name || '').trim() || 'Untitled candidate';
+                  const draftRole = (d.data.role || '').trim();
+                  const initial = draftName.charAt(0).toUpperCase();
+                  return (
+                    <TableRow
+                      key={`draft-${d.id}`}
+                      hoverable
+                      className="cd-row cursor-pointer"
+                      onClick={() => router.push(`/home/new?draftId=${d.id}`)}
+                    >
+                      <TableCell
+                        value={
+                          <div className="cd-cell-bio">
+                            <span className="cd-cell-avatar">{initial}</span>
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div className="cd-cell-name">{draftName}</div>
+                              <div className="cd-cell-sub">
+                                Continue where you left off
+                              </div>
+                            </div>
+                          </div>
+                        }
+                      />
+                      <TableCell
+                        className="cd-col-hide"
+                        value={draftRole || '—'}
+                      />
+                      <TableCell
+                        className="cd-col-hide"
+                        value={<span className="cd-cell-sub">—</span>}
+                      />
+                      <TableCell
+                        className="cd-col-hide"
+                        value={fmtDate(d.createdAt)}
+                      />
+                      <TableCell
+                        className="cd-col-hide"
+                        type="status"
+                        statusLabel="Draft"
+                        statusVariant="Default"
+                      />
+                      <TableCell
+                        value={
+                          <RowMenu
+                            isOpen={openMenu === `draft-${d.id}`}
+                            onOpen={() =>
+                              setOpenMenu((cur) =>
+                                cur === `draft-${d.id}` ? null : `draft-${d.id}`,
+                              )
+                            }
+                            onClose={() => setOpenMenu(null)}
+                            items={[
+                              {
+                                label: 'Continue Form',
+                                icon: <FileText size={14} />,
+                                onClick: () =>
+                                  router.push(`/home/new?draftId=${d.id}`),
+                              },
+                              {
+                                label: 'Delete Draft',
+                                icon: <Trash2 size={14} />,
+                                danger: true,
+                                confirm: 'Delete this draft?',
+                                onClick: () => void discardDraft(d.id),
+                              },
+                            ]}
+                          />
+                        }
+                      />
+                    </TableRow>
+                  );
+                })}
+
                 {subjects.length === 0 ? (
-                  <TableRow>
-                    <TableCell
-                      colSpan={7}
-                      className="text-center"
-                      value={
-                        <div className="flex flex-col items-center gap-3 py-10">
-                          <span className="text-body-md text-text-subheading">
-                            No background checks yet. Add the first person you
-                            want to verify — they&apos;ll get an invite and
-                            you&apos;ll see their progress here.
-                          </span>
-                          <Button variant="primary" onClick={openAdd}>
-                            Add your first candidate
-                            <ArrowRight size={15} />
-                          </Button>
-                        </div>
-                      }
-                    />
-                  </TableRow>
+                  drafts.length === 0 ? (
+                    <TableRow>
+                      <TableCell
+                        colSpan={6}
+                        className="text-center"
+                        value={
+                          <div className="flex flex-col items-center gap-3 py-10">
+                            <span className="text-body-md text-text-subheading">
+                              No background checks yet. Add the first person you
+                              want to verify — they&apos;ll get an invite and
+                              you&apos;ll see their progress here.
+                            </span>
+                            <Button variant="primary" onClick={openAdd}>
+                              Add your first candidate
+                              <ArrowRight size={15} />
+                            </Button>
+                          </div>
+                        }
+                      />
+                    </TableRow>
+                  ) : null
                 ) : filtered.length === 0 ? (
                   <TableRow>
                     <TableCell
-                      colSpan={7}
+                      colSpan={6}
                       className="text-center"
                       value={
                         <span className="text-text-placeholder">
@@ -362,13 +460,178 @@ export default function HomePage() {
                       }
                       onCloseMenu={() => setOpenMenu(null)}
                       onOpen={() => router.push(`/subject/${s.id}`)}
-                      onDelete={() => handleDelete(s.id)}
                     />
                   ))
                 )}
               </TableBody>
             </Table>
+            </div>
+
+            {/* ── Mobile: card list (matches the app's compact view) ── */}
+            <div className="flex flex-col gap-3 pb-28 sm:hidden">
+              {drafts.map((d) => {
+                const draftName =
+                  (d.data.name || '').trim() || 'Untitled candidate';
+                const draftRole = (d.data.role || '').trim();
+                const draftPhone = (d.data.phone || '').trim();
+                return (
+                  <div
+                    key={`m-draft-${d.id}`}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => router.push(`/home/new?draftId=${d.id}`)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        router.push(`/home/new?draftId=${d.id}`);
+                      }
+                    }}
+                    className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-xl border border-border-default bg-white p-4 text-left transition-colors hover:bg-black/[0.02]"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="truncate font-semibold text-text-heading">
+                          {draftName}
+                        </span>
+                        {draftRole && (
+                          <span className="rounded-full bg-[#f1f5f9] px-2 py-0.5 text-body-sm text-text-subheading">
+                            {draftRole}
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-1 text-body-sm text-text-subheading">
+                        Mob: {draftPhone || '—'}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <span className="text-body-sm font-semibold text-warning">
+                        Draft
+                      </span>
+                      <RowMenu
+                        isOpen={openMenu === `m-draft-${d.id}`}
+                        onOpen={() =>
+                          setOpenMenu((cur) =>
+                            cur === `m-draft-${d.id}` ? null : `m-draft-${d.id}`,
+                          )
+                        }
+                        onClose={() => setOpenMenu(null)}
+                        items={[
+                          {
+                            label: 'Continue Form',
+                            icon: <FileText size={14} />,
+                            onClick: () =>
+                              router.push(`/home/new?draftId=${d.id}`),
+                          },
+                          {
+                            label: 'Delete Draft',
+                            icon: <Trash2 size={14} />,
+                            danger: true,
+                            confirm: 'Delete this draft?',
+                            onClick: () => void discardDraft(d.id),
+                          },
+                        ]}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+
+              {subjects.length === 0 ? (
+                drafts.length === 0 ? (
+                  <div className="rounded-xl border border-border-default bg-white p-8 text-center text-body-md text-text-subheading">
+                    No verifications yet. Tap “Start New Verification” to begin.
+                  </div>
+                ) : null
+              ) : filtered.length === 0 ? (
+                <div className="rounded-xl border border-border-default bg-white p-6 text-center text-text-placeholder">
+                  No candidates match <strong>“{query}”</strong>.
+                </div>
+              ) : (
+                pageItems.map((s) => {
+                  const hasReport = Boolean(
+                    s.panResult || s.aadhaarResult || s.crimeResult,
+                  );
+                  const phone = (s.phone || '').trim();
+                  return (
+                    <div
+                      key={`m-${s.id}`}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => router.push(`/subject/${s.id}`)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          router.push(`/subject/${s.id}`);
+                        }
+                      }}
+                      className="flex w-full cursor-pointer items-center justify-between gap-3 rounded-xl border border-border-default bg-white p-4 text-left transition-colors hover:bg-black/[0.02]"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="truncate font-semibold text-text-heading">
+                            {s.name}
+                          </span>
+                          {s.role && (
+                            <span className="rounded-full bg-[#f1f5f9] px-2 py-0.5 text-body-sm text-text-subheading">
+                              {s.role}
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-1 text-body-sm text-text-subheading">
+                          Mob: {phone || '—'}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        {hasReport ? (
+                          <span className="text-body-sm font-semibold text-success">
+                            Completed
+                          </span>
+                        ) : (
+                          <span className="text-body-sm font-semibold capitalize text-warning">
+                            {s.status || 'invited'}
+                          </span>
+                        )}
+                        <RowMenu
+                          isOpen={openMenu === `m-${s.id}`}
+                          onOpen={() =>
+                            setOpenMenu((cur) =>
+                              cur === `m-${s.id}` ? null : `m-${s.id}`,
+                            )
+                          }
+                          onClose={() => setOpenMenu(null)}
+                          items={[
+                            {
+                              label: 'View profile',
+                              icon: <Eye size={14} />,
+                              onClick: () => router.push(`/subject/${s.id}`),
+                            },
+                            ...(hasReport
+                              ? [
+                                  {
+                                    label: 'Download report',
+                                    icon: <Download size={14} />,
+                                    onClick: () =>
+                                      router.push(`/subject/${s.id}`),
+                                  },
+                                ]
+                              : []),
+                          ]}
+                        />
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+            </>
           )}
+
+          {/* Mobile sticky action — start a new verification */}
+          <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border-default bg-white p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:hidden">
+            <Button variant="primary" className="w-full" onClick={openAdd}>
+              Start New Verification
+            </Button>
+          </div>
 
           {!loading && filtered.length > 0 && totalPages > 1 && (
             <div className="mt-4 flex justify-center">
@@ -391,24 +654,40 @@ function SubjectRow({
   onOpenMenu,
   onCloseMenu,
   onOpen,
-  onDelete,
 }: {
   s: Subject;
   isMenuOpen: boolean;
   onOpenMenu: () => void;
   onCloseMenu: () => void;
   onOpen: () => void;
-  onDelete: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const panOk = Boolean(s.panResult);
   const aadhaarOk = Boolean(s.aadhaarResult);
   const crimeRisk = getCrimeRisk(s);
   const crimePending = Boolean(s.crimeRequestId) && !s.crimeResult;
+  // A downloadable report exists once any check has produced a result.
+  const hasReport = Boolean(s.panResult || s.aadhaarResult || s.crimeResult);
   const initial = (s.name || '?').charAt(0).toUpperCase();
-  const statusLabel = s.status || 'invited';
+  // Verification progress across the 3 core checks (PAN, Aadhaar, Crime). Some
+  // finish instantly; crime takes time — so show "In progress · X/3".
+  const checksDone = [panOk, aadhaarOk, Boolean(s.crimeResult)].filter(
+    Boolean,
+  ).length;
+  const statusLabel =
+    checksDone >= 3
+      ? 'Completed'
+      : checksDone > 0
+        ? `In progress · ${checksDone}/3`
+        : s.status || 'invited';
   const statusVariant: StatusVariant =
-    s.status === 'active' ? 'Success' : 'Warning';
+    checksDone >= 3
+      ? 'Success'
+      : checksDone > 0
+        ? 'Warning'
+        : s.status === 'active'
+          ? 'Success'
+          : 'Warning';
   const crimeChip: { label: string; variant: StatusVariant } = crimeRisk
     ? { label: crimeRisk, variant: crimeVariant(crimeRisk) }
     : crimePending
@@ -493,26 +772,15 @@ function SubjectRow({
       <TableCell
         className="cd-col-hide"
         type="status"
-        statusLabel={statusLabel}
-        statusVariant={statusVariant}
-      />
-      <TableCell
-        className="cd-col-hide"
-        type="status"
-        statusLabel={panOk ? 'Verified' : 'Pending'}
-        statusVariant={panOk ? 'Success' : 'Default'}
-      />
-      <TableCell
-        className="cd-col-hide"
-        type="status"
-        statusLabel={aadhaarOk ? 'Verified' : 'Pending'}
-        statusVariant={aadhaarOk ? 'Success' : 'Default'}
-      />
-      <TableCell
-        className="cd-col-hide"
-        type="status"
         statusLabel={crimeChip.label}
         statusVariant={crimeChip.variant}
+      />
+      <TableCell className="cd-col-hide" value={fmtDate(s.createdAt)} />
+      <TableCell
+        className="cd-col-hide"
+        type="status"
+        statusLabel={statusLabel}
+        statusVariant={statusVariant}
       />
       <TableCell
         value={
@@ -520,8 +788,22 @@ function SubjectRow({
             isOpen={isMenuOpen}
             onOpen={onOpenMenu}
             onClose={onCloseMenu}
-            onOpenSubject={onOpen}
-            onDelete={onDelete}
+            items={[
+              {
+                label: 'View profile',
+                icon: <Eye size={14} />,
+                onClick: onOpen,
+              },
+              ...(hasReport
+                ? [
+                    {
+                      label: 'Download report',
+                      icon: <Download size={14} />,
+                      onClick: onOpen,
+                    },
+                  ]
+                : []),
+            ]}
           />
         }
       />
@@ -529,28 +811,35 @@ function SubjectRow({
   );
 }
 
-/* Same portal-rendered menu pattern used on /admin/invoices */
+interface RowMenuItem {
+  label: string;
+  icon: ReactNode;
+  onClick: () => void;
+  danger?: boolean;
+  /** When set, clicking asks for confirmation with this prompt first. */
+  confirm?: string;
+}
+
+/* Portal-rendered row-actions menu (same pattern as /admin/invoices). */
 function RowMenu({
   isOpen,
   onOpen,
   onClose,
-  onOpenSubject,
-  onDelete,
+  items,
 }: {
   isOpen: boolean;
   onOpen: () => void;
   onClose: () => void;
-  onOpenSubject: () => void;
-  onDelete: () => void;
+  items: RowMenuItem[];
 }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
-  const [confirming, setConfirming] = useState(false);
+  const [confirmIdx, setConfirmIdx] = useState<number | null>(null);
 
-  // Reset confirming state whenever menu closes
+  // Reset confirmation whenever the menu closes.
   useEffect(() => {
-    if (!isOpen) setConfirming(false);
+    if (!isOpen) setConfirmIdx(null);
   }, [isOpen]);
 
   const reposition = useCallback(() => {
@@ -624,19 +913,20 @@ function RowMenu({
             role="menu"
             style={{ top: pos.top, left: pos.left }}
           >
-            {confirming ? (
-              /* Inline confirmation — avoids window.confirm() which causes
-                 a spurious click on the <tr> row when the dialog dismisses,
-                 triggering navigation to the (now deleted) subject page. */
+            {confirmIdx !== null ? (
+              /* Inline confirmation — avoids window.confirm() which causes a
+                 spurious click on the <tr> when dismissed. */
               <>
-                <div className="hd-menu-confirm-label">Delete this candidate?</div>
+                <div className="hd-menu-confirm-label">
+                  {items[confirmIdx].confirm}
+                </div>
                 <button
                   type="button"
                   className="inv-menu-item inv-menu-item-danger"
                   onClick={(e) => {
                     e.stopPropagation();
                     onClose();
-                    onDelete();
+                    items[confirmIdx].onClick();
                   }}
                   role="menuitem"
                 >
@@ -648,7 +938,7 @@ function RowMenu({
                   className="inv-menu-item"
                   onClick={(e) => {
                     e.stopPropagation();
-                    setConfirming(false);
+                    setConfirmIdx(null);
                   }}
                   role="menuitem"
                 >
@@ -656,33 +946,28 @@ function RowMenu({
                 </button>
               </>
             ) : (
-              <>
+              items.map((item, i) => (
                 <button
+                  key={item.label}
                   type="button"
-                  className="inv-menu-item"
+                  className={`inv-menu-item ${
+                    item.danger ? 'inv-menu-item-danger' : ''
+                  }`}
                   onClick={(e) => {
                     e.stopPropagation();
-                    onClose();
-                    onOpenSubject();
+                    if (item.confirm) {
+                      setConfirmIdx(i);
+                    } else {
+                      onClose();
+                      item.onClick();
+                    }
                   }}
                   role="menuitem"
                 >
-                  <Eye size={14} />
-                  Open
+                  {item.icon}
+                  {item.label}
                 </button>
-                <button
-                  type="button"
-                  className="inv-menu-item inv-menu-item-danger"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setConfirming(true);
-                  }}
-                  role="menuitem"
-                >
-                  <Trash2 size={14} />
-                  Delete
-                </button>
-              </>
+              ))
             )}
           </div>,
           document.body,

@@ -6,6 +6,7 @@ import { ExpressAdapter } from '@bull-board/express';
 import { AuthModule } from './auth/auth.module';
 import { VerifyModule } from './verify/verify.module';
 import { SubjectsModule } from './subjects/subjects.module';
+import { PackagesModule } from './packages/packages.module';
 import { AdminModule } from './admin/admin.module';
 import { PaymentsModule } from './payments/payments.module';
 import { BulkModule } from './bulk/bulk.module';
@@ -15,6 +16,8 @@ import { PrismaModule } from './common/prisma.module';
 import { CommonModule } from './common/common.module';
 import { EventsModule } from './common/events.module';
 import { DraftModule } from './draft/draft.module';
+import { CandidateDraftModule } from './candidate-draft/candidate-draft.module';
+import { UploadsModule } from './uploads/uploads.module';
 import { InternalVendorsModule } from './modules/internal/vendors/internal-vendors.module';
 
 @Module({
@@ -45,7 +48,10 @@ import { InternalVendorsModule } from './modules/internal/vendors/internal-vendo
     AuthModule,
     VerifyModule,
     SubjectsModule,
+    PackagesModule,
     DraftModule,
+    CandidateDraftModule,
+    UploadsModule,
     AdminModule,
     PaymentsModule,
     BulkModule,

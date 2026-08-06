@@ -36,12 +36,19 @@ export interface RazorpayCheckoutOptions {
   prefill?: RazorpayPrefill;
   notes?: Record<string, string>;
   themeColor?: string;
+  /** Razorpay Order id — binds the payment to a server-created order. */
+  orderId?: string;
+  /** Explicit key id (from the server). Falls back to the public env key. */
+  key?: string;
+  /** Brand logo shown in the modal. Defaults to the app's /logo-mark.png. */
+  image?: string;
 }
 
 interface RazorpayOptions {
   key: string;
   amount: number;
   currency: string;
+  order_id?: string;
   name: string;
   description?: string;
   image?: string;
@@ -96,7 +103,9 @@ export async function openRazorpayCheckout(
 ): Promise<RazorpaySuccess> {
   await loadScript();
   const key =
-    process.env.NEXT_PUBLIC_RAZORPAY_KEY ?? 'rzp_test_1DP5mmOlF5G5ag';
+    options.key ??
+    process.env.NEXT_PUBLIC_RAZORPAY_KEY ??
+    'rzp_test_1DP5mmOlF5G5ag';
 
   return new Promise<RazorpaySuccess>((resolve, reject) => {
     if (!window.Razorpay) {
@@ -104,11 +113,18 @@ export async function openRazorpayCheckout(
       return;
     }
     let settled = false;
+    const logo =
+      options.image ??
+      (typeof window !== 'undefined'
+        ? `${window.location.origin}/logo-mark@512.png`
+        : undefined);
     const rzp = new window.Razorpay({
       key,
       amount: options.amount,
       currency: options.currency ?? 'INR',
+      order_id: options.orderId,
       name: options.name,
+      image: logo,
       description: options.description,
       prefill: options.prefill,
       notes: options.notes,

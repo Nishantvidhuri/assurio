@@ -1,4 +1,5 @@
 'use client';
+import PageLoader from '@/app/components/PageLoader';
 
 import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -34,7 +35,7 @@ const PRICE_INR = 399;
 
 export default function SuccessPageWrapper() {
   return (
-    <Suspense fallback={<div className="loading">Loading…</div>}>
+    <Suspense fallback={<PageLoader />}>
       <SuccessPage />
     </Suspense>
   );

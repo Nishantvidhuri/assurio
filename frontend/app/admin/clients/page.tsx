@@ -1,4 +1,5 @@
 'use client';
+import PageLoader from '@/app/components/PageLoader';
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -26,10 +27,21 @@ const ADMIN_NAV: SidebarItem[] = [
   { href: '/admin', label: 'Dashboard', icon: ICONS.dashboard },
   { href: '/admin/clients', label: 'Clients', icon: ICONS.clients },
   { href: '/admin/invoices', label: 'Invoices', icon: ICONS.invoices },
-  { href: '/admin/operations', label: 'Operations', icon: ICONS.operations },
   { href: '/admin/vendors', label: 'Vendors', icon: ICONS.vendors },
+  { href: '/admin/packages', label: 'Packages', icon: ICONS.packages },
+  { href: '/admin/operations', label: 'Operations', icon: ICONS.operations },
   { href: '/admin/test-verification', label: 'Test Verification', icon: ICONS.testVerification },
 ];
+
+function fmtINR(n?: number): string {
+  return (
+    '₹' +
+    (n ?? 0).toLocaleString('en-IN', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })
+  );
+}
 
 export default function AdminClientsPage() {
   const router = useRouter();
@@ -128,10 +140,18 @@ export default function AdminClientsPage() {
     });
   }
 
-  if (!user) return <div className="loading">Loading...</div>;
+  if (!user) return <PageLoader />;
 
   return (
-    <AppShell nav={ADMIN_NAV} user={user} onLogout={handleLogout}>
+    <AppShell
+      nav={ADMIN_NAV}
+      user={user}
+      onLogout={handleLogout}
+      breadcrumbs={[
+        { label: 'Home', href: '/admin' },
+        { label: 'Clients' },
+      ]}
+    >
       <div className="shell-head">
         <div>
           <h1 className="page-title">Clients</h1>
@@ -169,6 +189,10 @@ export default function AdminClientsPage() {
               sortOrder={sortKey === 'candidates' ? sortDir : null}
               onSort={() => toggleSort('candidates')}
             />
+            <TableHeaderCell label="Checks" className="cd-col-hide" />
+            <TableHeaderCell label="Revenue" className="cd-col-hide" />
+            <TableHeaderCell label="API cost" className="cd-col-hide" />
+            <TableHeaderCell label="Profit" />
             <TableHeaderCell type="empty" />
           </TableRow>
         </TableHeader>
@@ -176,7 +200,7 @@ export default function AdminClientsPage() {
           {paged.length === 0 ? (
             <TableRow>
               <TableCell
-                colSpan={5}
+                colSpan={9}
                 className="text-center"
                 value={<span className="text-text-placeholder">No clients yet.</span>}
               />
@@ -206,6 +230,20 @@ export default function AdminClientsPage() {
                 />
                 <TableCell className="cd-col-hide" value={c.email} />
                 <TableCell value={c.candidateCount} />
+                <TableCell className="cd-col-hide" value={c.checksDone ?? 0} />
+                <TableCell className="cd-col-hide" value={fmtINR(c.revenue)} />
+                <TableCell className="cd-col-hide" value={fmtINR(c.apiCost)} />
+                <TableCell
+                  value={
+                    <span
+                      className={
+                        (c.profit ?? 0) >= 0 ? 'text-success' : 'text-failure'
+                      }
+                    >
+                      {fmtINR(c.profit)}
+                    </span>
+                  }
+                />
                 <TableCell value={<span className="text-text-placeholder">›</span>} />
               </TableRow>
             ))

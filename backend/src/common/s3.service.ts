@@ -3,6 +3,7 @@ import {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
+  DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
@@ -13,33 +14,39 @@ export class S3Service {
   private readonly bucket: string;
 
   constructor() {
-    this.bucket = process.env.S3_BUCKET || '';
-    const endpoint = process.env.S3_ENDPOINT;
-    const region = process.env.S3_REGION || 'auto';
-    const accessKeyId = process.env.S3_ACCESS_KEY_ID || '';
-    const secretAccessKey = process.env.S3_SECRET_ACCESS_KEY || '';
+    // Prefer the AWS_* names (real S3, used by this project's .env); fall back
+    // to the older S3_* names (Cloudflare R2 style) for backward compatibility.
+    this.bucket = process.env.AWS_S3_BUCKET || process.env.S3_BUCKET || '';
+    // R2 needs a custom endpoint; real AWS S3 leaves this undefined.
+    const endpoint = process.env.S3_ENDPOINT || undefined;
+    const region =
+      process.env.AWS_REGION || process.env.S3_REGION || 'us-east-1';
+    const accessKeyId =
+      process.env.AWS_ACCESS_KEY_ID || process.env.S3_ACCESS_KEY_ID || '';
+    const secretAccessKey =
+      process.env.AWS_SECRET_ACCESS_KEY ||
+      process.env.S3_SECRET_ACCESS_KEY ||
+      '';
 
-    if (!this.bucket || !endpoint || !accessKeyId || !secretAccessKey) {
+    if (!this.bucket || !accessKeyId || !secretAccessKey) {
       this.logger.warn(
-        'S3 env vars not fully configured — PDF uploads will be skipped.',
+        'S3 env vars not fully configured — uploads will be skipped.',
       );
     }
 
     this.client = new S3Client({
       region,
-      endpoint,
+      // Only pass endpoint when set (R2); omitting it uses the default AWS host.
+      ...(endpoint ? { endpoint, forcePathStyle: true } : {}),
       credentials: { accessKeyId, secretAccessKey },
-      // Cloudflare R2 requires path-style addressing.
-      forcePathStyle: false,
     });
   }
 
   get isConfigured(): boolean {
     return Boolean(
-      process.env.S3_BUCKET &&
-        process.env.S3_ENDPOINT &&
-        process.env.S3_ACCESS_KEY_ID &&
-        process.env.S3_SECRET_ACCESS_KEY,
+      (process.env.AWS_S3_BUCKET || process.env.S3_BUCKET) &&
+        (process.env.AWS_ACCESS_KEY_ID || process.env.S3_ACCESS_KEY_ID) &&
+        (process.env.AWS_SECRET_ACCESS_KEY || process.env.S3_SECRET_ACCESS_KEY),
     );
   }
 
@@ -60,6 +67,14 @@ export class S3Service {
     );
     this.logger.log(`Uploaded s3://${this.bucket}/${key}`);
     return key;
+  }
+
+  /** Delete a single object by key. Safe no-op if it doesn't exist. */
+  async delete(key: string): Promise<void> {
+    await this.client.send(
+      new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
+    );
+    this.logger.log(`Deleted s3://${this.bucket}/${key}`);
   }
 
   /**

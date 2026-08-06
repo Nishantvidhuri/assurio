@@ -33,6 +33,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     credentials: 'include', // always send the httpOnly as_access cookie
     headers: {
       'Content-Type': 'application/json',
+      // Skip ngrok's free-tier interstitial so the API returns JSON, not HTML.
+      'ngrok-skip-browser-warning': 'true',
       ...csrfHeader,
       ...(options.headers || {})
     }
@@ -241,6 +243,7 @@ export interface Subject {
   crimeRequestId: string | null;
   crimeResult: Record<string, unknown> | null;
   consentResult: ConsentResult | null;
+  consentAcceptedAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -272,15 +275,87 @@ export function listSubjects(token: string): Promise<Subject[]> {
   return request<Subject[]>('/subjects');
 }
 
+export interface UploadedIdDocument {
+  key: string;
+  name: string;
+  contentType: string;
+  size: number;
+  url: string | null;
+}
+
+/**
+ * Upload one ID document (PDF/JPG/PNG). The server virus-scans it before it
+ * reaches S3. Uses FormData directly — we must NOT set Content-Type so the
+ * browser adds the multipart boundary; auth rides on the httpOnly cookie.
+ */
+export async function uploadIdDocument(
+  file: File,
+): Promise<UploadedIdDocument> {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`${API_URL}/uploads/id-document`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'X-CSRF-Token': getCsrfToken(),
+      'ngrok-skip-browser-warning': 'true',
+    },
+    body: form,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const message = Array.isArray(data.message)
+      ? data.message.join(', ')
+      : data.message || 'Upload failed';
+    throw new Error(message);
+  }
+  return data as UploadedIdDocument;
+}
+
+/** Force-re-run a single ID check for a subject ("Recall API"). */
+export function recheckSubject(
+  _token: string,
+  id: string,
+  type: 'pan' | 'aadhaar' | 'voter' | 'passport' | 'dl' | 'employment',
+): Promise<Subject> {
+  return request<Subject>(
+    `/subjects/${encodeURIComponent(id)}/recheck/${type}`,
+    { method: 'POST' },
+  );
+}
+
+/** Immediately delete a previously-uploaded ID document from S3 by its key. */
+export async function deleteIdDocument(key: string): Promise<void> {
+  await fetch(`${API_URL}/uploads/id-document`, {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': getCsrfToken(),
+      'ngrok-skip-browser-warning': 'true',
+    },
+    body: JSON.stringify({ key }),
+  });
+}
+
 export function createSubject(
   token: string,
   input: {
     name: string;
     role?: string;
-    email: string;
+    email?: string;
     phone?: string;
     panNumber?: string;
     aadhaarNumber?: string;
+    dob?: string;
+    fatherName?: string;
+    permanentAddress?: string;
+    pincode?: string;
+    drivingLicense?: string;
+    voterId?: string;
+    passportFileNo?: string;
+    uan?: string;
+    consentAcceptedAt?: string;
   },
 ): Promise<Subject & { emailSent?: boolean }> {
   return request<Subject & { emailSent?: boolean }>('/subjects', {
@@ -314,6 +389,8 @@ export interface AdminSubjectRow {
   hasAadhaar: boolean;
   hasPanImages: boolean;
   crimeRisk: string | null;
+  checksDone?: number;
+  checksTotal?: number;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -323,6 +400,14 @@ export interface AdminClientRow {
   name: string;
   email: string;
   candidateCount: number;
+  /** Checks run so far across this client's candidates. */
+  checksDone?: number;
+  /** Buy-side vendor cost (₹) for those checks. */
+  apiCost?: number;
+  /** Revenue (₹) — sum of this client's paid invoices. */
+  revenue?: number;
+  /** Profit (₹) = revenue − apiCost. */
+  profit?: number;
   createdAt?: string;
 }
 
@@ -342,9 +427,28 @@ export interface BillingSummary {
   byType: { pan: number; aadhaar: number; crime: number };
 }
 
+export interface AdminClientDraft {
+  id: string;
+  /** The in-progress Add-Candidate form values (strings; empty = not filled). */
+  data: {
+    name?: string;
+    email?: string;
+    phone?: string;
+    role?: string;
+    pan?: string;
+    aadhaar?: string;
+    dob?: string;
+    permanentAddress?: string;
+    [key: string]: unknown;
+  };
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface AdminClientDetail {
   client: AdminClientRow;
   subjects: AdminSubjectRow[];
+  drafts: AdminClientDraft[];
   billing: BillingSummary;
 }
 
@@ -447,8 +551,10 @@ export interface AdminSubjectDetail {
   email: string;
   phone: string;
   status: string;
+  ownerId: string;
   ownerName: string;
   ownerEmail: string;
+  clientName?: string;
   panFront: string | null;
   panBack: string | null;
   panNumber: string | null;
@@ -480,7 +586,7 @@ export interface PaymentLink {
 export interface CreatePaymentLinkInput {
   amount: number; // rupees
   description?: string;
-  customer: { name: string; email: string; contact?: string };
+  customer: { name: string; email?: string; contact?: string };
   notes?: Record<string, string>;
   callbackPath: string; // e.g. "/home/new/success"
   referenceId?: string;
@@ -502,6 +608,50 @@ export interface VerifyPaymentInput {
   razorpay_payment_link_reference_id?: string;
   razorpay_payment_link_status: string;
   razorpay_signature: string;
+}
+
+// ===== Embedded checkout (Razorpay Orders) =====
+
+export interface CreateOrderInput {
+  amount: number; // rupees
+  description?: string;
+  customer: { name: string; email?: string; contact?: string };
+  notes?: Record<string, string>;
+}
+
+export interface OrderResponse {
+  orderId: string;
+  amount: number; // paise
+  currency: string;
+  keyId: string | null;
+}
+
+/** Create a Razorpay Order for the embedded Checkout modal. */
+export function createOrder(
+  token: string,
+  input: CreateOrderInput,
+): Promise<OrderResponse> {
+  return request<OrderResponse>('/payments/order', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export interface VerifyOrderInput {
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
+}
+
+/** Verify an embedded-checkout payment and mint the invoice. */
+export function verifyOrderPayment(
+  token: string,
+  input: VerifyOrderInput,
+): Promise<VerifyPaymentResponse> {
+  return request<VerifyPaymentResponse>('/payments/verify', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
 }
 
 export interface InvoiceLineItem {
@@ -557,6 +707,168 @@ export function myInvoices(token: string): Promise<InvoiceResponse[]> {
   return request<InvoiceResponse[]>('/payments/invoices/mine');
 }
 
+/** Full invoice detail for the side panel (seller/buyer, line items, payment). */
+export interface InvoiceDetailResponse {
+  id: string;
+  invoiceNumber: string;
+  status: string;
+  customer: { name: string; email: string; phone: string | null };
+  lineItems: Array<{
+    description?: string;
+    quantity?: number;
+    rate?: number;
+    total?: number;
+    credits?: string;
+    lineSubtotal?: string;
+  }>;
+  subtotal: number;
+  tax: number;
+  total: number;
+  taxRatePercent: number;
+  currency: string;
+  razorpayPaymentId: string | null;
+  paidAt: string | null;
+  createdAt: string;
+  pdfUrl?: string | null;
+  /** The client (account holder) billed — "Billed To". */
+  buyer?: { name: string; email: string | null; phone: string | null } | null;
+}
+
+export function invoiceDetail(id: string): Promise<InvoiceDetailResponse> {
+  return request<InvoiceDetailResponse>(
+    `/payments/invoice/${encodeURIComponent(id)}`,
+  );
+}
+
+/* ── Public candidate verification link (no login) — /verify/:token ── */
+
+export interface AadhaarKycAddress {
+  careOf: string | null;
+  country: string | null;
+  district: string | null;
+  house: string | null;
+  locality: string | null;
+  pincode: string | null;
+  postOffice: string | null;
+  state: string | null;
+  vtc: string | null;
+}
+
+/** The KYC DigiLocker returns for a verified Aadhaar. */
+export interface AadhaarKyc {
+  uidMasked: string | null;
+  name: string | null;
+  dob: string | null;
+  gender: string | null;
+  photo: string | null;
+  address: AadhaarKycAddress | null;
+}
+
+export interface VerifyLinkInfo {
+  candidateName: string;
+  clientName: string;
+  email: string;
+  phone: string;
+  aadhaarNumber: string;
+  termsAccepted: boolean;
+  digilockerStarted: boolean;
+  digilockerClientId: string | null;
+  aadhaarVerified: boolean;
+  // Stored KYC ("xml data"). The document image (photo) is never stored → null.
+  aadhaar: AadhaarKyc | null;
+}
+
+const PUBLIC_HEADERS = { 'ngrok-skip-browser-warning': 'true' };
+
+async function publicJson<T>(res: Response): Promise<T> {
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(data.message || `Request failed (HTTP ${res.status})`);
+  }
+  return res.json() as Promise<T>;
+}
+
+/** Demo: create a throwaway candidate, email them, and return the working link. */
+export async function verifyLinkDemoSend(
+  email: string,
+  name: string,
+): Promise<{ url: string; emailSent: boolean }> {
+  const res = await fetch(`${API_URL}/verify-link/demo`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...PUBLIC_HEADERS },
+    body: JSON.stringify({ email, name }),
+  });
+  return publicJson(res);
+}
+
+export async function verifyLinkInfo(token: string): Promise<VerifyLinkInfo> {
+  const res = await fetch(`${API_URL}/verify-link/${encodeURIComponent(token)}`, {
+    headers: PUBLIC_HEADERS,
+  });
+  return publicJson<VerifyLinkInfo>(res);
+}
+
+export async function verifyLinkConsent(token: string): Promise<void> {
+  const res = await fetch(
+    `${API_URL}/verify-link/${encodeURIComponent(token)}/consent`,
+    { method: 'POST', headers: PUBLIC_HEADERS },
+  );
+  await publicJson(res);
+}
+
+export async function verifyLinkUpdate(
+  token: string,
+  body: { name?: string; email?: string; phone?: string; aadhaarNumber?: string },
+): Promise<void> {
+  const res = await fetch(`${API_URL}/verify-link/${encodeURIComponent(token)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...PUBLIC_HEADERS },
+    body: JSON.stringify(body),
+  });
+  await publicJson(res);
+}
+
+export async function verifyLinkDigilockerInit(
+  token: string,
+): Promise<{ clientId: string | null; url: string | null }> {
+  const res = await fetch(
+    `${API_URL}/verify-link/${encodeURIComponent(token)}/digilocker/initialize`,
+    { method: 'POST', headers: PUBLIC_HEADERS },
+  );
+  return publicJson(res);
+}
+
+export async function verifyLinkDigilockerStatus(token: string): Promise<{
+  status?: string;
+  completed?: boolean;
+  failed?: boolean;
+  aadhaarLinked?: boolean;
+  errorDescription?: string | null;
+}> {
+  const res = await fetch(
+    `${API_URL}/verify-link/${encodeURIComponent(token)}/digilocker/status`,
+    { headers: PUBLIC_HEADERS },
+  );
+  return publicJson(res);
+}
+
+export async function verifyLinkFetchAadhaar(token: string): Promise<void> {
+  const res = await fetch(
+    `${API_URL}/verify-link/${encodeURIComponent(token)}/digilocker/aadhaar`,
+    { method: 'POST', headers: PUBLIC_HEADERS },
+  );
+  await publicJson(res);
+}
+
+/** Admin/owner: email the candidate their verification link. */
+export function adminSendVerificationLink(
+  subjectId: string,
+): Promise<{ ok: true; emailSent: boolean; url: string }> {
+  return request(`/subjects/${encodeURIComponent(subjectId)}/send-verification-link`, {
+    method: 'POST',
+  });
+}
+
 export interface AdminMonthly {
   checksThisMonth: number;
   clientsThisMonth: number;
@@ -579,8 +891,216 @@ export function adminClient(
   return request<AdminClientDetail>(`/admin/clients/${encodeURIComponent(id)}`);
 }
 
+/* ── Internal per-client invoices (ported from Recriauth) ── */
+
+export type InvoiceKind = 'INSTANT_PAID' | 'PAYMENT_DUE' | 'POSTPAID';
+export type InvoiceBusinessStatus = 'DUE' | 'PAID' | 'VOID';
+export type InvoicePaymentTerms =
+  | 'NET_15'
+  | 'NET_30'
+  | 'NET_45'
+  | 'NET_60'
+  | 'NET_90'
+  | 'CUSTOM';
+export type InvoicePaymentMethod =
+  | 'BANK_REMITTANCE'
+  | 'BANK_TRANSFER'
+  | 'CASH'
+  | 'CHEQUE'
+  | 'CREDIT_CARD'
+  | 'UPI';
+
+export interface ClientInvoiceRow {
+  id: string;
+  documentType: 'TAX_INVOICE';
+  documentNumber: string;
+  status: 'PENDING' | 'GENERATING' | 'COMPLETED' | 'FAILED';
+  kind: InvoiceKind;
+  businessStatus: InvoiceBusinessStatus;
+  paymentMethod: InvoicePaymentMethod | null;
+  paymentTerms: InvoicePaymentTerms | null;
+  credits: number | null;
+  subtotalAmount: string;
+  taxAmount: string;
+  totalAmount: string;
+  currencyCode: string;
+  documentDate: string;
+  createdAt: string;
+  dueAt: string | null;
+  markedPaidAt: string | null;
+  voidedAt: string | null;
+  billingPeriodKey: string | null;
+  initiatedBy: { id: string | null; name: string; email: string | null } | null;
+}
+
+export interface ClientInvoiceListMeta {
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  selectableTotalItems: number;
+  totalPages: number;
+}
+
+export interface ClientInvoiceListResponse {
+  data: ClientInvoiceRow[];
+  meta: ClientInvoiceListMeta;
+}
+
+export function adminClientInvoices(
+  _token: string,
+  clientId: string,
+  params: {
+    businessStatus?: InvoiceBusinessStatus;
+    search?: string;
+    minAmount?: string;
+    maxAmount?: string;
+    page?: number;
+    pageSize?: number;
+  } = {},
+): Promise<ClientInvoiceListResponse> {
+  const qs = new URLSearchParams();
+  if (params.businessStatus) qs.set('businessStatus', params.businessStatus);
+  if (params.search) qs.set('search', params.search);
+  if (params.minAmount) qs.set('minAmount', params.minAmount);
+  if (params.maxAmount) qs.set('maxAmount', params.maxAmount);
+  if (params.page) qs.set('page', String(params.page));
+  if (params.pageSize) qs.set('pageSize', String(params.pageSize));
+  const query = qs.toString();
+  return request<ClientInvoiceListResponse>(
+    `/admin/clients/${encodeURIComponent(clientId)}/invoices${query ? `?${query}` : ''}`,
+  );
+}
+
+
 export function adminSubjects(token: string): Promise<AdminSubjectRow[]> {
   return request<AdminSubjectRow[]>('/admin/subjects');
+}
+
+// ===== Packages & discount codes (source of truth for the bill amount) =====
+
+export interface PackageRow {
+  id: string;
+  name: string;
+  priceInr: number;
+  description?: string | null;
+  active: boolean;
+  isDefault: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface DiscountRow {
+  id: string;
+  code: string;
+  percentOff: number;
+  active: boolean;
+  createdAt?: string;
+}
+
+export interface PackageInput {
+  name?: string;
+  priceInr?: number;
+  description?: string;
+  active?: boolean;
+  isDefault?: boolean;
+}
+
+export interface DiscountInput {
+  code?: string;
+  percentOff?: number;
+  active?: boolean;
+}
+
+export function adminPackages(_token: string): Promise<PackageRow[]> {
+  return request<PackageRow[]>('/admin/packages');
+}
+export function adminCreatePackage(
+  _token: string,
+  body: PackageInput,
+): Promise<PackageRow> {
+  return request<PackageRow>('/admin/packages', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+export function adminUpdatePackage(
+  _token: string,
+  id: string,
+  body: PackageInput,
+): Promise<PackageRow> {
+  return request<PackageRow>(`/admin/packages/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+export function adminDeletePackage(
+  _token: string,
+  id: string,
+): Promise<unknown> {
+  return request(`/admin/packages/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
+export function adminDiscounts(_token: string): Promise<DiscountRow[]> {
+  return request<DiscountRow[]>('/admin/discounts');
+}
+export function adminCreateDiscount(
+  _token: string,
+  body: DiscountInput,
+): Promise<DiscountRow> {
+  return request<DiscountRow>('/admin/discounts', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+export function adminUpdateDiscount(
+  _token: string,
+  id: string,
+  body: DiscountInput,
+): Promise<DiscountRow> {
+  return request<DiscountRow>(`/admin/discounts/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  });
+}
+export function adminDeleteDiscount(
+  _token: string,
+  id: string,
+): Promise<unknown> {
+  return request(`/admin/discounts/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
+/** The default package's price — the source of truth for checkout. */
+export function defaultPackage(_token: string): Promise<PackageRow | null> {
+  return request<PackageRow | null>('/packages/default');
+}
+
+export function validateDiscount(
+  _token: string,
+  code: string,
+): Promise<{ valid: boolean; percentOff: number; code: string }> {
+  return request('/packages/validate-discount', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  });
+}
+
+export interface AdminDraftDetail {
+  id: string;
+  data: AdminClientDraft['data'];
+  owner: { id: string; name: string; email: string } | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export function adminDraft(
+  token: string,
+  id: string,
+): Promise<AdminDraftDetail> {
+  return request<AdminDraftDetail>(`/admin/drafts/${encodeURIComponent(id)}`);
 }
 
 export interface AdminInvoiceRow {
@@ -595,6 +1115,8 @@ export interface AdminInvoiceRow {
   currency: string;
   status: string;
   checks: { pan: boolean; aadhaar: boolean; crime: boolean };
+  /** Vendor/API cost spent on this invoice's verification calls (₹). */
+  apiCost: number;
   subjectId: string | null;
   razorpayPaymentId: string;
   /** Presigned S3 URL for the invoice PDF (null if not yet uploaded). */
@@ -656,7 +1178,10 @@ export async function fetchPdfBlobUrl(
 ): Promise<string> {
   const res = await fetch(
     `${API_URL}/verify/pdf?url=${encodeURIComponent(sourceUrl)}`,
-    { credentials: 'include' },
+    {
+      credentials: 'include',
+      headers: { 'ngrok-skip-browser-warning': 'true' },
+    },
   );
 
   if (!res.ok) {
@@ -670,6 +1195,99 @@ export async function fetchPdfBlobUrl(
 
   const blob = await res.blob();
   return URL.createObjectURL(blob);
+}
+
+export type MockReportVariant = 'success' | 'pending' | 'failed';
+
+/**
+ * Fetches a fully-populated mock report (PDF) in one of three states and returns
+ * a blob URL for an <iframe>/preview modal. Caller revokes the URL when done.
+ */
+export async function mockReportBlobUrl(
+  _token: string,
+  variant: MockReportVariant,
+): Promise<string> {
+  // Auth via the httpOnly `as_access` cookie (credentials: 'include'). We can't
+  // send an Authorization header — it isn't in the backend CORS allow-list, so
+  // adding it fails the preflight ("Failed to fetch").
+  const res = await fetch(`${API_URL}/subjects/report/mock/${variant}`, {
+    credentials: 'include',
+    headers: { 'ngrok-skip-browser-warning': 'true' },
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    const candidate = (data as { message?: unknown })?.message;
+    const message = Array.isArray(candidate)
+      ? candidate.join(', ')
+      : (candidate as string) || `Failed to load report (HTTP ${res.status})`;
+    throw new Error(message);
+  }
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
+}
+
+/**
+ * Fetches a real candidate's Background Verification Report (PDF) inline and
+ * returns a blob URL for a preview modal / iframe. Caller revokes when done.
+ * Auth via the httpOnly `as_access` cookie (no Authorization header — not in the
+ * CORS allow-list).
+ */
+export async function subjectReportBlobUrl(
+  subjectId: string,
+): Promise<string> {
+  const res = await fetch(`${API_URL}/subjects/${subjectId}/report`, {
+    credentials: 'include',
+    headers: { 'ngrok-skip-browser-warning': 'true' },
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    const candidate = (data as { message?: unknown })?.message;
+    const message = Array.isArray(candidate)
+      ? candidate.join(', ')
+      : (candidate as string) || `Failed to load report (HTTP ${res.status})`;
+    throw new Error(message);
+  }
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
+}
+
+/**
+ * Downloads a candidate's full Background Verification Report (PDF, all checks)
+ * from the backend and triggers a browser save. Works for both owners (their own
+ * candidates) and admins (any candidate).
+ */
+export async function downloadSubjectReport(
+  _token: string,
+  subjectId: string,
+  candidateName?: string,
+): Promise<void> {
+  // Auth via the httpOnly `as_access` cookie — see note on mockReportBlobUrl;
+  // an Authorization header isn't CORS-allowed and breaks the preflight.
+  const res = await fetch(`${API_URL}/subjects/${subjectId}/report?download=1`, {
+    credentials: 'include',
+    headers: { 'ngrok-skip-browser-warning': 'true' },
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    const candidate = (data as { message?: unknown })?.message;
+    const message = Array.isArray(candidate)
+      ? candidate.join(', ')
+      : (candidate as string) || `Failed to generate report (HTTP ${res.status})`;
+    throw new Error(message);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const safe = (candidateName || 'candidate')
+    .replace(/[^a-z0-9]+/gi, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase();
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `assurio-report-${safe}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 

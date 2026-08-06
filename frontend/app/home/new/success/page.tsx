@@ -1,6 +1,7 @@
 'use client';
+import PageLoader from '@/app/components/PageLoader';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useState, type ReactNode } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -19,14 +20,19 @@ import {
   createSubject,
   invoicePrintUrl,
   me,
+  verifyOrderPayment,
   verifyPaymentLink,
   type AuthUser,
   type InvoiceResponse,
   type Subject,
+  type VerifyPaymentResponse,
 } from '../../../lib/api';
 import { getToken } from '../../../lib/session';
 import { doLogout } from '../../../lib/logout';
 import { clearDraft, loadDraft } from '../draft';
+import { deleteServerDraft } from '../server-draft';
+import { CLIENT_NAV } from '../../../components/Sidebar';
+import AppShell from '../../../components/AppShell';
 import {
   Table,
   TableBody,
@@ -36,11 +42,9 @@ import {
   TableRow,
 } from '@/shared/components/ui';
 
-const PRICE_INR = 399;
-
 export default function CandidateSuccessPageWrapper() {
   return (
-    <Suspense fallback={<div className="loading">Loading…</div>}>
+    <Suspense fallback={<PageLoader />}>
       <CandidateSuccessPage />
     </Suspense>
   );
@@ -49,7 +53,7 @@ export default function CandidateSuccessPageWrapper() {
 function CandidateSuccessPage() {
   const router = useRouter();
   const search = useSearchParams();
-  const [, setUser] = useState<AuthUser | null>(null);
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [paymentId, setPaymentId] = useState<string>('');
   const [status, setStatus] = useState<'verifying' | 'failed' | 'ok'>('verifying');
   const [error, setError] = useState('');
@@ -77,38 +81,53 @@ function CandidateSuccessPage() {
         }
         setUser(u);
 
-        // Razorpay redirects here with these query params on success.
+        // Embedded checkout hands back these params (order flow).
         const razorpay_payment_id = search.get('razorpay_payment_id') || '';
+        const razorpay_order_id = search.get('razorpay_order_id') || '';
+        const razorpay_signature = search.get('razorpay_signature') || '';
+        // Legacy hosted payment-link params (kept as a fallback).
         const razorpay_payment_link_id =
           search.get('razorpay_payment_link_id') || '';
         const razorpay_payment_link_reference_id =
           search.get('razorpay_payment_link_reference_id') || '';
         const razorpay_payment_link_status =
           search.get('razorpay_payment_link_status') || '';
-        const razorpay_signature = search.get('razorpay_signature') || '';
 
-        if (
-          !razorpay_payment_id ||
-          !razorpay_payment_link_id ||
-          razorpay_payment_link_status !== 'paid'
-        ) {
-          setStatus('failed');
-          setError(
-            razorpay_payment_link_status
-              ? 'Payment was ' + razorpay_payment_link_status + '.'
-              : 'Missing Razorpay callback. Try the payment again.',
-          );
-          return;
+        let verification: VerifyPaymentResponse;
+        if (razorpay_order_id) {
+          if (!razorpay_payment_id || !razorpay_signature) {
+            setStatus('failed');
+            setError('Missing Razorpay callback. Try the payment again.');
+            return;
+          }
+          // Verify on the server before doing anything irreversible.
+          verification = await verifyOrderPayment(token, {
+            razorpay_order_id,
+            razorpay_payment_id,
+            razorpay_signature,
+          });
+        } else {
+          if (
+            !razorpay_payment_id ||
+            !razorpay_payment_link_id ||
+            razorpay_payment_link_status !== 'paid'
+          ) {
+            setStatus('failed');
+            setError(
+              razorpay_payment_link_status
+                ? 'Payment was ' + razorpay_payment_link_status + '.'
+                : 'Missing Razorpay callback. Try the payment again.',
+            );
+            return;
+          }
+          verification = await verifyPaymentLink(token, {
+            razorpay_payment_id,
+            razorpay_payment_link_id,
+            razorpay_payment_link_reference_id,
+            razorpay_payment_link_status,
+            razorpay_signature,
+          });
         }
-
-        // Verify on the server before doing anything irreversible.
-        const verification = await verifyPaymentLink(token, {
-          razorpay_payment_id,
-          razorpay_payment_link_id,
-          razorpay_payment_link_reference_id,
-          razorpay_payment_link_status,
-          razorpay_signature,
-        });
         if (cancelled) return;
         if (!verification.verified) {
           setStatus('failed');
@@ -147,16 +166,31 @@ function CandidateSuccessPage() {
 
         const subject = await createSubject(token, {
           name: d.name.trim(),
-          email: d.email.trim(),
+          email: d.email.trim() || undefined,
           phone: d.phone.trim() || undefined,
           role: d.role.trim() || undefined,
           panNumber: d.pan.trim() || undefined,
           aadhaarNumber: d.aadhaar.replace(/\s/g, '').trim() || undefined,
+          dob: d.dob.trim() || undefined,
+          fatherName: d.fatherName.trim() || undefined,
+          permanentAddress: d.permanentAddress.trim() || undefined,
+          pincode: d.pincode.trim() || undefined,
+          drivingLicense: d.drivingLicense.trim() || undefined,
+          voterId: d.voterId.trim() || undefined,
+          passportFileNo: d.passportFileNo.trim() || undefined,
+          uan: d.uan.trim() || undefined,
+          consentAcceptedAt: d.consentAcceptedAt || undefined,
         });
         if (cancelled) return;
         setCreated(subject);
         sessionStorage.setItem('assurio:created', JSON.stringify(subject));
         setStatus('ok');
+        // The candidate now exists — drop the in-progress draft.
+        const savedDraftId = sessionStorage.getItem('assurio:draft-id');
+        if (savedDraftId) {
+          void deleteServerDraft(savedDraftId);
+          sessionStorage.removeItem('assurio:draft-id');
+        }
       } catch (err) {
         if (cancelled) return;
         setStatus('failed');
@@ -195,10 +229,22 @@ function CandidateSuccessPage() {
     router.push('/home/new');
   }
 
+  function handleLogout() {
+    doLogout(router);
+  }
+
+  // Real amount paid comes from the invoice total (GST-inclusive), not a
+  // hardcoded price — so it matches what was actually charged.
+  const amountPaid = invoice?.total ?? null;
+  const amountLabel =
+    amountPaid != null ? '₹' + amountPaid.toLocaleString('en-IN') : '';
+
+  if (!user) return <PageLoader />;
+
+  let body: ReactNode;
+
   if (status === 'verifying') {
-    return (
-      <div className="suc">
-        <main className="suc-main">
+    body = (
           <div className="suc-card">
             <div className="suc-seal">
               <span className="co-spinner" style={{ borderColor: 'rgba(5,150,105,0.35)', borderTopColor: '#059669', width: 28, height: 28 }} />
@@ -208,15 +254,9 @@ function CandidateSuccessPage() {
             </h1>
             <p className="suc-sub">Confirming with Razorpay. One moment…</p>
           </div>
-        </main>
-      </div>
     );
-  }
-
-  if (status === 'failed') {
-    return (
-      <div className="suc">
-        <main className="suc-main">
+  } else if (status === 'failed') {
+    body = (
           <div className="suc-card">
             <div
               className="suc-seal"
@@ -236,14 +276,9 @@ function CandidateSuccessPage() {
               </Link>
             </div>
           </div>
-        </main>
-      </div>
     );
-  }
-
-  return (
-    <div className="suc">
-      <main className="suc-main">
+  } else {
+    body = (
         <div className="suc-card">
           <div className="suc-seal">
             {created ? (
@@ -257,12 +292,13 @@ function CandidateSuccessPage() {
             Payment <em>successful</em>
           </h1>
           <p className="suc-sub">
-            ₹{PRICE_INR} received. {created
+            {amountLabel ? `${amountLabel} received. ` : ''}
+            {created
               ? `${created.name.split(' ')[0]} has been added and invited.`
               : 'Your payment was confirmed.'}
           </p>
 
-          <div className="suc-amount">₹{PRICE_INR}</div>
+          {amountLabel && <div className="suc-amount">{amountLabel}</div>}
           {paymentId && <div className="suc-ref">Ref · {paymentId}</div>}
 
           {created && (
@@ -272,13 +308,15 @@ function CandidateSuccessPage() {
                   <span className="suc-meta-label">Candidate</span>
                   <span className="suc-meta-value">{created.name}</span>
                 </div>
-                <div className="suc-meta-row">
-                  <span className="suc-meta-label">
-                    <Mail size={12} />
-                    Email
-                  </span>
-                  <span className="suc-meta-value">{created.email}</span>
-                </div>
+                {created.email && (
+                  <div className="suc-meta-row">
+                    <span className="suc-meta-label">
+                      <Mail size={12} />
+                      Email
+                    </span>
+                    <span className="suc-meta-value">{created.email}</span>
+                  </div>
+                )}
                 {created.phone && (
                   <div className="suc-meta-row">
                     <span className="suc-meta-label">
@@ -414,8 +452,15 @@ function CandidateSuccessPage() {
             </button>
           </div>
         </div>
-      </main>
-    </div>
+    );
+  }
+
+  return (
+    <AppShell nav={CLIENT_NAV} user={user} onLogout={handleLogout}>
+      <div className="flex justify-center px-2 py-6">
+        <div className="w-full max-w-[540px]">{body}</div>
+      </div>
+    </AppShell>
   );
 }
 

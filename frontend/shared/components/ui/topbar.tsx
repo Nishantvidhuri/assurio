@@ -12,6 +12,7 @@ import {
 import { useEffectEvent } from '@/shared/hooks/use-effect-event-compat';
 import Link from 'next/link';
 import Image from 'next/image';
+import { ArrowLeft, ChevronDown, Menu, Search } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
 import { Divider } from './divider';
 import { MenuItem } from './menu-item';
@@ -21,13 +22,8 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/shared/components/ui/popover';
-import chevronIcon from '@/public/assets/icons/chevron-down-medium/Chevron_Down_Medium=20px.svg'
-import { SvgIcon } from './svg-icon';
 import { Tooltip } from './tooltip';
 import type { TooltipProps } from './tooltip';
-import hamburgerIcon from '@/public/assets/icons/hamburger-md/Hamburger_MD=20px.svg'
-import searchIcon from '@/public/assets/icons/search-magnifying-glass/Search_Magnifying_Glass=20px.svg'
-import arrowLeftIcon from '@/public/assets/icons/arrow-left-medium/Arrow_Left_Medium=20px.svg'
 import { useAuthSession } from '@/modules/auth/commons/auth-session.context';
 import { getInitials } from '@/shared/utils/name-helpers';
 
@@ -347,13 +343,18 @@ const TopBar = forwardRef<HTMLElement, TopBarProps>(
               aria-label="Go to dashboard"
               className="inline-flex items-center"
             >
-              <Image
-                src="/assets/logo/full-logo-powered.svg"
-                alt="RecriAuth"
-                width={100}
-                height={24}
-                priority
-              />
+              <span className="flex items-center gap-2">
+                <Image
+                  src="/logo-mark.png"
+                  alt="Assurio"
+                  width={24}
+                  height={24}
+                  priority
+                />
+                <span className="font-[family-name:var(--font-logo)] text-[17px] leading-none text-text-heading">
+                  Assurio
+                </span>
+              </span>
             </Link>
           ) : null}
           {breadcrumbs}
@@ -370,7 +371,7 @@ const TopBar = forwardRef<HTMLElement, TopBarProps>(
               aria-label="Open menu"
               className="inline-flex size-8 items-center justify-center rounded-full border border-border-default bg-white transition-colors text-icon-default"
             >
-              <SvgIcon src={hamburgerIcon} size={5} alt="Menu" />
+              <Menu className="size-5" aria-hidden />
             </button>
           ) : null}
           <Link
@@ -378,13 +379,18 @@ const TopBar = forwardRef<HTMLElement, TopBarProps>(
             aria-label="Go to dashboard"
             className="inline-flex items-center"
           >
-            <Image
-              src="/assets/logo/full-logo-powered.svg"
-              alt="RecriAuth"
-              width={100}
-              height={24}
-              priority
-            />
+            <span className="flex items-center gap-2">
+              <Image
+                src="/logo-mark.png"
+                alt="Assurio"
+                width={24}
+                height={24}
+                priority
+              />
+              <span className="font-[family-name:var(--font-logo)] text-[17px] leading-none text-text-heading">
+                Assurio
+              </span>
+            </span>
           </Link>
         </div>
 
@@ -442,7 +448,7 @@ const TopBar = forwardRef<HTMLElement, TopBarProps>(
                 mobileSearchOpen && "bg-neutral-300",
               )}
             >
-              <SvgIcon src={searchIcon} size={5} alt="Search" />
+              <Search className="size-5" aria-hidden />
             </button>
           )}
 
@@ -463,23 +469,21 @@ const TopBar = forwardRef<HTMLElement, TopBarProps>(
                   "transition-colors hover:bg-neutral-300",
                 )}
               >
-                <div className={cn("flex items-center gap-1", user?.userType !== 'CANDIDATE' && 'pl-1')}>
-                  {/* Avatar */}
-                  {user?.userType === "CANDIDATE" ? (
-                    <div className="shrink-0 size-6 rounded-full bg-neutral-400 overflow-hidden">
-                      {avatarUrl ? (
-                        <img
-                          src={avatarUrl}
-                          alt={userName ?? "Avatar"}
-                          className="size-full object-cover rounded-full"
-                        />
-                      ) : (
-                        <div className="size-full rounded-full">
-                          {getInitials(userName ?? "User")}
-                          </div>
-                      )}
-                    </div>
-                  ) : null}
+                <div className="flex items-center gap-1">
+                  {/* Avatar — initials fallback for every user type */}
+                  <div className="shrink-0 size-6 overflow-hidden rounded-full bg-primary">
+                    {avatarUrl ? (
+                      <img
+                        src={avatarUrl}
+                        alt={userName ?? "Avatar"}
+                        className="size-full object-cover rounded-full"
+                      />
+                    ) : (
+                      <div className="flex size-full items-center justify-center text-[10px] font-bold uppercase leading-none text-white">
+                        {getInitials(userName ?? "User")}
+                      </div>
+                    )}
+                  </div>
 
                   {/* Name */}
                   {userName && (
@@ -494,7 +498,7 @@ const TopBar = forwardRef<HTMLElement, TopBarProps>(
                     profileOpen && "rotate-180",
                   )}
                 >
-                  <SvgIcon src={chevronIcon} alt="Chevron" />
+                  <ChevronDown className="size-4" aria-hidden />
                 </span>
               </button>
             </PopoverTrigger>
@@ -670,7 +674,7 @@ const TopBar = forwardRef<HTMLElement, TopBarProps>(
                 onClick={() => setMobileSearchOpen(false)}
                 className="inline-flex size-9 shrink-0 items-center justify-center rounded-full border border-border-default bg-white text-icon-default transition-colors hover:bg-neutral-200"
               >
-                <SvgIcon src={arrowLeftIcon} size={5} alt="Back" />
+                <ArrowLeft className="size-5" aria-hidden />
               </button>
               <SearchBar
                 autoFocus

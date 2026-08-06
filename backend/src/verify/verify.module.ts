@@ -8,5 +8,6 @@ import { VerifyService } from './verify.service';
   imports: [AuthModule, VendorCallRecorderModule],
   controllers: [VerifyController],
   providers: [VerifyService],
+  exports: [VerifyService],
 })
 export class VerifyModule {}

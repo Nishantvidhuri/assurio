@@ -18,6 +18,13 @@ model User {
   resetTokenExpiresAt DateTime?
   createdAt           DateTime  @default(now())
 
+  // Client billing (ported from Recriauth): PREPAID clients buy credits up
+  // front; POSTPAID clients are billed monthly (Net 30). creditsBalance is the
+  // client wallet — topped up when a PAYMENT_DUE invoice is marked paid, spent
+  // as checks run. ₹1 = 1 credit.
+  clientBillingModel  String    @default("PREPAID")
+  creditsBalance      Float     @default(0)
+
   subjects Subject[]
   invoices Invoice[]
 }
@@ -38,13 +45,29 @@ model Subject {
   aadhaarFront      String?
   aadhaarBack       String?
   aadhaarNumber     String?
+  // Extra details captured from the form — needed to auto-run the checks.
+  dob               String?
+  fatherName        String?
+  permanentAddress  String?
+  pincode           String?
+  drivingLicense    String?
+  voterId           String?
+  passportFileNo    String?
+  uan               String?
   panResult         Json?
   aadhaarResult     Json?
+  voterResult       Json?
+  passportResult    Json?
+  dlResult          Json?
+  employmentResult  Json?
   digilockerClientId String?
   digilockerUrl     String?
   crimeRequestId    String?
+  creditRequestId   String?
+  creditResult      Json?
   crimeResult       Json?
   consentResult     Json?
+  consentAcceptedAt DateTime?
   verificationLog   Json      @default("[]")
   resetToken        String?
   resetTokenExpiresAt DateTime?
@@ -72,7 +95,28 @@ model Invoice {
   taxRatePercent                 Float     @default(18)
   currency                       String    @default("INR")
   status                         String    @default("paid")
-  razorpayPaymentId              String    @unique
+
+  // ── Invoice lifecycle (ported from Recriauth) ──
+  // kind: INSTANT_PAID = the Razorpay one-shot receipt; PAYMENT_DUE = an
+  // operator-raised invoice the client pays out of band; POSTPAID = an
+  // auto-generated monthly bill. businessStatus tracks DUE → PAID / VOID.
+  kind                           InvoiceKind           @default(INSTANT_PAID)
+  businessStatus                 InvoiceBusinessStatus @default(PAID)
+  paymentMethod                  InvoicePaymentMethod?
+  paymentTerms                   InvoicePaymentTerms?
+  credits                        Float?                // prepaid: credits billed
+  dueAt                          DateTime?
+  markedPaidAt                   DateTime?
+  voidedAt                       DateTime?
+  // Non-null ⇔ auto-generated postpaid monthly invoice ("2026-07" = IST month).
+  billingPeriodKey               String?
+  // Snapshot of the operator who raised the invoice (no FK — matches Recriauth).
+  initiatedById                  String?
+  initiatedByName                String?
+  initiatedByEmail               String?
+
+  razorpayPaymentId              String?   @unique
+  razorpayOrderId                String?
   razorpayPaymentLinkId          String?
   razorpayPaymentLinkReferenceId String?
   paidAt                         DateTime?
@@ -81,11 +125,63 @@ model Invoice {
   createdAt                      DateTime  @default(now())
   updatedAt                      DateTime  @updatedAt
 
-  user    User     @relation(fields: [userId], references: [id])
-  subject Subject? @relation(fields: [subjectId], references: [id])
+  user     User             @relation(fields: [userId], references: [id])
+  subject  Subject?         @relation(fields: [subjectId], references: [id])
+  payments InvoicePayment[]
 
   @@index([userId])
   @@index([customerEmail])
+  @@index([businessStatus])
+  @@index([billingPeriodKey])
+}
+
+/// One recorded payment against an invoice (bank transfer, UPI, cheque, …).
+/// Marking a PAYMENT_DUE invoice paid writes one of these and tops up credits.
+model InvoicePayment {
+  id              String               @id @default(cuid())
+  invoiceId       String
+  amount          Float
+  method          InvoicePaymentMethod
+  status          String               @default("RECORDED") // RECORDED | REFUNDED
+  referenceNumber String?
+  paidAt          DateTime             @default(now())
+  createdAt       DateTime             @default(now())
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([invoiceId])
+}
+
+enum InvoiceKind {
+  INSTANT_PAID
+  PAYMENT_DUE
+  POSTPAID
+}
+
+enum InvoiceBusinessStatus {
+  DUE
+  PAID
+  VOID
+}
+
+enum InvoicePaymentMethod {
+  RAZORPAY
+  BANK_REMITTANCE
+  BANK_TRANSFER
+  CASH
+  CHEQUE
+  CREDIT_CARD
+  UPI
+}
+
+enum InvoicePaymentTerms {
+  DUE_ON_RECEIPT
+  NET_15
+  NET_30
+  NET_45
+  NET_60
+  NET_90
+  CUSTOM
 }
 
 model BulkBatch {
@@ -110,6 +206,19 @@ model SubjectDraft {
   jobId     String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// Server-persisted draft of the client Add-Candidate form, one per user, so the
+// in-progress form survives refresh / device change (auto-saved as the user
+// types). Cleared once the candidate is submitted.
+model CandidateFormDraft {
+  id        String   @id @default(cuid())
+  userId    String
+  data      Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
 }
 
 model OutboxEvent {
@@ -342,4 +451,26 @@ model VendorApiCallAudit {
   @@index([vendor, costSource])
   @@index([actorUserId, createdAt])
   @@index([vendorVerificationId])
+}
+
+/// Verification packages — the single source of truth for the bill amount.
+model Package {
+  id          String   @id @default(cuid())
+  name        String
+  priceInr    Float
+  description String?
+  active      Boolean  @default(true)
+  isDefault   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+/// Percentage-off discount codes applied at checkout.
+model DiscountCode {
+  id         String   @id @default(cuid())
+  code       String   @unique
+  percentOff Int
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }

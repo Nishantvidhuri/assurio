@@ -1,19 +1,59 @@
 'use client';
+import PageLoader from '@/app/components/PageLoader';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, ArrowRight, ShieldCheck, Sparkles } from 'lucide-react';
-import { me, type AuthUser } from '../../lib/api';
+import {
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
+  ChevronDown,
+  Clock,
+  FileText,
+  Loader2,
+  ReceiptText,
+  ShieldCheck,
+  Sparkles,
+  Tag,
+  UploadCloud,
+  X,
+  XCircle,
+  Zap,
+} from 'lucide-react';
+import {
+  createOrder,
+  defaultPackage,
+  deleteIdDocument,
+  validateDiscount,
+  me,
+  uploadIdDocument,
+  type AuthUser,
+} from '../../lib/api';
+import { openRazorpayCheckout } from '../../lib/razorpay';
 import { getToken } from '../../lib/session';
 import { doLogout } from '../../lib/logout';
-import { ICONS, type SidebarItem } from '../../components/Sidebar';
+import { CLIENT_NAV } from '../../components/Sidebar';
 import AppShell from '../../components/AppShell';
-import { saveDraft, type CandidateDraft } from './draft';
-import TermsBox from '../../components/TermsBox';
+import { saveDraft, type CandidateDraft, type IdDocument } from './draft';
+import {
+  createServerDraft,
+  fetchServerDraft,
+  saveServerDraft,
+} from './server-draft';
+import {
+  checkEta,
+  missingLabels,
+  splitChecks,
+  type CheckFieldKey,
+} from './checks';
+
+const ACCEPTED_ID_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
+const MAX_ID_SIZE_BYTES = 10 * 1024 * 1024;
 import {
   Button,
   Callout,
+  Checkbox,
   DateInput,
   Divider,
   Input,
@@ -22,16 +62,33 @@ import {
   ProgressBar,
   SelectInput,
   Stepper,
+  Textarea,
   validatePhoneNumber,
   type StepperItem,
 } from '@/shared/components/ui';
 
-const CLIENT_NAV: SidebarItem[] = [
-  { href: '/home', label: 'Dashboard', icon: ICONS.dashboard },
-  { href: '/home/billing', label: 'Billing', icon: ICONS.billing },
-];
+// Fallback only — the real price comes from the DB default package.
+const DEFAULT_PRICE_INR = 399;
 
-const PRICE_INR = 399;
+// Which wizard step each candidate field lives on — lets a blocked check's
+// "Add missing info" button jump straight to the step holding the empty field.
+const FIELD_STEP: Record<CheckFieldKey, 1 | 2 | 3> = {
+  name: 1,
+  email: 1,
+  phone: 1,
+  role: 1,
+  dob: 2,
+  gender: 2,
+  fatherName: 2,
+  pincode: 2,
+  permanentAddress: 2,
+  aadhaar: 3,
+  pan: 3,
+  drivingLicense: 3,
+  voterId: 3,
+  passportFileNo: 3,
+  uan: 3,
+};
 
 const ROLE_OPTIONS = [
   'Maid',
@@ -44,11 +101,20 @@ const ROLE_OPTIONS = [
   'Security',
 ].map((role) => ({ label: role, value: role }));
 
+const GENDER_OPTIONS = ['Male', 'Female', 'Other'].map((g) => ({
+  label: g,
+  value: g,
+}));
+
 const EMPTY: CandidateDraft = {
   name: '',
   email: '',
   phone: '',
   role: '',
+  gender: '',
+  fatherName: '',
+  permanentAddress: '',
+  pincode: '',
   aadhaar: '',
   pan: '',
   dob: '',
@@ -56,6 +122,8 @@ const EMPTY: CandidateDraft = {
   voterId: '',
   passportFileNo: '',
   uan: '',
+  idDocuments: [],
+  consentAcceptedAt: '',
 };
 
 function formatAadhaar(input: string): string {
@@ -84,13 +152,49 @@ function dateToDobString(date: Date | undefined): string {
   return `${dd}-${mm}-${date.getFullYear()}`;
 }
 
+// A form with no meaningful input yet — used to defer creating a server draft
+// until the user actually types something (no stray empty drafts).
+function isDraftEmpty(f: CandidateDraft): boolean {
+  const { idDocuments, ...rest } = f;
+  return (
+    (idDocuments?.length ?? 0) === 0 &&
+    Object.values(rest).every((v) => !String(v ?? '').trim())
+  );
+}
+
 export default function AddCandidatePage() {
   const router = useRouter();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [form, setForm] = useState<CandidateDraft>(EMPTY);
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [error, setError] = useState('');
-  const [tcAgreed, setTcAgreed] = useState(false);
+  // Terms acceptance is recorded per-candidate (like Recriauth's consent): the
+  // tick stamps a timestamp onto this candidate's draft, which becomes the
+  // Subject's consentAcceptedAt at creation. Sticky within the form — once
+  // accepted it can't be un-accepted, and it persists via the draft on resume.
+  const tcAgreed = Boolean(form.consentAcceptedAt);
+  // Gate server auto-save until the initial server draft has hydrated, so the
+  // empty starting form never overwrites a previously-saved draft.
+  const hydratedRef = useRef(false);
+  const initRef = useRef(false);
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [paying, setPaying] = useState(false);
+  // When a blocked check's "Add missing info" is tapped, we jump to the field's
+  // step and briefly highlight + focus the empty field.
+  const [highlightField, setHighlightField] = useState<CheckFieldKey | null>(
+    null,
+  );
+
+  // Bill amount is driven by the DB default package (admin Packages page).
+  const [priceInr, setPriceInr] = useState<number>(DEFAULT_PRICE_INR);
+  const [discountInput, setDiscountInput] = useState('');
+  const [discountPct, setDiscountPct] = useState(0);
+  const [appliedCode, setAppliedCode] = useState('');
+  const [discountMsg, setDiscountMsg] = useState('');
+  const [applyingDiscount, setApplyingDiscount] = useState(false);
+
+  const discountAmount = Math.round((priceInr * discountPct) / 100);
+  const finalAmount = Math.max(0, priceInr - discountAmount);
 
   useEffect(() => {
     const token = getToken();
@@ -118,6 +222,115 @@ export default function AddCandidatePage() {
     };
   }, [router]);
 
+  // Create (or resume) a server draft once we know the user. A fresh form mints
+  // a new draft with its own id — it appears under "Your Candidates" as a Draft
+  // and can be resumed via ?draftId=… after a refresh / on another device.
+  useEffect(() => {
+    if (!user || initRef.current) return;
+    initRef.current = true;
+    const params = new URLSearchParams(window.location.search);
+    const urlId = params.get('draftId');
+    if (!urlId) {
+      // Fresh form — defer creating a draft until the user types something, so
+      // an abandoned-empty form never leaves a stray draft.
+      hydratedRef.current = true;
+      return;
+    }
+    // Reopen on the step the user was on when they refreshed / came back.
+    const urlStep = Number(params.get('step'));
+    if (urlStep >= 1 && urlStep <= 4) setStep(urlStep as 1 | 2 | 3 | 4);
+    let cancelled = false;
+    (async () => {
+      try {
+        const draft = await fetchServerDraft(urlId);
+        if (cancelled) return;
+        setDraftId(urlId);
+        if (draft) {
+          setForm({
+            ...EMPTY,
+            ...draft,
+            idDocuments: Array.isArray(draft.idDocuments)
+              ? draft.idDocuments
+              : [],
+          });
+        }
+      } catch {
+        /* not found / offline — continue without server persistence */
+      } finally {
+        if (!cancelled) hydratedRef.current = true;
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  // Debounced auto-save. On the first meaningful change it lazily creates the
+  // draft (id + URL); after that it just updates. Persisted server-side so the
+  // form survives refresh/close.
+  useEffect(() => {
+    if (!hydratedRef.current) return;
+    if (!draftId && isDraftEmpty(form)) return; // nothing worth persisting yet
+    const timer = setTimeout(async () => {
+      try {
+        if (draftId) {
+          await saveServerDraft(draftId, form);
+        } else {
+          const id = await createServerDraft(form);
+          setDraftId(id);
+          window.history.replaceState(null, '', `/home/new?draftId=${id}`);
+        }
+      } catch {
+        /* best-effort — keep editing even if a save fails */
+      }
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [form, draftId]);
+
+  // Keep the current step in the URL so a refresh reopens on it (not step 1).
+  useEffect(() => {
+    if (!draftId) return;
+    window.history.replaceState(
+      null,
+      '',
+      `/home/new?draftId=${draftId}&step=${step}`,
+    );
+  }, [draftId, step]);
+
+  // Jump to the step holding a blocked check's first missing field, and flag it
+  // for highlight/focus.
+  function goToMissingInfo(missing: CheckFieldKey[]) {
+    setError('');
+    const first = missing[0];
+    if (!first) return;
+    setStep(FIELD_STEP[first] ?? 2);
+    setHighlightField(first);
+  }
+
+  // After the step renders, scroll the highlighted field into view + focus it,
+  // then clear the highlight so it fades.
+  useEffect(() => {
+    if (!highlightField) return;
+    const el = document.getElementById(`field-${highlightField}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const focusable = el.querySelector<HTMLElement>(
+        'input, textarea, [role="combobox"], button',
+      );
+      focusable?.focus();
+    }
+    const t = setTimeout(() => setHighlightField(null), 500);
+    return () => clearTimeout(t);
+  }, [highlightField, step]);
+
+  // Brief light-red background flash on the INPUT BOX (not its label) that a
+  // blocked check pointed us to. Applied to the control's className so only the
+  // field itself tints. `!bg-surface-error` beats the box's default bg.
+  const fieldHighlight = (key: CheckFieldKey) =>
+    highlightField === key
+      ? 'bg-surface-error! transition-colors duration-300'
+      : 'transition-colors duration-300';
+
   function handleLogout() {
     doLogout(router);
   }
@@ -129,21 +342,72 @@ export default function AddCandidatePage() {
     setForm((f) => ({ ...f, [key]: value }));
   }
 
+  /* ── ID document upload (virus-scanned server-side, stored in S3) ── */
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+  const idDocuments = form.idDocuments ?? [];
+
+  async function handleIdFiles(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    setUploadError('');
+    for (const file of Array.from(files)) {
+      if (!ACCEPTED_ID_TYPES.includes(file.type)) {
+        setUploadError(`${file.name}: only PDF, JPG, or PNG files are allowed.`);
+        continue;
+      }
+      if (file.size > MAX_ID_SIZE_BYTES) {
+        setUploadError(`${file.name}: file must be 10MB or smaller.`);
+        continue;
+      }
+      setUploading(true);
+      try {
+        const uploaded = await uploadIdDocument(file);
+        setForm((f) => ({
+          ...f,
+          idDocuments: [...(f.idDocuments ?? []), uploaded],
+        }));
+      } catch (err) {
+        setUploadError(
+          err instanceof Error ? err.message : `Could not upload ${file.name}.`,
+        );
+      } finally {
+        setUploading(false);
+      }
+    }
+  }
+
+  function removeIdDocument(key: string) {
+    setForm((f) => ({
+      ...f,
+      idDocuments: (f.idDocuments ?? []).filter((doc) => doc.key !== key),
+    }));
+    // Immediately delete the object from S3 so removing/replacing a document
+    // doesn't leave an orphan behind. Best-effort — the UI already dropped it.
+    void deleteIdDocument(key).catch(() => {
+      /* ignore — the reference is gone from the form regardless */
+    });
+  }
+
   /* ── per-field validation ── */
   const nameValid = form.name.trim().length >= 2;
-  const emailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim());
+  // Email is optional — valid when empty, or when it matches the pattern.
+  const emailValid =
+    form.email.trim() === '' ||
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim());
   const phoneValid =
     form.phone === '' || form.phone.replace(/\D/g, '').length >= 10;
 
   const aadhaarDigits = form.aadhaar.replace(/\s/g, '');
-  const aadhaarValid = /^\d{12}$/.test(aadhaarDigits);
-  const panValid = /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(form.pan);
+  // Aadhaar & PAN are optional — empty is valid; only malformed content fails.
+  const aadhaarValid = form.aadhaar === '' || /^\d{12}$/.test(aadhaarDigits);
+  const panValid = form.pan === '' || /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(form.pan);
   const dobValid = form.dob === '' || /^\d{2}-\d{2}-\d{4}$/.test(form.dob);
   const dlValid = form.drivingLicense === '' || form.drivingLicense.length >= 5;
   const voterValid = form.voterId === '' || /^[A-Z]{3}\d{7}$/.test(form.voterId);
   const passportFileValid =
     form.passportFileNo === '' || form.passportFileNo.length >= 5;
   const uanValid = form.uan === '' || /^\d{12}$/.test(form.uan);
+  const pincodeValid = form.pincode === '' || /^\d{6}$/.test(form.pincode);
 
   /* Inline field errors — shown only when a field has content but is
    * malformed, mirroring the Recriauth candidate form. Required-but-empty
@@ -177,12 +441,14 @@ export default function AddCandidatePage() {
       : undefined;
   const uanError =
     form.uan.length > 0 && !uanValid ? 'UAN must be 12 digits.' : undefined;
+  const pincodeError =
+    form.pincode.length > 0 && !pincodeValid
+      ? 'Pincode must be 6 digits.'
+      : undefined;
 
   /* ── step 1 → 2 ── */
   function handleNextContact() {
     setError('');
-    if (!tcAgreed)
-      return setError('Please agree to the Terms & Conditions to continue.');
     if (!nameValid) return setError("Please enter the candidate's name.");
     if (!emailValid) return setError('Please enter a valid email.');
     if (!phoneValid) return setError('Phone number looks too short.');
@@ -190,15 +456,22 @@ export default function AddCandidatePage() {
   }
 
   /* ── step 2 → 3 ── */
+  function handleNextAdditional() {
+    setError('');
+    if (!dobValid)
+      return setError('Date of birth must be in DD-MM-YYYY format.');
+    if (!pincodeValid) return setError('Pincode must be 6 digits.');
+    setStep(3);
+  }
+
+  /* ── step 3 → 4 ── */
   function handleNextIdentity() {
     setError('');
     if (!aadhaarValid) return setError('Aadhaar must be 12 digits.');
     if (!panValid) return setError('PAN must match the format ABCDE1234F.');
-    if (!dobValid)
-      return setError('Date of birth must be in DD-MM-YYYY format.');
     if ((form.drivingLicense || form.passportFileNo) && !form.dob)
       return setError(
-        'Date of birth is required when providing a Driving Licence or Passport.',
+        'Date of birth is required when providing a Driving Licence or Passport. Add it under Additional Details.',
       );
     if (!dlValid) return setError('Driving licence number looks too short.');
     if (!voterValid)
@@ -206,18 +479,140 @@ export default function AddCandidatePage() {
     if (!passportFileValid)
       return setError('Passport file number looks too short.');
     if (!uanValid) return setError('UAN must be 12 digits.');
-    setStep(3);
+    setStep(4);
   }
 
-  function goToCheckout() {
-    saveDraft(form);
-    router.push('/home/new/checkout');
+  // Load the current bill amount from the DB default package on mount.
+  useEffect(() => {
+    const token = getToken();
+    if (!token) return;
+    defaultPackage(token)
+      .then((p) => {
+        if (p && typeof p.priceInr === 'number') setPriceInr(p.priceInr);
+      })
+      .catch(() => {
+        /* keep fallback price */
+      });
+  }, []);
+
+  async function applyDiscount() {
+    const token = getToken();
+    if (!token) return;
+    const code = discountInput.trim();
+    if (!code) return;
+    setApplyingDiscount(true);
+    setDiscountMsg('');
+    try {
+      const res = await validateDiscount(token, code);
+      if (res.valid && res.percentOff > 0) {
+        setDiscountPct(res.percentOff);
+        setAppliedCode(res.code);
+        setDiscountMsg(`Code ${res.code} applied — ${res.percentOff}% off`);
+      } else {
+        setDiscountPct(0);
+        setAppliedCode('');
+        setDiscountMsg('That code is invalid or expired.');
+      }
+    } catch {
+      setDiscountMsg('Could not validate the code. Please try again.');
+    } finally {
+      setApplyingDiscount(false);
+    }
   }
 
-  const STEP_BY_ID: Record<string, 1 | 2 | 3> = {
+  function clearDiscount() {
+    setDiscountPct(0);
+    setAppliedCode('');
+    setDiscountInput('');
+    setDiscountMsg('');
+  }
+
+  async function payNow() {
+    setError('');
+    if (!tcAgreed) {
+      setError('Please accept the Terms & Conditions to continue.');
+      return;
+    }
+    setPaying(true);
+    try {
+      const token = getToken();
+      if (!token) throw new Error('Session expired');
+
+      // Persist the draft so the success page can create the candidate + clean
+      // up this draft once payment is confirmed.
+      saveDraft(form);
+      if (draftId) sessionStorage.setItem('assurio:draft-id', draftId);
+
+      const aadhaarDigits = form.aadhaar.replace(/\s/g, '');
+      const order = await createOrder(token, {
+        amount: finalAmount,
+        description: `Assurio verification · ${form.name}`,
+        customer: {
+          name: form.name,
+          email: form.email || undefined,
+          contact: form.phone || undefined,
+        },
+        notes: {
+          pan: form.pan,
+          aadhaar_masked: 'XXXX XXXX ' + aadhaarDigits.slice(-4),
+          flow: 'client-add-candidate',
+          price: String(priceInr),
+          discount_code: appliedCode || 'none',
+          discount_pct: String(discountPct),
+        },
+      });
+      if (!order.keyId) {
+        throw new Error('Payments are not configured. Please contact support.');
+      }
+
+      // Razorpay opens as an overlay on this page — no redirect.
+      let response;
+      try {
+        response = await openRazorpayCheckout({
+          key: order.keyId,
+          orderId: order.orderId,
+          amount: order.amount,
+          currency: order.currency,
+          name: 'Assurio',
+          description: `Verification · ${form.name}`,
+          prefill: {
+            name: form.name,
+            email: form.email || undefined,
+            contact: form.phone || undefined,
+          },
+          themeColor: '#0f172a',
+        });
+      } catch {
+        // Modal dismissed — stay on the review step so they can retry.
+        setPaying(false);
+        return;
+      }
+
+      if (!response.razorpay_order_id || !response.razorpay_signature) {
+        throw new Error('Payment could not be confirmed. Please try again.');
+      }
+
+      const qs = new URLSearchParams({
+        razorpay_order_id: response.razorpay_order_id,
+        razorpay_payment_id: response.razorpay_payment_id,
+        razorpay_signature: response.razorpay_signature,
+      });
+      router.push(`/home/new/success?${qs.toString()}`);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Could not start the payment. Please try again.',
+      );
+      setPaying(false);
+    }
+  }
+
+  const STEP_BY_ID: Record<string, 1 | 2 | 3 | 4> = {
     contact: 1,
-    identity: 2,
-    review: 3,
+    additional: 2,
+    identity: 3,
+    review: 4,
   };
 
   /* Clicking a step in the rail jumps back to an earlier, already-visited
@@ -231,7 +626,9 @@ export default function AddCandidatePage() {
     }
   }
 
-  if (!user) return <div className="loading">Loading…</div>;
+  if (!user) return <PageLoader />;
+
+  const { performable, blocked } = splitChecks(form);
 
   const stepItems: StepperItem[] = [
     {
@@ -240,22 +637,33 @@ export default function AddCandidatePage() {
       status: step === 1 ? 'ongoing' : 'completed',
     },
     {
+      id: 'additional',
+      title: 'Additional Details',
+      status: step < 2 ? 'not_started' : step === 2 ? 'ongoing' : 'completed',
+    },
+    {
       id: 'identity',
       title: 'Identity Documents',
-      status: step === 1 ? 'not_started' : step === 2 ? 'ongoing' : 'completed',
+      status: step < 3 ? 'not_started' : step === 3 ? 'ongoing' : 'completed',
     },
     {
       id: 'review',
       title: 'Review & Confirm',
-      status: step === 3 ? 'ongoing' : 'not_started',
+      status: step === 4 ? 'ongoing' : 'not_started',
     },
   ];
 
   return (
-    <AppShell nav={CLIENT_NAV} user={user} onLogout={handleLogout}>
-      <div className="flex w-full flex-col gap-6 p-5 lg:p-8">
-        {/* ── Header ── */}
-        <div className="flex items-start gap-2">
+    <AppShell
+      nav={CLIENT_NAV}
+      user={user}
+      onLogout={handleLogout}
+      hideMobileTopBar
+    >
+      <div className="flex w-full min-w-0 flex-col gap-6 overflow-x-clip">
+        {/* ── Header (desktop only — redundant on mobile since the user is
+            filling the form themselves; mobile shows back + progress instead) ── */}
+        <div className="hidden items-start gap-2 lg:flex">
           <Link
             href="/home"
             aria-label="Back to dashboard"
@@ -284,17 +692,31 @@ export default function AddCandidatePage() {
             />
           </aside>
 
-          {/* ── Compact step indicator below lg ── */}
-          <div className="lg:hidden">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-body-md font-semibold text-text-heading">
-                {stepItems[step - 1].title}
-              </span>
-              <span className="text-body-sm text-text-subheading">
-                Step {step} of {stepItems.length}
-              </span>
+          {/* ── Compact step indicator below lg — back button + progress ── */}
+          <div className="flex items-center gap-3 lg:hidden">
+            <button
+              type="button"
+              aria-label={step > 1 ? 'Previous step' : 'Back to dashboard'}
+              onClick={() => {
+                setError('');
+                if (step > 1) setStep((s) => (s - 1) as 1 | 2 | 3 | 4);
+                else router.push('/home');
+              }}
+              className="group inline-flex size-5 shrink-0 items-center justify-center text-primary"
+            >
+              <ArrowLeft className="size-5 transition-transform duration-300 ease-out group-hover:-translate-x-1" />
+            </button>
+            <div className="min-w-0 flex-1">
+              <div className="mb-1.5 flex items-center justify-between">
+                <span className="text-body-md font-semibold text-text-heading">
+                  {stepItems[step - 1].title}
+                </span>
+                <span className="text-body-sm text-text-subheading">
+                  Step {step} of {stepItems.length}
+                </span>
+              </div>
+              <ProgressBar value={(step / stepItems.length) * 100} />
             </div>
-            <ProgressBar value={(step / stepItems.length) * 100} />
           </div>
 
           <Divider
@@ -308,7 +730,7 @@ export default function AddCandidatePage() {
               ~430px width as Recriauth instead of stretching edge-to-edge.
               `bgv-fill-form` bumps the label/field type a notch above the RDS
               12/14px defaults, scoped to this form only (see globals.css). */}
-          <section className="bgv-fill-form min-w-0 max-w-4xl flex-1">
+          <section className="bgv-fill-form min-w-0 max-w-4xl flex-1 pb-24 lg:pb-0">
 
         {/* ─── STEP 1 : Contact ─── */}
         {step === 1 && (
@@ -318,8 +740,7 @@ export default function AddCandidatePage() {
                 Add a new candidate
               </h2>
               <p className="text-body-sm text-text-subheading">
-                Capture contact details and accept the Terms &amp; Conditions
-                before proceeding.
+                Capture the candidate&apos;s contact details to get started.
               </p>
             </div>
 
@@ -332,7 +753,7 @@ export default function AddCandidatePage() {
                 />
               </InputFieldWrapper>
 
-              <InputFieldWrapper label="Email" required error={emailError}>
+              <InputFieldWrapper label="Email" optional error={emailError}>
                 <Input
                   type="email"
                   value={form.email}
@@ -359,11 +780,92 @@ export default function AddCandidatePage() {
                   onChange={(next) => set('role', next)}
                 />
               </InputFieldWrapper>
+
+              <InputFieldWrapper
+                label="Upload IDs"
+                optional
+                className="md:col-span-2"
+              >
+                <div className="flex flex-col gap-3">
+                  <label
+                    className={`flex flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-border-default bg-surface-nav px-4 py-6 text-center transition-colors hover:border-border-focused ${
+                      uploading
+                        ? 'pointer-events-none opacity-60'
+                        : 'cursor-pointer'
+                    }`}
+                  >
+                    <input
+                      type="file"
+                      accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                      multiple
+                      className="hidden"
+                      disabled={uploading}
+                      onChange={(event) => {
+                        void handleIdFiles(event.target.files);
+                        event.target.value = '';
+                      }}
+                    />
+                    <span className="inline-flex items-center gap-1.5 text-body-md font-medium text-text-link">
+                      {uploading ? (
+                        <>
+                          <Loader2 className="size-4 animate-spin" />
+                          Scanning &amp; uploading…
+                        </>
+                      ) : (
+                        <>
+                          Browse
+                          <UploadCloud className="size-4" />
+                        </>
+                      )}
+                    </span>
+                    <span className="text-body-sm text-text-subheading">
+                      JPG, PNG, or PDF up to 10MB
+                    </span>
+                  </label>
+
+                  <p className="text-body-sm text-text-subheading">
+                    Upload at least one valid ID from Aadhaar, PAN, Voter ID, or
+                    Driving Licence. Every file is virus-scanned before it is
+                    stored.
+                  </p>
+
+                  {idDocuments.length > 0 && (
+                    <ul className="flex flex-col gap-2">
+                      {idDocuments.map((doc: IdDocument) => (
+                        <li
+                          key={doc.key}
+                          className="flex items-center gap-3 rounded-lg border border-border-default bg-surface-page px-3 py-2"
+                        >
+                          <FileText className="size-4 shrink-0 text-text-link" />
+                          <span className="min-w-0 flex-1 truncate text-body-sm text-text-heading">
+                            {doc.name}
+                          </span>
+                          <span className="shrink-0 text-body-sm text-text-subheading">
+                            {(doc.size / 1024 / 1024).toFixed(1)} MB
+                          </span>
+                          <button
+                            type="button"
+                            aria-label={`Remove ${doc.name}`}
+                            className="shrink-0 rounded p-1 text-text-subheading transition-colors hover:text-text-error"
+                            onClick={() => removeIdDocument(doc.key)}
+                          >
+                            <X className="size-4" />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  {uploadError && (
+                    <Callout
+                      state="Error"
+                      configuration="Text Only"
+                      title={uploadError}
+                    />
+                  )}
+                </div>
+              </InputFieldWrapper>
             </div>
-
-            <Divider />
-
-            <TermsBox agreed={tcAgreed} onAgreedChange={setTcAgreed} />
 
             {error && (
               <Callout
@@ -375,7 +877,7 @@ export default function AddCandidatePage() {
 
             <Divider />
 
-            <div className="flex flex-col-reverse items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="hidden flex-col-reverse items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between lg:flex">
               <div className="inline-flex items-center gap-1.5 text-body-sm text-text-subheading">
                 <Sparkles className="size-3.5" />
                 Encrypted and stored securely.
@@ -383,7 +885,7 @@ export default function AddCandidatePage() {
               <Button
                 variant="primary"
                 onClick={handleNextContact}
-                disabled={!nameValid || !emailValid || !tcAgreed}
+                disabled={!nameValid || !emailValid}
                 rightIcon={<ArrowRight className="size-4" />}
               >
                 Continue
@@ -392,151 +894,84 @@ export default function AddCandidatePage() {
           </div>
         )}
 
-        {/* ─── STEP 2 : Identity ─── */}
+        {/* ─── STEP 2 : Additional Details ─── */}
         {step === 2 && (
           <div className="flex flex-col gap-6">
             <div className="space-y-1">
               <h2 className="text-base font-semibold tracking-h4 text-text-heading md:text-h4">
-                Identity documents
+                Additional details
               </h2>
               <p className="text-body-sm text-text-subheading">
-                All identity documents are required to run a complete background
-                check.
+                Enter additional details of the person you want to verify.
               </p>
             </div>
 
-            <div className="space-y-5">
-              <h3 className="text-body-md font-semibold text-text-body">
-                Core IDs
-              </h3>
-              <div className="grid gap-x-5 gap-y-5 md:grid-cols-2">
-                <InputFieldWrapper
-                  label="Aadhaar number"
-                  required
-                  error={aadhaarError}
-                >
-                  <Input
-                    value={form.aadhaar}
-                    placeholder="XXXX XXXX XXXX"
-                    maxLength={14}
-                    inputMode="numeric"
-                    error={Boolean(aadhaarError)}
-                    onChange={(event) =>
-                      set('aadhaar', formatAadhaar(event.target.value))
-                    }
-                  />
-                </InputFieldWrapper>
+            <div className="grid gap-x-5 gap-y-5 md:grid-cols-2">
+              <InputFieldWrapper
+                id="field-dob"
+                label="Date of birth"
+                optional
+                error={dobError}
+              >
+                <DateInput
+                  className={fieldHighlight('dob')}
+                  value={dobStringToDate(form.dob)}
+                  placeholder="DD/MM/YYYY"
+                  maxDate={new Date()}
+                  error={Boolean(dobError)}
+                  onChange={(date) => set('dob', dateToDobString(date))}
+                />
+              </InputFieldWrapper>
 
-                <InputFieldWrapper label="PAN number" required error={panError}>
-                  <Input
-                    value={form.pan}
-                    placeholder="ABCDE1234F"
-                    maxLength={10}
-                    error={Boolean(panError)}
-                    onChange={(event) =>
-                      set(
-                        'pan',
-                        event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''),
-                      )
-                    }
-                  />
-                </InputFieldWrapper>
-              </div>
-            </div>
+              <InputFieldWrapper label="Gender" optional>
+                <SelectInput
+                  value={form.gender}
+                  placeholder="Select candidate's gender"
+                  options={GENDER_OPTIONS}
+                  onChange={(next) => set('gender', next)}
+                />
+              </InputFieldWrapper>
 
-            <Divider />
+              <InputFieldWrapper label="Father's name" optional>
+                <Input
+                  value={form.fatherName}
+                  placeholder="e.g. Ramesh Kumar"
+                  onChange={(event) => set('fatherName', event.target.value)}
+                />
+              </InputFieldWrapper>
 
-            <div className="space-y-5">
-              <div className="space-y-1">
-                <h3 className="text-body-md font-semibold text-text-body">
-                  Other IDs
-                </h3>
-                <p className="text-body-sm text-text-subheading">
-                  Optional — fill what&apos;s available.
-                </p>
-              </div>
+              <InputFieldWrapper label="Pincode" optional error={pincodeError}>
+                <Input
+                  value={form.pincode}
+                  placeholder="6-digit pincode"
+                  maxLength={6}
+                  inputMode="numeric"
+                  error={Boolean(pincodeError)}
+                  onChange={(event) =>
+                    set(
+                      'pincode',
+                      event.target.value.replace(/\D/g, '').slice(0, 6),
+                    )
+                  }
+                />
+              </InputFieldWrapper>
 
-              <div className="grid gap-x-5 gap-y-5 md:grid-cols-2">
-                <InputFieldWrapper
-                  label="Date of birth"
-                  note="Required for Driving Licence & Passport."
-                  error={dobError}
-                >
-                  <DateInput
-                    value={dobStringToDate(form.dob)}
-                    placeholder="DD/MM/YYYY"
-                    maxDate={new Date()}
-                    error={Boolean(dobError)}
-                    onChange={(date) => set('dob', dateToDobString(date))}
-                  />
-                </InputFieldWrapper>
-
-                <InputFieldWrapper
-                  label="Driving licence no."
-                  optional
-                  error={dlError}
-                >
-                  <Input
-                    value={form.drivingLicense}
-                    placeholder="e.g. MH0120201234567"
-                    maxLength={20}
-                    error={Boolean(dlError)}
-                    onChange={(event) =>
-                      set(
-                        'drivingLicense',
-                        event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''),
-                      )
-                    }
-                  />
-                </InputFieldWrapper>
-
-                <InputFieldWrapper label="Voter ID" optional error={voterError}>
-                  <Input
-                    value={form.voterId}
-                    placeholder="e.g. ABC1234567"
-                    maxLength={10}
-                    error={Boolean(voterError)}
-                    onChange={(event) =>
-                      set(
-                        'voterId',
-                        event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''),
-                      )
-                    }
-                  />
-                </InputFieldWrapper>
-
-                <InputFieldWrapper
-                  label="Passport file no."
-                  optional
-                  error={passportError}
-                >
-                  <Input
-                    value={form.passportFileNo}
-                    placeholder="e.g. AP1234567890"
-                    maxLength={20}
-                    error={Boolean(passportError)}
-                    onChange={(event) =>
-                      set(
-                        'passportFileNo',
-                        event.target.value.toUpperCase().replace(/[^A-Z0-9/]/g, ''),
-                      )
-                    }
-                  />
-                </InputFieldWrapper>
-
-                <InputFieldWrapper label="UAN" optional error={uanError}>
-                  <Input
-                    value={form.uan}
-                    placeholder="12-digit UAN"
-                    maxLength={12}
-                    inputMode="numeric"
-                    error={Boolean(uanError)}
-                    onChange={(event) =>
-                      set('uan', formatUan(event.target.value))
-                    }
-                  />
-                </InputFieldWrapper>
-              </div>
+              <InputFieldWrapper
+                id="field-permanentAddress"
+                label="Permanent address"
+                optional
+                className="md:col-span-2"
+              >
+                <Textarea
+                  className={fieldHighlight('permanentAddress')}
+                  value={form.permanentAddress}
+                  rows={3}
+                  placeholder="House / street, area, city, state, PIN"
+                  onChange={(event) =>
+                    set('permanentAddress', event.target.value)
+                  }
+                />
+              </InputFieldWrapper>
             </div>
 
             {error && (
@@ -545,13 +980,177 @@ export default function AddCandidatePage() {
 
             <Divider />
 
-            <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="hidden flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between lg:flex">
               <Button
                 variant="secondary"
                 className="w-full sm:w-auto"
                 onClick={() => {
                   setError('');
                   setStep(1);
+                }}
+                leftIcon={<ArrowLeft className="size-4" />}
+              >
+                Back
+              </Button>
+              <Button
+                variant="primary"
+                className="w-full sm:w-auto"
+                onClick={handleNextAdditional}
+                disabled={!dobValid || !pincodeValid}
+                rightIcon={<ArrowRight className="size-4" />}
+              >
+                Continue
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* ─── STEP 3 : Identity ─── */}
+        {step === 3 && (
+          <div className="flex flex-col gap-6">
+            <div className="space-y-1">
+              <h2 className="text-base font-semibold tracking-h4 text-text-heading md:text-h4">
+                Identity documents
+              </h2>
+              <p className="text-body-sm text-text-subheading">
+                Add any identity documents you have — the more you provide, the
+                more complete the background check.
+              </p>
+            </div>
+
+            <div className="space-y-5">
+              <InputFieldWrapper
+                id="field-aadhaar"
+                label="Aadhaar number"
+                error={aadhaarError}
+              >
+                <Input
+                  className={fieldHighlight('aadhaar')}
+                  value={form.aadhaar}
+                  placeholder="XXXX XXXX XXXX"
+                  maxLength={14}
+                  inputMode="numeric"
+                  error={Boolean(aadhaarError)}
+                  onChange={(event) =>
+                    set('aadhaar', formatAadhaar(event.target.value))
+                  }
+                />
+              </InputFieldWrapper>
+
+              <InputFieldWrapper
+                id="field-pan"
+                label="PAN number"
+                error={panError}
+              >
+                <Input
+                  className={fieldHighlight('pan')}
+                  value={form.pan}
+                  placeholder="ABCDE1234F"
+                  maxLength={10}
+                  error={Boolean(panError)}
+                  onChange={(event) =>
+                    set(
+                      'pan',
+                      event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''),
+                    )
+                  }
+                />
+              </InputFieldWrapper>
+
+              <InputFieldWrapper
+                id="field-drivingLicense"
+                label="Driving licence no."
+                optional
+                error={dlError}
+              >
+                <Input
+                  className={fieldHighlight('drivingLicense')}
+                  value={form.drivingLicense}
+                  placeholder="e.g. MH0120201234567"
+                  maxLength={20}
+                  error={Boolean(dlError)}
+                  onChange={(event) =>
+                    set(
+                      'drivingLicense',
+                      event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''),
+                    )
+                  }
+                />
+              </InputFieldWrapper>
+
+              <InputFieldWrapper
+                id="field-voterId"
+                label="Voter ID"
+                optional
+                error={voterError}
+              >
+                <Input
+                  className={fieldHighlight('voterId')}
+                  value={form.voterId}
+                  placeholder="e.g. ABC1234567"
+                  maxLength={10}
+                  error={Boolean(voterError)}
+                  onChange={(event) =>
+                    set(
+                      'voterId',
+                      event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''),
+                    )
+                  }
+                />
+              </InputFieldWrapper>
+
+              <InputFieldWrapper
+                id="field-passportFileNo"
+                label="Passport file no."
+                optional
+                error={passportError}
+              >
+                <Input
+                  className={fieldHighlight('passportFileNo')}
+                  value={form.passportFileNo}
+                  placeholder="e.g. AP1234567890"
+                  maxLength={20}
+                  error={Boolean(passportError)}
+                  onChange={(event) =>
+                    set(
+                      'passportFileNo',
+                      event.target.value.toUpperCase().replace(/[^A-Z0-9/]/g, ''),
+                    )
+                  }
+                />
+              </InputFieldWrapper>
+
+              <InputFieldWrapper
+                id="field-uan"
+                label="UAN"
+                optional
+                error={uanError}
+              >
+                <Input
+                  className={fieldHighlight('uan')}
+                  value={form.uan}
+                  placeholder="12-digit UAN"
+                  maxLength={12}
+                  inputMode="numeric"
+                  error={Boolean(uanError)}
+                  onChange={(event) => set('uan', formatUan(event.target.value))}
+                />
+              </InputFieldWrapper>
+            </div>
+
+            {error && (
+              <Callout state="Error" configuration="Text Only" title={error} />
+            )}
+
+            <Divider />
+
+            <div className="hidden flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between lg:flex">
+              <Button
+                variant="secondary"
+                className="w-full sm:w-auto"
+                onClick={() => {
+                  setError('');
+                  setStep(2);
                 }}
                 leftIcon={<ArrowLeft className="size-4" />}
               >
@@ -577,8 +1176,8 @@ export default function AddCandidatePage() {
           </div>
         )}
 
-        {/* ─── STEP 3 : Review & Pay ─── */}
-        {step === 3 && (
+        {/* ─── STEP 4 : Review & Pay ─── */}
+        {step === 4 && (
           <div className="flex flex-col gap-6">
             <div className="space-y-1">
               <h2 className="text-base font-semibold tracking-h4 text-text-heading md:text-h4">
@@ -589,29 +1188,51 @@ export default function AddCandidatePage() {
               </p>
             </div>
 
-            <div className="space-y-3">
-              <h3 className="text-body-md font-semibold text-text-body">
-                Contact
-              </h3>
+            <CollapsibleSection title="Contact">
               <div className="divide-y divide-border-default overflow-hidden rounded-lg border border-border-default">
                 <SummaryRow label="Name" value={form.name} />
-                <SummaryRow label="Email" value={form.email} />
+                {form.email && <SummaryRow label="Email" value={form.email} />}
                 {form.phone && <SummaryRow label="Phone" value={form.phone} />}
                 {form.role && <SummaryRow label="Role" value={form.role} />}
               </div>
-            </div>
+            </CollapsibleSection>
 
-            <div className="space-y-3">
-              <h3 className="text-body-md font-semibold text-text-body">
-                Identity
-              </h3>
+            {(form.dob ||
+              form.gender ||
+              form.fatherName ||
+              form.permanentAddress ||
+              form.pincode) && (
+              <CollapsibleSection title="Additional details">
+                <div className="divide-y divide-border-default overflow-hidden rounded-lg border border-border-default">
+                  {form.dob && (
+                    <SummaryRow label="Date of birth" value={form.dob} />
+                  )}
+                  {form.gender && (
+                    <SummaryRow label="Gender" value={form.gender} />
+                  )}
+                  {form.fatherName && (
+                    <SummaryRow label="Father's name" value={form.fatherName} />
+                  )}
+                  {form.permanentAddress && (
+                    <SummaryRow
+                      label="Permanent address"
+                      value={form.permanentAddress}
+                    />
+                  )}
+                  {form.pincode && (
+                    <SummaryRow label="Pincode" value={form.pincode} />
+                  )}
+                </div>
+              </CollapsibleSection>
+            )}
+
+            <CollapsibleSection title="Identity">
               <div className="divide-y divide-border-default overflow-hidden rounded-lg border border-border-default">
                 <SummaryRow
                   label="Aadhaar"
                   value={'XXXX XXXX ' + aadhaarDigits.slice(-4)}
                 />
                 <SummaryRow label="PAN" value={form.pan} />
-                {form.dob && <SummaryRow label="Date of birth" value={form.dob} />}
                 <SummaryRow
                   label="Driving licence"
                   value={form.drivingLicense}
@@ -625,32 +1246,226 @@ export default function AddCandidatePage() {
                 )}
                 <SummaryRow label="UAN" value={form.uan} />
               </div>
+            </CollapsibleSection>
+
+            <Divider />
+
+            {/* What we can / can't verify with the details provided so far */}
+            <div className="space-y-5">
+              {performable.length > 0 && (
+                <div className="space-y-3">
+                  <h3 className="text-body-md font-semibold text-text-body">
+                    Checks we&apos;ll perform
+                  </h3>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {performable.map((c, i) => {
+                      const eta = checkEta(c.id);
+                      return (
+                        <RevealBox
+                          key={c.id}
+                          index={i}
+                          className="flex items-center gap-2.5 rounded-lg border border-border-success bg-surface-success px-3.5 py-3"
+                        >
+                          <CheckCircle2 className="size-4 shrink-0 text-icon-success" />
+                          <span className="flex-1 text-body-sm font-medium text-text-heading">
+                            {c.label}
+                          </span>
+                          <span className="inline-flex shrink-0 items-center gap-1 text-body-sm text-text-subheading">
+                            {eta === '24h' ? (
+                              <Clock className="size-3" />
+                            ) : (
+                              <Zap className="size-3" />
+                            )}
+                            {eta}
+                          </span>
+                        </RevealBox>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {blocked.length > 0 && (
+                <div className="space-y-3">
+                  <h3 className="text-body-md font-semibold text-text-body">
+                    Checks we can&apos;t perform yet
+                  </h3>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {blocked.map((c, i) => (
+                      <RevealBox
+                        key={c.id}
+                        index={i}
+                        className="flex items-start gap-2.5 rounded-lg border border-border-warning bg-surface-warning px-3.5 py-3"
+                      >
+                        <XCircle className="mt-0.5 size-4 shrink-0 text-text-warning" />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-body-sm font-medium text-text-heading">
+                            {c.label}
+                          </div>
+                          <div className="flex items-center justify-between gap-x-2">
+                            <span className="min-w-0 flex-1 text-body-sm text-warning-900">
+                              Needs {missingLabels(c.missing)}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => goToMissingInfo(c.missing)}
+                              className="inline-flex shrink-0 items-center gap-0.5 text-body-sm font-medium text-text-link hover:underline"
+                            >
+                              Add missing info
+                              <ArrowRight className="size-3" />
+                            </button>
+                          </div>
+                        </div>
+                      </RevealBox>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
             <Divider />
 
-            <div className="flex items-start justify-between gap-4 rounded-lg bg-neutral-300 p-4">
-              <div className="space-y-1">
-                <div className="text-body-md font-semibold text-text-heading">
-                  Verification fee
+            {/* Discount code — validated against the DB discount codes. */}
+            <div className="rounded-lg border border-border-default bg-white p-4">
+              <div className="mb-2 text-body-md font-semibold text-text-heading">
+                Get additional discount
+              </div>
+              <div className="flex items-end gap-2">
+                <div className="flex-1">
+                  <Input
+                    value={discountInput}
+                    placeholder="Enter discount code"
+                    disabled={!!appliedCode}
+                    onChange={(e) =>
+                      setDiscountInput(e.target.value.toUpperCase())
+                    }
+                  />
                 </div>
-                <div className="text-body-sm text-text-subheading">
-                  {[
-                    'PAN',
-                    'Aadhaar (DigiLocker)',
-                    form.drivingLicense ? 'Driving licence' : null,
-                    form.voterId ? 'Voter ID' : null,
-                    form.passportFileNo ? 'Passport' : null,
-                    form.uan ? 'Employment history (UAN)' : null,
-                    'Crime check',
-                  ]
-                    .filter(Boolean)
-                    .join(' · ')}
+                {appliedCode ? (
+                  <Button variant="secondary" onClick={clearDiscount}>
+                    Remove
+                  </Button>
+                ) : (
+                  <Button
+                    variant="secondary"
+                    onClick={applyDiscount}
+                    disabled={applyingDiscount || !discountInput.trim()}
+                  >
+                    {applyingDiscount ? 'Applying…' : 'Apply'}
+                  </Button>
+                )}
+              </div>
+              {discountMsg && (
+                <p
+                  className={`mt-2 text-body-sm ${
+                    discountPct > 0 ? 'text-success' : 'text-text-error'
+                  }`}
+                >
+                  {discountMsg}
+                </p>
+              )}
+            </div>
+
+            {/* Payment summary — price and total come from the DB package. */}
+            <div className="overflow-hidden rounded-xl border border-border-default bg-white shadow-sm">
+              <div className="flex items-center gap-2 border-b border-border-default bg-neutral-50 px-4 py-3">
+                <ReceiptText className="size-4 text-icon-default" />
+                <span className="text-body-md font-semibold text-text-heading">
+                  Payment summary
+                </span>
+              </div>
+
+              <div className="space-y-3 px-4 py-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <div className="text-body-md text-text-body">
+                      Verification fee
+                    </div>
+                    <div className="mt-0.5 text-body-sm text-text-subheading">
+                      {performable.length} check
+                      {performable.length === 1 ? '' : 's'} ready to run
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-body-md tabular-nums text-text-body">
+                    ₹{priceInr.toLocaleString('en-IN')}
+                  </div>
+                </div>
+
+                {discountPct > 0 && (
+                  <div className="flex items-center justify-between gap-4">
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-success px-2.5 py-1 text-body-sm font-medium text-success">
+                      <Tag className="size-3.5" />
+                      {appliedCode} · {discountPct}% off
+                    </span>
+                    <span className="shrink-0 text-body-md tabular-nums text-success">
+                      −₹{discountAmount.toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-end justify-between gap-4 border-t border-border-default bg-neutral-50 px-4 py-4">
+                <div>
+                  <div className="text-body-md font-semibold text-text-heading">
+                    Total payable
+                  </div>
+                  <div className="mt-0.5 text-body-sm text-text-subheading">
+                    Inclusive of all taxes
+                  </div>
+                </div>
+                <div className="shrink-0 text-right">
+                  {discountPct > 0 && (
+                    <div className="text-body-sm tabular-nums text-text-placeholder line-through">
+                      ₹{priceInr.toLocaleString('en-IN')}
+                    </div>
+                  )}
+                  <div className="text-h3 font-bold leading-tight tabular-nums text-text-heading">
+                    ₹{finalAmount.toLocaleString('en-IN')}
+                  </div>
                 </div>
               </div>
-              <div className="shrink-0 text-h4 font-semibold text-text-heading">
-                ₹{PRICE_INR}
-              </div>
+
+              {discountPct > 0 && (
+                <div className="flex items-center justify-center gap-1.5 border-t border-border-success bg-surface-success px-4 py-2 text-body-sm font-medium text-success">
+                  <Sparkles className="size-3.5" />
+                  You saved ₹{discountAmount.toLocaleString('en-IN')} on this
+                  verification
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-lg border border-border-default bg-white p-4">
+              <p className="mb-3 text-body-sm text-text-body">
+                By checking the box below, you agree to our{' '}
+                <a
+                  href="/legal/terms"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-text-link underline underline-offset-2 hover:text-text-link-hover"
+                >
+                  Terms &amp; Conditions
+                </a>{' '}
+                and confirm you have obtained the candidate&apos;s consent.
+              </p>
+              <label className="flex w-fit cursor-pointer items-center gap-2 select-none">
+                <Checkbox
+                  size="Small"
+                  checked={tcAgreed}
+                  onChange={(event) => {
+                    // Toggle: stamp consent time when accepted, clear when unticked.
+                    set(
+                      'consentAcceptedAt',
+                      event.currentTarget.checked
+                        ? new Date().toISOString()
+                        : '',
+                    );
+                  }}
+                />
+                <span className="text-body-md text-text-body">
+                  I accept the Terms &amp; Conditions
+                  <span className="text-text-error"> *</span>
+                </span>
+              </label>
             </div>
 
             <div className="inline-flex items-center gap-1.5 text-body-sm text-text-subheading">
@@ -660,13 +1475,13 @@ export default function AddCandidatePage() {
 
             <Divider />
 
-            <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="hidden flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between lg:flex">
               <Button
                 variant="secondary"
                 className="w-full sm:w-auto"
                 onClick={() => {
                   setError('');
-                  setStep(2);
+                  setStep(3);
                 }}
                 leftIcon={<ArrowLeft className="size-4" />}
               >
@@ -675,18 +1490,105 @@ export default function AddCandidatePage() {
               <Button
                 variant="primary"
                 className="w-full sm:w-auto"
-                onClick={goToCheckout}
+                onClick={payNow}
+                disabled={paying || !tcAgreed}
                 rightIcon={<ArrowRight className="size-4" />}
               >
-                Proceed to pay ₹{PRICE_INR}
+                {paying ? 'Opening secure checkout…' : `Proceed to pay ₹${finalAmount}`}
               </Button>
             </div>
           </div>
         )}
           </section>
         </div>
+
+        {/* Mobile sticky action — primary step button, always visible like the
+            reference's fixed "Next" so the form reads as one contained page. */}
+        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border-default bg-white p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] lg:hidden">
+          {step === 1 && (
+            <Button
+              variant="primary"
+              className="w-full"
+              onClick={handleNextContact}
+              disabled={!nameValid || !emailValid}
+              rightIcon={<ArrowRight className="size-4" />}
+            >
+              Continue
+            </Button>
+          )}
+          {step === 2 && (
+            <Button
+              variant="primary"
+              className="w-full"
+              onClick={handleNextAdditional}
+              disabled={!dobValid || !pincodeValid}
+              rightIcon={<ArrowRight className="size-4" />}
+            >
+              Continue
+            </Button>
+          )}
+          {step === 3 && (
+            <Button
+              variant="primary"
+              className="w-full"
+              onClick={handleNextIdentity}
+              disabled={
+                !aadhaarValid ||
+                !panValid ||
+                !dlValid ||
+                !voterValid ||
+                !passportFileValid ||
+                !uanValid
+              }
+              rightIcon={<ArrowRight className="size-4" />}
+            >
+              Continue
+            </Button>
+          )}
+          {step === 4 && (
+            <Button
+              variant="primary"
+              className="w-full"
+              onClick={payNow}
+              disabled={paying || !tcAgreed}
+              rightIcon={<ArrowRight className="size-4" />}
+            >
+              {paying ? 'Opening secure checkout…' : `Proceed to pay ₹${finalAmount}`}
+            </Button>
+          )}
+        </div>
       </div>
     </AppShell>
+  );
+}
+
+function CollapsibleSection({
+  title,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="space-y-3">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-2 text-left"
+      >
+        <h3 className="text-body-md font-semibold text-text-body">{title}</h3>
+        <ChevronDown
+          className={`size-4 shrink-0 text-icon-default transition-transform duration-200 ${
+            open ? 'rotate-180' : ''
+          }`}
+        />
+      </button>
+      {open ? children : null}
+    </div>
   );
 }
 
@@ -697,6 +1599,40 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
       <span className="text-body-sm font-medium text-text-body">
         {value || '—'}
       </span>
+    </div>
+  );
+}
+
+/**
+ * Reveals a check box on mount with the same fade + rise Recriauth uses for its
+ * check cards (transition-all, 400ms, ease-in-out). `index` staggers each box
+ * so a grid animates in one after another.
+ */
+function RevealBox({
+  index = 0,
+  className,
+  children,
+}: {
+  index?: number;
+  className?: string;
+  children: ReactNode;
+}) {
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setShown(true));
+    return () => cancelAnimationFrame(raf);
+  }, []);
+  return (
+    <div
+      className={className}
+      style={{
+        opacity: shown ? 1 : 0,
+        transform: shown ? 'translateY(0)' : 'translateY(6px)',
+        transition: 'opacity 400ms ease-in-out, transform 400ms ease-in-out',
+        transitionDelay: `${index * 60}ms`,
+      }}
+    >
+      {children}
     </div>
   );
 }

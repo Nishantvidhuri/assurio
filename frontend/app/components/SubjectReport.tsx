@@ -1,0 +1,1670 @@
+'use client';
+
+/**
+ * Shared verification-report view for a Subject. Rendered on the client-facing
+ * candidate page (with a Refresh action) and, read-only, on the admin candidate
+ * page — so both sides show the exact same details.
+ *
+ * Pass `onRefresh` to show the Refresh button; omit it for a view-only render.
+ */
+import {
+  useEffect,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from 'react';
+import {
+  AlertTriangle,
+  ArrowLeft,
+  CheckCircle2,
+  Download,
+  FileText,
+  Hourglass,
+  RefreshCw,
+  Send,
+} from 'lucide-react';
+import {
+  adminSendVerificationLink,
+  downloadSubjectReport,
+  fetchPdfBlobUrl,
+  recheckSubject,
+  subjectReportBlobUrl,
+  type AadhaarKyc,
+  type PanData,
+} from '../lib/api';
+import { getToken } from '../lib/session';
+import {
+  CheckCard,
+  type CheckDocument,
+  type CheckStatus,
+  type ComparisonRow as CardComparisonRow,
+  type MatchVariant,
+  type RequiredInput,
+} from './CheckCard';
+import FilePreviewModal, { type PreviewFile } from './FilePreviewModal';
+import { Tag } from '@/shared/components/ui';
+
+/**
+ * Minimal shape this report needs — satisfied by both the client `Subject` and
+ * the admin `AdminSubjectDetail` types, so the same view renders on both sides.
+ */
+export interface SubjectReportData {
+  id: string;
+  name: string;
+  role?: string;
+  email?: string;
+  phone?: string | null;
+  status?: string;
+  clientName?: string;
+  caseRef?: string;
+  amountPaid?: number | null;
+  panNumber?: string | null;
+  aadhaarNumber?: string | null;
+  dob?: string | null;
+  permanentAddress?: string | null;
+  drivingLicense?: string | null;
+  voterId?: string | null;
+  passportFileNo?: string | null;
+  uan?: string | null;
+  panResult: unknown;
+  aadhaarResult: unknown;
+  crimeResult: unknown;
+  dlResult?: unknown;
+  voterResult?: unknown;
+  passportResult?: unknown;
+  employmentResult?: unknown;
+  creditResult?: unknown;
+  panFront?: string | null;
+  panBack?: string | null;
+  aadhaarFront?: string | null;
+  aadhaarBack?: string | null;
+  crimeRequestId?: string | null;
+  digilockerClientId?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+interface CrimeCase {
+  slNo?: number;
+  caseTypeName?: string;
+  caseType?: string;
+  caseNumber?: string;
+  cinNumber?: string;
+  firNumber?: string;
+  firPoliceStation?: string;
+  firDistrict?: string;
+  firLink?: string;
+  hearingDate?: string;
+  caseRegDate?: string;
+  filingDate?: string;
+  courtName?: string;
+  state?: string;
+  district?: string;
+  underAct?: string;
+  section?: string;
+  caseStatus?: string;
+  riskType?: string;
+  riskSummary?: string;
+  severity?: string;
+  judgementSummary?: string;
+  judgementLink?: string;
+  petitioner?: string;
+  respondent?: string;
+  matchSummary?: string;
+  caseDetailsLink?: string;
+}
+
+interface CrimeReport {
+  status?: string;
+  request_id?: number | string;
+  risk_assessment?: {
+    risk_type?: string;
+    risk_summary?: string;
+    number_of_cases?: number;
+  };
+  download_link?: string;
+  cases?: CrimeCase[];
+}
+
+interface PdfPreview {
+  url: string;
+  title: string;
+}
+
+/* ---------- helpers ---------- */
+
+function genderLabel(g?: string | null): string {
+  if (g === 'M') return 'Male';
+  if (g === 'F') return 'Female';
+  return g || '';
+}
+
+function firstSentence(s?: string): string {
+  if (!s) return '';
+  return s.split('\n')[0].trim();
+}
+
+function formatAddress(a: AadhaarKyc['address']): string {
+  if (!a) return '';
+  const parts: string[] = [];
+  if (a.house) parts.push(a.house);
+  if (a.locality) parts.push(a.locality);
+  if (a.vtc) parts.push(a.vtc);
+  if (a.postOffice) parts.push(a.postOffice);
+  if (a.district) parts.push(a.district);
+  if (a.state) parts.push(a.state);
+  if (a.pincode) parts.push(a.pincode);
+  if (a.country) parts.push(a.country);
+  return parts.join(', ');
+}
+
+function riskClass(risk?: string): string {
+  const r = (risk || '').toLowerCase();
+  if (r.includes('no risk')) return 'risk-no';
+  if (r.includes('low')) return 'risk-low';
+  if (r.includes('medium') || r.includes('moderate')) return 'risk-medium';
+  if (r.includes('high') || r.includes('serious') || r.includes('critical'))
+    return 'risk-high';
+  return 'risk-no';
+}
+
+function severityClass(severity?: string): string {
+  const s = (severity || '').toLowerCase();
+  if (s.includes('critical') || s.includes('high')) return 'rp-sev-high';
+  if (s.includes('medium') || s.includes('moderate')) return 'rp-sev-medium';
+  if (s.includes('low') || s.includes('minor')) return 'rp-sev-low';
+  return 'rp-sev-info';
+}
+
+/* ---------- entered-vs-verified comparison ---------- */
+
+type RecallType = 'pan' | 'aadhaar' | 'voter' | 'passport' | 'dl' | 'employment';
+
+type MatchState = 'match' | 'partial' | 'mismatch' | 'na';
+
+function norm(s?: string | null): string {
+  return (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function last4(s?: string | null): string {
+  return (s || '').replace(/\D/g, '').slice(-4);
+}
+
+function eqMatch(a?: string | null, b?: string | null): MatchState {
+  const x = norm(a);
+  const y = norm(b);
+  if (!x || !y) return 'na';
+  return x === y ? 'match' : 'mismatch';
+}
+
+function nameMatch(entered?: string | null, found?: string | null): MatchState {
+  if (!norm(entered) || !norm(found)) return 'na';
+  if (norm(entered) === norm(found)) return 'match';
+  const at = (entered || '').toLowerCase().split(/\s+/).filter(Boolean);
+  const bt = (found || '').toLowerCase().split(/\s+/).filter(Boolean);
+  const overlap = at.filter((t) => bt.includes(t)).length;
+  if (overlap === 0) return 'mismatch';
+  if (overlap === at.length || overlap === bt.length) return 'match';
+  return 'partial';
+}
+
+/** "20 Jul 2026, 3:45 PM" */
+function fmtLongDate(iso?: string): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+}
+
+/** Overall TAT as "1d 22h" / "3h 40m" / "12m". */
+function tatDuration(createdAt?: string, updatedAt?: string): string {
+  if (!createdAt || !updatedAt) return '—';
+  const ms = new Date(updatedAt).getTime() - new Date(createdAt).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return '—';
+  const mins = Math.floor(ms / 60000);
+  const days = Math.floor(mins / 1440);
+  const hours = Math.floor((mins % 1440) / 60);
+  const m = mins % 60;
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${m}m`;
+  return `${m}m`;
+}
+
+/** Unwrap a `{ data: {...} }` vendor envelope to the inner object. */
+function unwrap(r: Record<string, unknown> | null): Record<string, unknown> {
+  if (!r) return {};
+  return r.data && typeof r.data === 'object'
+    ? (r.data as Record<string, unknown>)
+    : r;
+}
+
+/** First present string/number value among candidate keys. */
+function pick(o: Record<string, unknown>, keys: string[]): string {
+  for (const k of keys) {
+    const v = o[k];
+    if (typeof v === 'string' && v.trim()) return v;
+    if (typeof v === 'number') return String(v);
+  }
+  return '';
+}
+
+/** Normalise a DOB (DD-MM-YYYY, DD/MM/YYYY or YYYY-MM-DD) to DD-MM-YYYY. */
+function toDobParts(s?: string | null): string | null {
+  if (!s) return null;
+  const digits = s.match(/\d+/g);
+  if (!digits || digits.length < 3) return null;
+  let d: string, m: string, y: string;
+  if (digits[0].length === 4) [y, m, d] = digits;
+  else [d, m, y] = digits;
+  return `${d.padStart(2, '0')}-${m.padStart(2, '0')}-${y}`;
+}
+
+function dobMatch(a?: string | null, b?: string | null): MatchState {
+  const pa = toDobParts(a);
+  const pb = toDobParts(b);
+  if (!pa || !pb) return 'na';
+  return pa === pb ? 'match' : 'mismatch';
+}
+
+/** "Completed in 33m" / "Completed in 1h 5m" from created→updated timestamps. */
+function formatTat(createdAt?: string, updatedAt?: string): string | undefined {
+  if (!createdAt || !updatedAt) return undefined;
+  const ms = new Date(updatedAt).getTime() - new Date(createdAt).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return undefined;
+  const mins = Math.round(ms / 60000);
+  if (mins < 1) return 'Completed in <1m';
+  if (mins < 60) return `Completed in ${mins}m`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `Completed in ${h}h${m ? ` ${m}m` : ''}`;
+}
+
+/**
+ * Three-state status: done → the check ran; in-progress → running; then either
+ * `pending` (all required inputs present, just awaiting the result) or
+ * `unavailable` (the candidate didn't provide the details, so it can't run).
+ */
+function checkStatus(
+  done: boolean,
+  inProgress: boolean,
+  reqs: RequiredInput[],
+): CheckStatus {
+  if (done) return 'done';
+  if (inProgress) return 'in-progress';
+  const ready =
+    reqs.length > 0 && reqs.every((r) => Boolean(r.value && r.value.trim()));
+  return ready ? 'pending' : 'unavailable';
+}
+
+function docsFrom(
+  items: Array<[string, string | null | undefined]>,
+): CheckDocument[] {
+  return items
+    .filter(([, url]) => Boolean(url))
+    .map(([name, url]) => ({ name, url: url as string }));
+}
+
+/* ---------- report ---------- */
+
+export default function SubjectReport({
+  subject,
+  onRefresh,
+  refreshing = false,
+  onSubjectUpdate,
+  onBack,
+  admin = false,
+}: {
+  subject: SubjectReportData;
+  onRefresh?: () => void;
+  refreshing?: boolean;
+  /** Called with the refreshed subject after a "Recall API" re-run. */
+  onSubjectUpdate?: (updated: SubjectReportData) => void;
+  /** When provided, an inline back arrow renders before the name. */
+  onBack?: () => void;
+  /** Admin view: shows inapplicable ("Not provided") checks + Recall buttons. */
+  admin?: boolean;
+}) {
+  // A stored `{ __checkError }` = a genuine failed lookup (invalid / not
+  // found). Pull the message so the card can show it, and treat the result as
+  // "no data" for readouts/comparisons.
+  const errOf = (r: unknown): string | null =>
+    r && typeof r === 'object' && '__checkError' in r
+      ? String((r as { __checkError: unknown }).__checkError)
+      : null;
+
+  const panErr = errOf(subject.panResult);
+  const aadhaarErr = errOf(subject.aadhaarResult);
+  const dlErr = errOf(subject.dlResult);
+  const voterErr = errOf(subject.voterResult);
+  const passportErr = errOf(subject.passportResult);
+  const employmentErr = errOf(subject.employmentResult);
+
+  const pan = (panErr ? null : subject.panResult) as PanData | null;
+  const aadhaar = (aadhaarErr ? null : subject.aadhaarResult) as AadhaarKyc | null;
+  const crime = subject.crimeResult as { data?: CrimeReport } | null;
+  const crimeReport: CrimeReport = crime?.data ?? {};
+  const crimePending = Boolean(subject.crimeRequestId) && !crime;
+  const dlStarted = Boolean(subject.digilockerClientId);
+  // Aadhaar is "in progress" once there's something to verify (the number was
+  // entered / the link was sent) — even before the candidate opens DigiLocker,
+  // because we're now awaiting them. Only truly "not provided" when no Aadhaar
+  // was entered at all.
+  const dlPending = !aadhaar && (dlStarted || Boolean(subject.aadhaarNumber));
+  const panPending = Boolean(subject.panNumber) && !pan && !panErr;
+
+  const drivingLicence = (dlErr ? null : subject.dlResult ?? null) as Record<string, unknown> | null;
+  const voter = (voterErr ? null : subject.voterResult ?? null) as Record<string, unknown> | null;
+  const passport = (passportErr ? null : subject.passportResult ?? null) as Record<string, unknown> | null;
+  const employment = (employmentErr ? null : subject.employmentResult ?? null) as Record<string, unknown> | null;
+  const credit = (subject.creditResult ?? null) as Record<string, unknown> | null;
+
+
+  const [docPreview, setDocPreview] = useState<PreviewFile | null>(null);
+  const [recalling, setRecalling] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [sendingLink, setSendingLink] = useState(false);
+  // TAT is an internal/admin metric — hidden on the client ("employee") side.
+  const tat = admin ? formatTat(subject.createdAt, subject.updatedAt) : undefined;
+
+  async function handleSendLink() {
+    if (!subject.id) return;
+    setSendingLink(true);
+    try {
+      const res = await adminSendVerificationLink(subject.id);
+      alert(
+        res.emailSent
+          ? `Verification link emailed to ${subject.email || 'the candidate'}.`
+          : `Email couldn't be sent — share this link:\n${res.url}`,
+      );
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Could not send the link.');
+    } finally {
+      setSendingLink(false);
+    }
+  }
+
+  async function handleDownload() {
+    const token = getToken();
+    if (!token || !subject.id) return;
+    setDownloading(true);
+    try {
+      await downloadSubjectReport(token, subject.id, subject.name);
+    } catch (err) {
+      alert(
+        err instanceof Error ? err.message : 'Could not generate the report.',
+      );
+    } finally {
+      setDownloading(false);
+    }
+  }
+
+  async function handleRecall(type: RecallType) {
+    const token = getToken();
+    if (!token || !subject.id) return;
+    setRecalling(type);
+    try {
+      const updated = await recheckSubject(token, subject.id, type);
+      onSubjectUpdate?.(updated as unknown as SubjectReportData);
+    } catch (err) {
+      // Surface a lightweight alert — the card keeps its previous result.
+      alert(
+        err instanceof Error ? err.message : 'Could not re-run this check.',
+      );
+    } finally {
+      setRecalling(null);
+    }
+  }
+
+  // Per-check "Candidate said vs Data found" comparison rows.
+  const panCompare: CardComparisonRow[] = pan
+    ? [
+        {
+          key: 'pan',
+          label: 'PAN Number',
+          candidateSaid: subject.panNumber ?? null,
+          dataFound: pan.pan_number ?? null,
+          match: eqMatch(subject.panNumber, pan.pan_number),
+        },
+        {
+          key: 'name',
+          label: 'Full Name',
+          candidateSaid: subject.name ?? null,
+          dataFound: pan.full_name ?? null,
+          match: nameMatch(subject.name, pan.full_name),
+        },
+        ...(pan.dob
+          ? [
+              {
+                key: 'dob',
+                label: 'Date of birth',
+                candidateSaid: subject.dob ?? null,
+                dataFound: pan.dob,
+                match: dobMatch(subject.dob, pan.dob),
+              },
+            ]
+          : []),
+      ]
+    : [];
+
+  const aadhaarCompare: CardComparisonRow[] = aadhaar
+    ? [
+        {
+          key: 'aadhaar',
+          label: 'Aadhaar (last 4)',
+          candidateSaid: last4(subject.aadhaarNumber)
+            ? `•••• ${last4(subject.aadhaarNumber)}`
+            : null,
+          dataFound: aadhaar.uidMasked ?? null,
+          match:
+            last4(subject.aadhaarNumber) && last4(aadhaar.uidMasked)
+              ? eqMatch(last4(subject.aadhaarNumber), last4(aadhaar.uidMasked))
+              : ('na' as MatchVariant),
+        },
+        {
+          key: 'name',
+          label: 'Full Name',
+          candidateSaid: subject.name ?? null,
+          dataFound: aadhaar.name ?? null,
+          match: nameMatch(subject.name, aadhaar.name),
+        },
+        {
+          key: 'dob',
+          label: 'Date of birth',
+          candidateSaid: subject.dob ?? null,
+          dataFound: aadhaar.dob ?? null,
+          match: dobMatch(subject.dob, aadhaar.dob),
+        },
+      ]
+    : [];
+
+  // Voter / Passport / Driving-licence comparisons — pulled from the vendor
+  // result (shapes vary, so we probe several likely key names).
+  const voterData = unwrap(voter);
+  const voterCompare: CardComparisonRow[] = voter
+    ? [
+        {
+          key: 'voter',
+          label: 'Voter ID',
+          candidateSaid: subject.voterId ?? null,
+          dataFound:
+            pick(voterData, ['epic_no', 'epic_number', 'voter_id']) || null,
+          match: eqMatch(
+            subject.voterId,
+            pick(voterData, ['epic_no', 'epic_number', 'voter_id']),
+          ),
+        },
+        {
+          key: 'name',
+          label: 'Full Name',
+          candidateSaid: subject.name ?? null,
+          dataFound: pick(voterData, ['name', 'full_name']) || null,
+          match: nameMatch(subject.name, pick(voterData, ['name', 'full_name'])),
+        },
+      ]
+    : [];
+
+  const passportData = unwrap(passport);
+  const passportFound = pick(passportData, [
+    'file_number',
+    'passport_file_number',
+    'file_no',
+    'passport_no',
+  ]);
+  const passportCompare: CardComparisonRow[] = passport
+    ? [
+        {
+          key: 'file',
+          label: 'File number',
+          candidateSaid: subject.passportFileNo ?? null,
+          dataFound: passportFound || null,
+          match: eqMatch(subject.passportFileNo, passportFound),
+        },
+        {
+          key: 'name',
+          label: 'Full Name',
+          candidateSaid: subject.name ?? null,
+          dataFound: pick(passportData, ['name', 'full_name']) || null,
+          match: nameMatch(
+            subject.name,
+            pick(passportData, ['name', 'full_name']),
+          ),
+        },
+        {
+          key: 'dob',
+          label: 'Date of birth',
+          candidateSaid: subject.dob ?? null,
+          dataFound: pick(passportData, ['dob', 'date_of_birth']) || null,
+          match: dobMatch(
+            subject.dob,
+            pick(passportData, ['dob', 'date_of_birth']),
+          ),
+        },
+      ]
+    : [];
+
+  const employmentData = unwrap(employment);
+  const employmentCompare: CardComparisonRow[] = employment
+    ? [
+        {
+          key: 'uan',
+          label: 'UAN',
+          candidateSaid: subject.uan ?? null,
+          dataFound: pick(employmentData, ['uan', 'uan_number']) || null,
+          match: eqMatch(subject.uan, pick(employmentData, ['uan', 'uan_number'])),
+        },
+        {
+          key: 'name',
+          label: 'Full Name',
+          candidateSaid: subject.name ?? null,
+          dataFound:
+            pick(employmentData, ['name', 'full_name', 'member_name']) || null,
+          match: nameMatch(
+            subject.name,
+            pick(employmentData, ['name', 'full_name', 'member_name']),
+          ),
+        },
+      ]
+    : [];
+
+  const dlData = unwrap(drivingLicence);
+  const dlFound = pick(dlData, [
+    'license_number',
+    'licence_number',
+    'dl_number',
+    'driving_license_number',
+  ]);
+  const dlCompare: CardComparisonRow[] = drivingLicence
+    ? [
+        {
+          key: 'dl',
+          label: 'Licence number',
+          candidateSaid: subject.drivingLicense ?? null,
+          dataFound: dlFound || null,
+          match: eqMatch(subject.drivingLicense, dlFound),
+        },
+        {
+          key: 'name',
+          label: 'Full Name',
+          candidateSaid: subject.name ?? null,
+          dataFound: pick(dlData, ['name', 'full_name']) || null,
+          match: nameMatch(subject.name, pick(dlData, ['name', 'full_name'])),
+        },
+        {
+          key: 'dob',
+          label: 'Date of birth',
+          candidateSaid: subject.dob ?? null,
+          dataFound: pick(dlData, ['dob', 'date_of_birth']) || null,
+          match: dobMatch(subject.dob, pick(dlData, ['dob', 'date_of_birth'])),
+        },
+      ]
+    : [];
+
+  const panDocs = docsFrom([
+    ['PAN Card (front)', subject.panFront],
+    ['PAN Card (back)', subject.panBack],
+  ]);
+  const aadhaarDocs = docsFrom([
+    ['Aadhaar (front)', subject.aadhaarFront],
+    ['Aadhaar (back)', subject.aadhaarBack],
+  ]);
+
+  // What each check needs from the candidate — drives the requirement chips and
+  // gates the Recall button.
+  // The candidate-provided input is the Aadhaar number; DigiLocker is the
+  // verification method (its progress shows in the status/pending tile), not a
+  // "required input" — so don't render it as "not provided".
+  const aadhaarReqs: RequiredInput[] = [
+    { label: 'Aadhaar number', value: subject.aadhaarNumber },
+  ];
+  const panReqs: RequiredInput[] = [
+    { label: 'PAN number', value: subject.panNumber },
+  ];
+  const dlReqs: RequiredInput[] = [
+    { label: 'Licence number', value: subject.drivingLicense },
+    { label: 'Date of birth', value: subject.dob },
+  ];
+  const voterReqs: RequiredInput[] = [
+    { label: 'Voter ID', value: subject.voterId },
+  ];
+  const passportReqs: RequiredInput[] = [
+    { label: 'File number', value: subject.passportFileNo },
+    { label: 'Date of birth', value: subject.dob },
+  ];
+  const employmentReqs: RequiredInput[] = [
+    { label: 'UAN', value: subject.uan },
+  ];
+  // Crime & credit have no Recall button, but the chips still show what the
+  // candidate must provide before these can run.
+  const crimeReqs: RequiredInput[] = [
+    { label: 'Full name', value: subject.name },
+    { label: 'Date of birth', value: subject.dob },
+    { label: 'Permanent address', value: subject.permanentAddress },
+  ];
+  const creditReqs: RequiredInput[] = [
+    { label: 'PAN number', value: subject.panNumber },
+    { label: 'Date of birth', value: subject.dob },
+    { label: 'Permanent address', value: subject.permanentAddress },
+  ];
+
+  // Per-check status (drives the tag, the progress ratio, and — on the client
+  // side — whether an inapplicable "Not provided" card is shown at all).
+  const aadhaarStatus = aadhaarErr
+    ? 'failed'
+    : checkStatus(Boolean(aadhaar), dlPending, aadhaarReqs);
+  const panStatus = panErr
+    ? 'failed'
+    : checkStatus(Boolean(pan), panPending, panReqs);
+  const dlStatus = dlErr
+    ? 'failed'
+    : checkStatus(Boolean(drivingLicence), false, dlReqs);
+  const voterStatus = voterErr
+    ? 'failed'
+    : checkStatus(Boolean(voter), false, voterReqs);
+  const passportStatus = passportErr
+    ? 'failed'
+    : checkStatus(Boolean(passport), false, passportReqs);
+  const employmentStatus = employmentErr
+    ? 'failed'
+    : checkStatus(Boolean(employment), false, employmentReqs);
+  const crimeStatusVal = checkStatus(Boolean(crime), crimePending, crimeReqs);
+  const creditStatus = checkStatus(Boolean(credit), false, creditReqs);
+
+  const cardStatuses: CheckStatus[] = [
+    aadhaarStatus,
+    panStatus,
+    dlStatus,
+    voterStatus,
+    passportStatus,
+    employmentStatus,
+    crimeStatusVal,
+    creditStatus,
+  ];
+  const applicableCount = cardStatuses.filter(
+    (s) => s !== 'unavailable',
+  ).length;
+  // A check counts as "done" once it has finished processing — including a
+  // Failed (invalid / not found) result, which is a terminal state, not pending.
+  const doneCount = cardStatuses.filter(
+    (s) => s === 'done' || s === 'failed',
+  ).length;
+  const successCount = cardStatuses.filter((s) => s === 'done').length;
+  // Green only when every applicable check actually succeeded (no failures).
+  const allDone = applicableCount > 0 && successCount === applicableCount;
+  // Overall TAT = time from initiation until every applicable check finishes.
+  // Once complete, that's start → last completion (updatedAt); while still
+  // running, show the elapsed time so far (start → now).
+  const allChecksComplete = applicableCount > 0 && doneCount === applicableCount;
+  const overallTat = tatDuration(
+    subject.createdAt,
+    allChecksComplete ? subject.updatedAt : new Date().toISOString(),
+  );
+
+  // On the client ("employee") side, hide inapplicable checks and the Recall
+  // button — those are internal/admin concerns.
+  const show = (s: CheckStatus) => admin || s !== 'unavailable';
+  const recall = (type: RecallType) =>
+    admin ? () => handleRecall(type) : undefined;
+
+  return (
+    <div className="rp">
+      {/* Header — Recriauth-style: title row + candidate detail card */}
+      <header className="mb-6">
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              aria-label="Back"
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-full text-text-heading transition-colors hover:bg-neutral-200"
+            >
+              <ArrowLeft size={20} />
+            </button>
+          )}
+          <h1 className="text-2xl font-semibold text-text-heading">
+            {subject.name}
+          </h1>
+          {subject.caseRef && (
+            <span className="text-body-sm font-medium text-text-placeholder">
+              #{subject.caseRef}
+            </span>
+          )}
+          <Tag
+            variant={allDone ? 'Success' : 'Warning'}
+            label={`${doneCount}/${applicableCount} checks done`}
+          />
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              className="rp-refresh"
+              onClick={handleSendLink}
+              disabled={sendingLink}
+              title="Email the candidate their verification link (consent + Aadhaar)"
+            >
+              <Send size={13} className={sendingLink ? 'rp-refresh-spin' : ''} />
+              {sendingLink ? 'Sending…' : 'Send verification link'}
+            </button>
+            <button
+              className="rp-refresh"
+              onClick={() => setReportOpen(true)}
+              title="Preview the full report"
+            >
+              <FileText size={13} />
+              Preview report
+            </button>
+            <button
+              className="rp-refresh"
+              onClick={handleDownload}
+              disabled={downloading}
+              title="Download the full report as a PDF"
+            >
+              <Download
+                size={13}
+                className={downloading ? 'rp-refresh-spin' : ''}
+              />
+              {downloading ? 'Preparing…' : 'Download report'}
+            </button>
+            {onRefresh && (
+              <button
+                className="rp-refresh"
+                onClick={onRefresh}
+                disabled={refreshing}
+                title="Refresh"
+              >
+                <RefreshCw
+                  size={13}
+                  className={refreshing ? 'rp-refresh-spin' : ''}
+                />
+                {refreshing ? 'Refreshing…' : 'Refresh'}
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-border-default bg-white p-6">
+          <div className="grid grid-cols-2 gap-x-8 gap-y-5 sm:grid-cols-3 lg:grid-cols-4">
+            <HeadField label="Full Name" value={subject.name} />
+            <HeadField label="Email" value={subject.email} />
+            <HeadField label="Phone number" value={subject.phone} />
+            <HeadField label="Client" value={subject.clientName} />
+            <HeadField label="Role" value={subject.role} />
+            <HeadField
+              label="Initiated date"
+              value={fmtLongDate(subject.createdAt)}
+            />
+            <HeadField
+              label="Amount paid"
+              value={
+                typeof subject.amountPaid === 'number'
+                  ? '₹' +
+                    subject.amountPaid.toLocaleString('en-IN', {
+                      minimumFractionDigits: 2,
+                    })
+                  : null
+              }
+            />
+            {admin && <HeadField label="Overall TAT" value={overallTat} />}
+          </div>
+        </div>
+      </header>
+
+      {/* 1 · Aadhaar */}
+      {show(aadhaarStatus) && (
+      <CheckCard
+        title="Aadhaar (DigiLocker)"
+        status={aadhaarStatus}
+        order={aadhaarStatus === 'unavailable' ? 1 : 0}
+        tat={aadhaar ? tat : undefined}
+        idNumber={aadhaar?.uidMasked ?? subject.aadhaarNumber ?? undefined}
+        documents={aadhaarDocs}
+        comparison={aadhaarCompare}
+        onPreview={setDocPreview}
+        onResend={aadhaar ? undefined : () => void handleSendLink()}
+        resending={sendingLink}
+        requirements={aadhaarReqs}
+      >
+        {aadhaarErr ? (
+          <ErrorTile message={aadhaarErr} />
+        ) : aadhaar ? (
+          <AadhaarReadout a={aadhaar} />
+        ) : (
+          <PendingTile
+            label="Aadhaar verification"
+            hint={
+              dlStarted
+                ? 'DigiLocker consent in progress.'
+                : 'Awaiting the candidate to complete Aadhaar verification via DigiLocker.'
+            }
+          />
+        )}
+      </CheckCard>
+      )}
+
+      {/* 2 · PAN */}
+      {show(panStatus) && (
+      <CheckCard
+        title="PAN Card"
+        status={panStatus}
+        order={panStatus === 'unavailable' ? 1 : 0}
+        tat={pan ? tat : undefined}
+        idNumber={pan?.pan_number ?? subject.panNumber ?? undefined}
+        documents={panDocs}
+        comparison={panCompare}
+        onPreview={setDocPreview}
+        onRecall={recall('pan')}
+        recalling={recalling === 'pan'}
+        requirements={panReqs}
+      >
+        {panErr ? (
+          <ErrorTile message={panErr} />
+        ) : pan ? (
+          <PanReadout pan={pan} />
+        ) : panPending ? (
+          <PendingTile
+            label="PAN verification"
+            hint={`PAN ${subject.panNumber} submitted — awaiting verification result.`}
+          />
+        ) : (
+          <PendingTile
+            label="PAN verification"
+            hint="The candidate hasn't submitted their PAN yet."
+          />
+        )}
+      </CheckCard>
+      )}
+
+      {/* 3 · Driving licence */}
+      {show(dlStatus) && (
+      <CheckCard
+        title="Driving licence"
+        status={dlStatus}
+        order={dlStatus === 'unavailable' ? 1 : 0}
+        tat={drivingLicence ? tat : undefined}
+        onRecall={recall('dl')}
+        recalling={recalling === 'dl'}
+        requirements={dlReqs}
+        comparison={dlCompare}
+      >
+        {dlErr ? (
+          <ErrorTile message={dlErr} />
+        ) : drivingLicence ? (
+          <GenericReadout result={drivingLicence} />
+        ) : (
+          <PendingTile
+            label="Driving licence check"
+            hint={
+              dlStatus === 'unavailable'
+                ? 'No driving licence provided yet.'
+                : 'Details submitted — awaiting the vendor result.'
+            }
+          />
+        )}
+      </CheckCard>
+      )}
+
+      {/* 4 · Voter ID */}
+      {show(voterStatus) && (
+      <CheckCard
+        title="Voter ID"
+        status={voterStatus}
+        order={voterStatus === 'unavailable' ? 1 : 0}
+        tat={voter ? tat : undefined}
+        onRecall={recall('voter')}
+        recalling={recalling === 'voter'}
+        requirements={voterReqs}
+        comparison={voterCompare}
+      >
+        {voterErr ? (
+          <ErrorTile message={voterErr} />
+        ) : voter ? (
+          <GenericReadout result={voter} />
+        ) : (
+          <PendingTile
+            label="Voter ID check"
+            hint={
+              voterStatus === 'unavailable'
+                ? 'No Voter ID provided yet.'
+                : 'Voter ID submitted — awaiting the vendor result.'
+            }
+          />
+        )}
+      </CheckCard>
+      )}
+
+      {/* 5 · Passport */}
+      {show(passportStatus) && (
+      <CheckCard
+        title="Passport"
+        status={passportStatus}
+        order={passportStatus === 'unavailable' ? 1 : 0}
+        tat={passport ? tat : undefined}
+        onRecall={recall('passport')}
+        recalling={recalling === 'passport'}
+        requirements={passportReqs}
+        comparison={passportCompare}
+      >
+        {passportErr ? (
+          <ErrorTile message={passportErr} />
+        ) : passport ? (
+          <GenericReadout result={passport} />
+        ) : (
+          <PendingTile
+            label="Passport check"
+            hint={
+              passportStatus === 'unavailable'
+                ? 'No passport file number provided yet.'
+                : 'Details submitted — awaiting the vendor result.'
+            }
+          />
+        )}
+      </CheckCard>
+      )}
+
+      {/* 6 · Employment (UAN) */}
+      {show(employmentStatus) && (
+      <CheckCard
+        title="Employment history"
+        status={employmentStatus}
+        order={employmentStatus === 'unavailable' ? 1 : 0}
+        tat={employment ? tat : undefined}
+        onRecall={recall('employment')}
+        recalling={recalling === 'employment'}
+        requirements={employmentReqs}
+        comparison={employmentCompare}
+      >
+        {employmentErr ? (
+          <ErrorTile message={employmentErr} />
+        ) : employment ? (
+          <GenericReadout result={employment} />
+        ) : (
+          <PendingTile
+            label="Employment history check"
+            hint={
+              employmentStatus === 'unavailable'
+                ? 'No UAN provided yet.'
+                : 'UAN submitted — awaiting the vendor result.'
+            }
+          />
+        )}
+      </CheckCard>
+      )}
+
+      {/* 7 · Criminal */}
+      {show(crimeStatusVal) && (
+      <CheckCard
+        title="Criminal records"
+        status={crimeStatusVal}
+        order={crimeStatusVal === 'unavailable' ? 1 : 0}
+        tat={crime ? tat : undefined}
+        requirements={crimeReqs}
+      >
+        {crime ? (
+          <CrimeReadout
+            name={subject.name}
+            report={crimeReport}
+            requestId={subject.crimeRequestId ?? null}
+          />
+        ) : (
+          <PendingTile
+            label="Criminal records check"
+            hint={
+              crimeStatusVal === 'unavailable'
+                ? 'Needs date of birth and permanent address.'
+                : crimePending
+                  ? 'Aggregating courts and FIR records.'
+                  : 'Details submitted — awaiting the result.'
+            }
+          />
+        )}
+      </CheckCard>
+      )}
+
+      {/* 7 · Credit score */}
+      {show(creditStatus) && (
+      <CheckCard
+        title="Credit score"
+        status={creditStatus}
+        order={creditStatus === 'unavailable' ? 1 : 0}
+        tat={credit ? tat : undefined}
+        requirements={creditReqs}
+      >
+        {credit ? (
+          <GenericReadout result={credit} />
+        ) : (
+          <PendingTile
+            label="Credit score check"
+            hint={
+              creditStatus === 'unavailable'
+                ? 'Needs PAN, date of birth and permanent address.'
+                : 'Details submitted — awaiting the credit bureau result.'
+            }
+          />
+        )}
+      </CheckCard>
+      )}
+
+      {docPreview && (
+        <FilePreviewModal
+          file={docPreview}
+          onClose={() => setDocPreview(null)}
+        />
+      )}
+
+      {reportOpen && (
+        <SubjectReportModal
+          subjectId={subject.id}
+          title={`${subject.name} — Verification Report`}
+          onClose={() => setReportOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Inline preview of a real candidate's full Background Verification Report. */
+function SubjectReportModal({
+  subjectId,
+  title,
+  onClose,
+}: {
+  subjectId: string;
+  title: string;
+  onClose: () => void;
+}) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let created: string | null = null;
+    setBlobUrl(null);
+    setError(null);
+    (async () => {
+      try {
+        const url = await subjectReportBlobUrl(subjectId);
+        if (cancelled) {
+          URL.revokeObjectURL(url);
+          return;
+        }
+        created = url;
+        setBlobUrl(url);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to load report');
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (created) URL.revokeObjectURL(created);
+    };
+  }, [subjectId]);
+
+  return (
+    <div className="pdf-modal-backdrop" onClick={onClose} role="presentation">
+      <div
+        className="pdf-modal"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+      >
+        <header className="pdf-modal-head">
+          <div className="pdf-modal-title">{title}</div>
+          <div className="pdf-modal-actions">
+            {blobUrl && (
+              <a
+                className="pdf-modal-link"
+                href={blobUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Open in new tab ↗
+              </a>
+            )}
+            <button
+              type="button"
+              className="pdf-modal-close"
+              onClick={onClose}
+              aria-label="Close preview"
+            >
+              ×
+            </button>
+          </div>
+        </header>
+        {error ? (
+          <div className="pdf-modal-empty">
+            <div>Couldn&apos;t load the report.</div>
+            <div className="pdf-modal-empty-sub">{error}</div>
+          </div>
+        ) : !blobUrl ? (
+          <div className="pdf-modal-empty">
+            <div>Generating report…</div>
+          </div>
+        ) : (
+          <iframe className="pdf-modal-frame" src={blobUrl} title={title} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- subcomponents ---------- */
+
+function HeadField({
+  label,
+  value,
+}: {
+  label: string;
+  value?: string | null;
+}) {
+  return (
+    <div>
+      <div className="text-body-sm text-text-placeholder">{label}</div>
+      <div className="mt-1 text-body-md text-text-heading">
+        {value && value.trim() ? value : '—'}
+      </div>
+    </div>
+  );
+}
+
+function ErrorTile({ message }: { message: string }) {
+  return (
+    <div className="flex items-start gap-3 rounded-lg border border-border-error bg-surface-error p-4">
+      <AlertTriangle className="mt-0.5 size-5 shrink-0 text-text-error" />
+      <div>
+        <div className="text-body-md font-medium text-text-error">
+          Verification failed
+        </div>
+        <div className="mt-0.5 text-body-sm text-text-error">{message}</div>
+      </div>
+    </div>
+  );
+}
+
+function PendingTile({ label, hint }: { label: string; hint: string }) {
+  return (
+    <div className="rp-pending">
+      <Hourglass size={22} className="rp-pending-ico" />
+      <div>
+        <div className="rp-pending-title">{label} pending</div>
+        <div className="rp-pending-sub">{hint}</div>
+      </div>
+    </div>
+  );
+}
+
+function prettyKey(k: string): string {
+  return k
+    .replace(/[_-]+/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .trim();
+}
+
+/**
+ * Generic readout for verification results whose exact shape is vendor-specific
+ * (driving licence, voter, passport, credit). Unwraps a `data` envelope if
+ * present and renders the top-level primitive fields as a labelled grid.
+ */
+function GenericReadout({ result }: { result: Record<string, unknown> }) {
+  const inner =
+    result && typeof result.data === 'object' && result.data !== null
+      ? (result.data as Record<string, unknown>)
+      : result;
+  const entries = Object.entries(inner)
+    .filter(
+      ([, v]) =>
+        v !== null &&
+        v !== '' &&
+        (typeof v === 'string' ||
+          typeof v === 'number' ||
+          typeof v === 'boolean'),
+    )
+    .slice(0, 10);
+
+  if (entries.length === 0) {
+    return (
+      <div className="rp-tile rp-tile-done">
+        <div className="rp-tile-head">
+          <span className="rp-tile-label">Verified</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+      {entries.map(([k, v]) => (
+        <div key={k}>
+          <div className="text-body-sm uppercase tracking-wide text-text-subheading">
+            {prettyKey(k)}
+          </div>
+          <div className="mt-0.5 text-body-md text-text-heading">
+            {typeof v === 'boolean' ? (v ? 'Yes' : 'No') : String(v)}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PanReadout({ pan }: { pan: PanData }) {
+  return (
+    <div className="rp-readout">
+      <div className="rp-readout-head">
+        <div className="rp-readout-avatar">
+          {(pan.full_name || '?').charAt(0).toUpperCase()}
+        </div>
+        <div className="rp-readout-meta">
+          <div className="rp-readout-name">{pan.full_name || 'Unknown'}</div>
+          <div className="rp-readout-sub">{pan.pan_number}</div>
+        </div>
+        <span className="rp-section-status rp-section-status-done">
+          <CheckCircle2 size={11} />
+          Verified
+        </span>
+      </div>
+      <div className="rp-readout-grid">
+        <Field label="Gender" value={genderLabel(pan.gender)} />
+        <Field label="Date of birth" value={pan.dob} />
+        {pan.email && <Field label="Email" value={pan.email} />}
+        {pan.phone_number && <Field label="Phone" value={pan.phone_number} />}
+      </div>
+    </div>
+  );
+}
+
+function AadhaarReadout({ a }: { a: AadhaarKyc }) {
+  return (
+    <div className="rp-readout">
+      <div className="rp-readout-head">
+        {a.photo ? (
+          <img
+            className="rp-readout-photo"
+            src={`data:image/jpeg;base64,${a.photo}`}
+            alt=""
+          />
+        ) : (
+          <div className="rp-readout-avatar">
+            {(a.name || '?').charAt(0).toUpperCase()}
+          </div>
+        )}
+        <div className="rp-readout-meta">
+          <div className="rp-readout-name">{a.name || 'Unknown'}</div>
+          <div className="rp-readout-sub">{a.uidMasked || '—'}</div>
+        </div>
+        <span className="rp-section-status rp-section-status-done">
+          <CheckCircle2 size={11} />
+          Verified
+        </span>
+      </div>
+      <div className="rp-readout-grid">
+        <Field label="Date of birth" value={a.dob} />
+        <Field label="Gender" value={genderLabel(a.gender)} />
+      </div>
+      {a.address && (
+        <div className="rp-readout-block">
+          <div className="rp-readout-block-label">Address</div>
+          <div className="rp-readout-block-value">
+            {formatAddress(a.address) || '—'}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CrimeReadout({
+  name,
+  report,
+  requestId,
+}: {
+  name: string;
+  report: CrimeReport;
+  requestId: string | null;
+}) {
+  const ra = report.risk_assessment ?? {};
+  const cases = report.cases ?? [];
+  const [preview, setPreview] = useState<PdfPreview | null>(null);
+  const caseCount = ra.number_of_cases ?? cases.length;
+
+  return (
+    <div className="rp-readout">
+      <div className="rp-readout-head">
+        <div className="rp-readout-avatar">
+          {(name || '?').charAt(0).toUpperCase()}
+        </div>
+        <div className="rp-readout-meta">
+          <div className="rp-readout-name">{name}</div>
+          <div className="rp-readout-sub">
+            {requestId ? `Request ${requestId}` : 'Crime check'}
+          </div>
+        </div>
+        {ra.risk_type && (
+          <span className={`rp-risk-pill ${riskClass(ra.risk_type)}`}>
+            {ra.risk_type}
+          </span>
+        )}
+      </div>
+
+      <div className="rp-crime-bar">
+        <div className="rp-crime-stat">
+          <div className="rp-crime-stat-n">{caseCount}</div>
+          <div className="rp-crime-stat-l">
+            {caseCount === 1 ? 'Case found' : 'Cases found'}
+          </div>
+        </div>
+        {report.download_link && (
+          <div className="rp-crime-actions">
+            <button
+              type="button"
+              className="rp-crime-pdf"
+              onClick={() =>
+                setPreview({
+                  url: report.download_link as string,
+                  title: 'Crime check report',
+                })
+              }
+            >
+              <FileText size={13} />
+              Preview report
+            </button>
+            <a
+              className="rp-crime-pdf rp-crime-pdf-light"
+              href={report.download_link}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <Download size={13} />
+              Download
+            </a>
+          </div>
+        )}
+      </div>
+
+      {ra.risk_summary && (
+        <div className="rp-readout-block">
+          <div className="rp-readout-block-label">Risk summary</div>
+          <div className="rp-readout-block-value">{ra.risk_summary}</div>
+        </div>
+      )}
+
+      {cases.length > 0 && (
+        <div className="rp-cases">
+          {cases.map((c, i) => (
+            <CrimeCaseCard key={i} c={c} index={i} setPreview={setPreview} />
+          ))}
+        </div>
+      )}
+
+      {preview && (
+        <PdfPreviewModal
+          url={preview.url}
+          title={preview.title}
+          onClose={() => setPreview(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function Field({ label, value }: { label: string; value?: string | null }) {
+  return (
+    <div className="rp-field">
+      <div className="rp-field-label">{label}</div>
+      <div className="rp-field-value">{value || '—'}</div>
+    </div>
+  );
+}
+
+function CrimeCaseCard({
+  c,
+  index,
+  setPreview,
+}: {
+  c: CrimeCase;
+  index: number;
+  setPreview: Dispatch<SetStateAction<PdfPreview | null>>;
+}) {
+  const isFir = Boolean(c.firNumber);
+  const headLabel = isFir ? 'FIR' : c.caseType || c.caseTypeName || 'Case';
+  const location = [c.district, c.state].filter(Boolean).join(', ');
+
+  return (
+    <div className="rp-case">
+      <div className="rp-case-head">
+        <div>
+          <div className="rp-case-title">
+            Case {c.slNo || index + 1} · {headLabel}
+          </div>
+          {c.caseStatus && <div className="rp-case-sub">{c.caseStatus}</div>}
+        </div>
+        <div className="rp-case-head-tags">
+          {c.severity && (
+            <span className={`rp-sev-chip ${severityClass(c.severity)}`}>
+              <AlertTriangle size={11} />
+              {c.severity}
+            </span>
+          )}
+          {c.riskType && (
+            <span
+              className={`rp-risk-pill rp-risk-pill-sm ${riskClass(c.riskType)}`}
+            >
+              {c.riskType}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {c.riskSummary && <p className="rp-case-summary">{c.riskSummary}</p>}
+
+      <div className="rp-case-grid">
+        {c.severity && <Field label="Severity" value={c.severity} />}
+        {c.courtName && <Field label="Court" value={c.courtName} />}
+        {location && <Field label="Location" value={location} />}
+        {c.caseTypeName && !isFir && (
+          <Field label="Type" value={c.caseTypeName} />
+        )}
+        {c.section && <Field label="Sections" value={c.section} />}
+        {c.underAct && <Field label="Under act" value={c.underAct} />}
+        {c.caseStatus && <Field label="Status" value={c.caseStatus} />}
+        {c.caseRegDate && <Field label="Registered" value={c.caseRegDate} />}
+        {c.filingDate && c.filingDate !== c.caseRegDate && (
+          <Field label="Filed" value={c.filingDate} />
+        )}
+        {c.hearingDate && <Field label="Next hearing" value={c.hearingDate} />}
+        {c.petitioner && <Field label="Petitioner" value={c.petitioner} />}
+        {c.respondent && <Field label="Respondent" value={c.respondent} />}
+        {isFir && c.firNumber && (
+          <Field label="FIR number" value={c.firNumber} />
+        )}
+        {isFir && c.firPoliceStation && (
+          <Field label="Police station" value={c.firPoliceStation} />
+        )}
+        {c.matchSummary && (
+          <Field label="Match" value={firstSentence(c.matchSummary)} />
+        )}
+      </div>
+
+      {c.judgementSummary && (
+        <div className="rp-readout-block">
+          <div className="rp-readout-block-label">Judgement summary</div>
+          <div className="rp-readout-block-value">{c.judgementSummary}</div>
+        </div>
+      )}
+
+      {(c.caseDetailsLink ||
+        (c.judgementLink && c.judgementLink !== 'NA') ||
+        (c.firLink && c.firLink !== 'NA')) && (
+        <div className="rp-case-links">
+          {c.caseDetailsLink && (
+            <a
+              className="rp-case-link"
+              href={c.caseDetailsLink}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Case details ↗
+            </a>
+          )}
+          {c.judgementLink && c.judgementLink !== 'NA' && (
+            <button
+              type="button"
+              className="rp-case-link"
+              onClick={() =>
+                setPreview({
+                  url: c.judgementLink as string,
+                  title: `Case ${c.slNo ?? index + 1} — Judgement`,
+                })
+              }
+            >
+              Preview judgement
+            </button>
+          )}
+          {c.firLink && c.firLink !== 'NA' && (
+            <button
+              type="button"
+              className="rp-case-link"
+              onClick={() =>
+                setPreview({
+                  url: c.firLink as string,
+                  title: `Case ${c.slNo ?? index + 1} — FIR copy`,
+                })
+              }
+            >
+              Preview FIR
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PdfPreviewModal({
+  url,
+  title,
+  onClose,
+}: {
+  url: string;
+  title: string;
+  onClose: () => void;
+}) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let created: string | null = null;
+    setBlobUrl(null);
+    setError(null);
+    (async () => {
+      try {
+        const token = getToken();
+        if (!token) throw new Error('Your session has expired.');
+        const objectUrl = await fetchPdfBlobUrl(token, url);
+        if (cancelled) {
+          URL.revokeObjectURL(objectUrl);
+          return;
+        }
+        created = objectUrl;
+        setBlobUrl(objectUrl);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to load PDF');
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (created) URL.revokeObjectURL(created);
+    };
+  }, [url]);
+
+  return (
+    <div className="pdf-modal-backdrop" onClick={onClose} role="presentation">
+      <div
+        className="pdf-modal"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+      >
+        <header className="pdf-modal-head">
+          <div className="pdf-modal-title">{title}</div>
+          <div className="pdf-modal-actions">
+            <a
+              className="pdf-modal-link"
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Open in new tab ↗
+            </a>
+            <button
+              type="button"
+              className="pdf-modal-close"
+              onClick={onClose}
+              aria-label="Close preview"
+            >
+              ×
+            </button>
+          </div>
+        </header>
+        {error ? (
+          <div className="pdf-modal-empty">
+            <div>Couldn&apos;t load the PDF preview.</div>
+            <div className="pdf-modal-empty-sub">{error}</div>
+            <a
+              className="pdf-modal-link"
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Open in a new tab instead ↗
+            </a>
+          </div>
+        ) : !blobUrl ? (
+          <div className="pdf-modal-empty">
+            <div>Loading PDF…</div>
+          </div>
+        ) : (
+          <iframe className="pdf-modal-frame" src={blobUrl} title={title} />
+        )}
+      </div>
+    </div>
+  );
+}

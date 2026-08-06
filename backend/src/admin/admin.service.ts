@@ -12,6 +12,32 @@ function crimeRisk(result: unknown): string | null {
   return data?.risk_assessment?.risk_type ?? null;
 }
 
+/**
+ * Progress across the checks that actually apply to a candidate — i.e. the ones
+ * they provided the required inputs for. `total` is the applicable count,
+ * `done` is how many of those have a stored result.
+ */
+function subjectProgress(d: Subject): { done: number; total: number } {
+  // "Done" = the check finished processing — a stored result, whether a
+  // success or a failure (`{ __checkError }`). Both are terminal, not pending.
+  const done = (v: unknown) => Boolean(v);
+  const checks: Array<[boolean, boolean]> = [
+    [Boolean(d.panNumber), done(d.panResult)],
+    [Boolean(d.digilockerClientId), done(d.aadhaarResult)],
+    [Boolean(d.drivingLicense && d.dob), done(d.dlResult)],
+    [Boolean(d.voterId), done(d.voterResult)],
+    [Boolean(d.passportFileNo && d.dob), done(d.passportResult)],
+    [Boolean(d.uan), done(d.employmentResult)],
+    [Boolean(d.dob && d.permanentAddress), done(d.crimeResult)],
+    [Boolean(d.panNumber && d.dob && d.permanentAddress), done(d.creditResult)],
+  ];
+  const applicable = checks.filter(([a]) => a);
+  return {
+    total: applicable.length,
+    done: applicable.filter(([, done]) => done).length,
+  };
+}
+
 @Injectable()
 export class AdminService {
   constructor(
@@ -145,18 +171,65 @@ export class AdminService {
   }
 
   async listClients() {
-    const [users, counts] = await Promise.all([
+    const [users, subjects, draftCounts, invoices] = await Promise.all([
       this.prisma.user.findMany({ where: { role: { not: 'admin' } } }),
-      this.prisma.subject.groupBy({ by: ['userId'], _count: { id: true } }),
+      this.prisma.subject.findMany(),
+      this.prisma.candidateFormDraft.groupBy({
+        by: ['userId'],
+        _count: { id: true },
+      }),
+      this.prisma.invoice.findMany({ where: { status: 'paid' } }),
     ]);
-    const countMap = new Map(counts.map((c) => [c.userId, c._count.id]));
-    return users.map((u) => ({
-      id: u.id,
-      name: u.name,
-      email: u.email,
-      candidateCount: countMap.get(u.id) ?? 0,
-      createdAt: u.createdAt,
-    }));
+    const draftMap = new Map(draftCounts.map((c) => [c.userId, c._count.id]));
+
+    // Per-client P&L: checks run + API (vendor) cost from subjects; revenue
+    // from paid invoices; profit = revenue − API cost.
+    type Agg = {
+      subjects: number;
+      checksDone: number;
+      apiCost: number;
+      revenue: number;
+    };
+    const agg = new Map<string, Agg>();
+    const ensure = (uid: string): Agg => {
+      let a = agg.get(uid);
+      if (!a) {
+        a = { subjects: 0, checksDone: 0, apiCost: 0, revenue: 0 };
+        agg.set(uid, a);
+      }
+      return a;
+    };
+    for (const s of subjects) {
+      const a = ensure(s.userId);
+      a.subjects += 1;
+      const events = eventsForSubject(s);
+      a.checksDone += events.length;
+      a.apiCost += events.reduce((sum, e) => sum + e.credits, 0);
+    }
+    for (const inv of invoices) {
+      ensure(inv.userId).revenue += Number(inv.total) || 0;
+    }
+    const round = (n: number) => Math.round(n * 100) / 100;
+
+    return users.map((u) => {
+      const a = agg.get(u.id) ?? {
+        subjects: 0,
+        checksDone: 0,
+        apiCost: 0,
+        revenue: 0,
+      };
+      return {
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        candidateCount: a.subjects + (draftMap.get(u.id) ?? 0),
+        checksDone: a.checksDone,
+        apiCost: round(a.apiCost),
+        revenue: round(a.revenue),
+        profit: round(a.revenue - a.apiCost),
+        createdAt: u.createdAt,
+      };
+    });
   }
 
   async getClient(id: string) {
@@ -168,19 +241,37 @@ export class AdminService {
       orderBy: { updatedAt: 'desc' },
     });
 
-    const subjects = docs.map((d) => ({
+    const subjects = docs.map((d) => {
+      const prog = subjectProgress(d);
+      return {
+        id: d.id,
+        name: d.name,
+        role: d.role,
+        email: d.email,
+        phone: d.phone,
+        status: d.status,
+        ownerName: user.name,
+        ownerEmail: user.email,
+        hasPan: Boolean(d.panResult),
+        hasAadhaar: Boolean(d.aadhaarResult),
+        hasPanImages: Boolean(d.panFront || d.panBack),
+        crimeRisk: crimeRisk(d.crimeResult),
+        checksDone: prog.done,
+        checksTotal: prog.total,
+        createdAt: d.createdAt,
+        updatedAt: d.updatedAt,
+      };
+    });
+
+    // In-progress drafts this client hasn't paid for yet — so the admin can see
+    // what they've started and which fields are filled.
+    const draftDocs = await this.prisma.candidateFormDraft.findMany({
+      where: { userId: id },
+      orderBy: { updatedAt: 'desc' },
+    });
+    const drafts = draftDocs.map((d) => ({
       id: d.id,
-      name: d.name,
-      role: d.role,
-      email: d.email,
-      phone: d.phone,
-      status: d.status,
-      ownerName: user.name,
-      ownerEmail: user.email,
-      hasPan: Boolean(d.panResult),
-      hasAadhaar: Boolean(d.aadhaarResult),
-      hasPanImages: Boolean(d.panFront || d.panBack),
-      crimeRisk: crimeRisk(d.crimeResult),
+      data: d.data,
       createdAt: d.createdAt,
       updatedAt: d.updatedAt,
     }));
@@ -195,7 +286,47 @@ export class AdminService {
         createdAt: user.createdAt,
       },
       subjects,
+      drafts,
       billing,
+    };
+  }
+
+  /** A single in-progress draft (read-only) for the admin candidate view. */
+  async getDraft(id: string) {
+    const draft = await this.prisma.candidateFormDraft.findUnique({
+      where: { id },
+    });
+    if (!draft) throw new NotFoundException('Draft not found');
+    const owner = await this.prisma.user.findUnique({
+      where: { id: draft.userId },
+    });
+
+    // Re-sign each uploaded ID document so the admin gets a working link — the
+    // URL stored on the draft at upload time has long since expired.
+    const data = (draft.data ?? {}) as Record<string, unknown>;
+    const rawDocs = Array.isArray(data.idDocuments) ? data.idDocuments : [];
+    const idDocuments = await Promise.all(
+      rawDocs.map(async (doc) => {
+        const d = (doc ?? {}) as Record<string, unknown>;
+        const key = typeof d.key === 'string' ? d.key : null;
+        const url =
+          key && this.s3.isConfigured
+            ? await this.s3.presignedUrl(key).catch(() => null)
+            : typeof d.url === 'string'
+              ? d.url
+              : null;
+        return { ...d, url };
+      }),
+    );
+
+    return {
+      id: draft.id,
+      data: { ...data, idDocuments },
+      owner: owner
+        ? { id: owner.id, name: owner.name, email: owner.email }
+        : null,
+      createdAt: draft.createdAt,
+      updatedAt: draft.updatedAt,
     };
   }
 
@@ -233,6 +364,11 @@ export class AdminService {
       const subject = inv.customerEmail
         ? subjectByEmail.get(inv.customerEmail.toLowerCase())
         : undefined;
+      // API (vendor) cost for this invoice = the credits spent on the linked
+      // subject's actual verification calls. Same source as the clients P&L.
+      const events = subject ? eventsForSubject(subject) : [];
+      const apiCost =
+        Math.round(events.reduce((sum, e) => sum + e.credits, 0) * 100) / 100;
       return {
         id: inv.id,
         invoiceNumber: inv.invoiceNumber,
@@ -249,6 +385,7 @@ export class AdminService {
           aadhaar: Boolean(subject?.aadhaarResult),
           crime: Boolean(subject?.crimeResult),
         },
+        apiCost,
         subjectId: subject ? subject.id : null,
         razorpayPaymentId: inv.razorpayPaymentId,
         pdfUrl: presignedMap.get(inv.id) ?? null,
@@ -260,6 +397,12 @@ export class AdminService {
     const doc = await this.prisma.subject.findUnique({ where: { id } });
     if (!doc) throw new NotFoundException('Subject not found');
     const owner = await this.prisma.user.findUnique({ where: { id: doc.userId } });
+    const invoice = doc.email
+      ? await this.prisma.invoice.findFirst({
+          where: { userId: doc.userId, customerEmail: doc.email, status: 'paid' },
+          orderBy: { paidAt: 'desc' },
+        })
+      : null;
     return {
       id: doc.id,
       name: doc.name,
@@ -267,13 +410,31 @@ export class AdminService {
       email: doc.email,
       phone: doc.phone,
       status: doc.status,
+      ownerId: doc.userId,
       ownerName: owner?.name ?? 'Unknown',
       ownerEmail: owner?.email ?? '',
+      clientName: owner?.name ?? '',
+      amountPaid: invoice ? Number(invoice.total) : null,
+      caseRef: invoice?.invoiceNumber || 'VER-' + doc.id.slice(-6).toUpperCase(),
       panFront: doc.panFront,
       panBack: doc.panBack,
       panNumber: doc.panNumber,
+      aadhaarFront: doc.aadhaarFront,
+      aadhaarBack: doc.aadhaarBack,
+      aadhaarNumber: doc.aadhaarNumber,
+      dob: doc.dob,
+      permanentAddress: doc.permanentAddress,
+      drivingLicense: doc.drivingLicense,
+      voterId: doc.voterId,
+      passportFileNo: doc.passportFileNo,
+      uan: doc.uan,
       panResult: doc.panResult,
       aadhaarResult: doc.aadhaarResult,
+      voterResult: doc.voterResult,
+      passportResult: doc.passportResult,
+      dlResult: doc.dlResult,
+      employmentResult: doc.employmentResult,
+      creditResult: doc.creditResult,
       digilockerClientId: doc.digilockerClientId,
       crimeRequestId: doc.crimeRequestId,
       crimeResult: doc.crimeResult,

@@ -23,7 +23,9 @@ async function bootstrap() {
   app.enableCors({
     origin: allowedOrigins,
     credentials: true,
-    allowedHeaders: ['Content-Type', 'X-CSRF-Token'],
+    // `ngrok-skip-browser-warning` lets browser fetches bypass ngrok's free-tier
+    // interstitial; it must be allow-listed here or the CORS preflight blocks it.
+    allowedHeaders: ['Content-Type', 'X-CSRF-Token', 'ngrok-skip-browser-warning'],
   });
 
   app.useGlobalPipes(new ValidationPipe({ whitelist: true }));
