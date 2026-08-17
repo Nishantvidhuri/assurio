@@ -81,6 +81,22 @@ function CandidateSuccessPage() {
         }
         setUser(u);
 
+        // Wallet-paid flow: the candidate was already created (charge + create
+        // ran in one server transaction) before we navigated here — just show
+        // the cached record; there is no Razorpay callback to verify.
+        if (search.get('wallet') === '1') {
+          const cached = sessionStorage.getItem('assurio:created');
+          if (cached) {
+            try {
+              setCreated(JSON.parse(cached));
+            } catch {
+              /* corrupt cache — show the partial state below */
+            }
+          }
+          setStatus('ok');
+          return;
+        }
+
         // Embedded checkout hands back these params (order flow).
         const razorpay_payment_id = search.get('razorpay_payment_id') || '';
         const razorpay_order_id = search.get('razorpay_order_id') || '';
@@ -180,6 +196,13 @@ function CandidateSuccessPage() {
           passportFileNo: d.passportFileNo.trim() || undefined,
           uan: d.uan.trim() || undefined,
           consentAcceptedAt: d.consentAcceptedAt || undefined,
+          // Routes the verified payment through the wallet ledger (credit +
+          // hold in one transaction) so it auto-refunds if consent is never
+          // given. The server re-verifies the paymentId against the invoice.
+          payment: {
+            method: 'razorpay',
+            razorpayPaymentId: razorpay_payment_id,
+          },
         });
         if (cancelled) return;
         setCreated(subject);
@@ -247,7 +270,7 @@ function CandidateSuccessPage() {
     body = (
           <div className="suc-card">
             <div className="suc-seal">
-              <span className="co-spinner" style={{ borderColor: 'rgba(5,150,105,0.35)', borderTopColor: '#059669', width: 28, height: 28 }} />
+              <span className="co-spinner" style={{ borderColor: 'var(--color-success-300)', borderTopColor: 'var(--color-success)', width: 28, height: 28 }} />
             </div>
             <h1 className="suc-title">
               Verifying <em>payment</em>
@@ -260,7 +283,7 @@ function CandidateSuccessPage() {
           <div className="suc-card">
             <div
               className="suc-seal"
-              style={{ background: '#fee2e2', borderColor: '#fecaca', color: '#dc2626' }}
+              style={{ background: 'var(--color-failure-100)', borderColor: 'var(--color-failure-200)', color: 'var(--color-failure)' }}
             >
               <XCircle size={42} strokeWidth={1.6} />
             </div>

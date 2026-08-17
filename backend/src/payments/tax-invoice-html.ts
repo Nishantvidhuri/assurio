@@ -9,6 +9,7 @@
  * Fed to PdfService.htmlToPdf(html, { printBackground: true }).
  */
 import type { Invoice } from '../../generated/prisma/client';
+import { BRAND } from '../common/brand-colors';
 import { SELLER, DEFAULT_SAC, type SellerDetails } from './seller-config';
 import { STAMP_SVG, SIGNATURE_PNG_DATA_URI } from './invoice-assets';
 import { ASSURIO_LOGO_DATA_URI } from '../subjects/assurio-logo';
@@ -205,7 +206,7 @@ export function renderTaxInvoiceHtml(
 
     .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
     .header-left { display: flex; align-items: center; gap: 12px; }
-    .header-title { font-size: 24px; font-weight: 600; color: #0E1321; }
+    .header-title { font-size: 24px; font-weight: 600; color: ${BRAND.textHeading}; }
     .void-watermark { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; align-items: center; justify-content: center; z-index: 9999; }
     .void-watermark span { font-size: 160px; font-weight: 800; letter-spacing: 16px; color: rgba(217, 45, 32, 0.28); transform: rotate(-30deg); text-transform: uppercase; }
     .logo-container { width: 160px; }
@@ -213,55 +214,55 @@ export function renderTaxInvoiceHtml(
 
     .meta-section { margin-bottom: 16px; }
     .meta-row { display: flex; gap: 8px; margin-bottom: 4px; }
-    .meta-label { width: 130px; font-size: 10px; font-weight: 500; color: #374150; }
-    .meta-value { font-size: 10px; font-weight: 600; color: #374150; }
+    .meta-label { width: 130px; font-size: 10px; font-weight: 500; color: ${BRAND.textBody}; }
+    .meta-value { font-size: 10px; font-weight: 600; color: ${BRAND.textBody}; }
 
     .billing-section { display: flex; gap: 16px; margin-bottom: 16px; }
-    .billing-box { flex: 1; padding: 8px; border-radius: 8px; background-color: #f9fbff; }
-    .billing-title { font-size: 10px; font-weight: 600; color: #374150; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
-    .billing-name { font-size: 10px; font-weight: 500; color: #0E1321; margin-bottom: 4px; }
-    .billing-detail { font-size: 10px; color: #374150; line-height: 1.6; font-weight: 500; }
+    .billing-box { flex: 1; padding: 8px; border-radius: 8px; background-color: ${BRAND.primaryBg}; }
+    .billing-title { font-size: 10px; font-weight: 600; color: ${BRAND.textBody}; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+    .billing-name { font-size: 10px; font-weight: 500; color: ${BRAND.textHeading}; margin-bottom: 4px; }
+    .billing-detail { font-size: 10px; color: ${BRAND.textBody}; line-height: 1.6; font-weight: 500; }
 
     .items-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
-    .items-table thead, .items-table thead tr { background: #174AB5; }
-    .items-table thead th { background: #174AB5; color: #fff; padding: 10px 14px; font-size: 10px; font-weight: 600; text-align: left; letter-spacing: 0.3px; border: 0; }
+    .items-table thead, .items-table thead tr { background: ${BRAND.primary}; }
+    .items-table thead th { background: ${BRAND.primary}; color: #fff; padding: 10px 14px; font-size: 10px; font-weight: 600; text-align: left; letter-spacing: 0.3px; border: 0; }
     .items-table thead th:first-child { border-radius: 8px 0 0 0; width: 40px; text-align: right; }
     .items-table thead th:last-child { border-radius: 0 8px 0 0; text-align: right; }
     .items-table thead th.text-right { text-align: right; }
-    .items-table tbody td { padding: 10px 14px; border-bottom: 1px solid #EAECF0; font-size: 10px; vertical-align: top; font-weight: 500; color: #374150; }
-    .items-table tbody td:first-child { text-align: center; color: #667085; }
+    .items-table tbody td { padding: 10px 14px; border-bottom: 1px solid ${BRAND.border}; font-size: 10px; vertical-align: top; font-weight: 500; color: ${BRAND.textBody}; }
+    .items-table tbody td:first-child { text-align: center; color: ${BRAND.textMuted}; }
     .items-table tbody td:last-child { text-align: right; }
     .items-table tbody td.text-right { text-align: right; }
 
     .info-table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
-    .info-table thead, .info-table thead tr { background: #174AB5; }
-    .info-table thead th { background: #174AB5; color: #fff; padding: 10px 14px; font-size: 10px; font-weight: 600; text-align: left; letter-spacing: 0.3px; border: 0; }
+    .info-table thead, .info-table thead tr { background: ${BRAND.primary}; }
+    .info-table thead th { background: ${BRAND.primary}; color: #fff; padding: 10px 14px; font-size: 10px; font-weight: 600; text-align: left; letter-spacing: 0.3px; border: 0; }
     .info-table thead th:first-child { border-radius: 8px 0 0 0; }
     .info-table thead th:last-child { border-radius: 0 8px 0 0; }
-    .info-table tbody td { padding: 10px 14px; border-bottom: 1px solid #EAECF0; font-size: 10px; vertical-align: top; font-weight: 500; color: #374150; }
+    .info-table tbody td { padding: 10px 14px; border-bottom: 1px solid ${BRAND.border}; font-size: 10px; vertical-align: top; font-weight: 500; color: ${BRAND.textBody}; }
 
     .summary-grid { display: grid; grid-template-columns: 1fr auto; column-gap: 32px; align-items: start; }
     .summary-left { display: flex; flex-direction: column; min-width: 0; }
     .summary-left .total-words { margin-bottom: 24px; }
     .summary-right { display: flex; flex-direction: column; align-items: flex-end; gap: 24px; }
     .total-words { max-width: 300px; }
-    .total-words-label { font-size: 10px; color: #828D9D; margin-bottom: 4px; font-weight: 500; }
-    .total-words-value { font-size: 10px; font-weight: 700; color: #374150; line-height: 1.5; }
+    .total-words-label { font-size: 10px; color: ${BRAND.textMuted}; margin-bottom: 4px; font-weight: 500; }
+    .total-words-value { font-size: 10px; font-weight: 700; color: ${BRAND.textBody}; line-height: 1.5; }
     .totals-box { width: 248px; }
-    .totals-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 10px; color: #374150; }
+    .totals-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 10px; color: ${BRAND.textBody}; }
     .totals-row .totals-label { font-weight: 500; }
     .totals-row .totals-value { font-weight: 600; }
-    .totals-row.grand { border-top: 1px solid #A5ACB6; margin-top: 4px; padding-top: 10px; }
-    .totals-row.grand .totals-label, .totals-row.grand .totals-value { font-size: 12px; font-weight: 600; color: #374150; }
+    .totals-row.grand { border-top: 1px solid ${BRAND.textDisabled}; margin-top: 4px; padding-top: 10px; }
+    .totals-row.grand .totals-label, .totals-row.grand .totals-value { font-size: 12px; font-weight: 600; color: ${BRAND.textBody}; }
     .paid-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; }
-    .paid-row .totals-label { font-weight: 500; color: #374150; }
-    .paid-row .totals-value { font-weight: 600; color: #374150; }
+    .paid-row .totals-label { font-weight: 500; color: ${BRAND.textBody}; }
+    .paid-row .totals-value { font-weight: 600; color: ${BRAND.textBody}; }
 
     .billing-row, .bank-section, .payment-section, .signature-section, .totals-signature-row, .tds-note { page-break-inside: avoid; }
 
     .bank-section { margin-bottom: 16px; }
-    .section-heading { font-size: 10px; font-weight: 700; color: #374150; margin-bottom: 4px; }
-    .bank-detail { font-size: 10px; font-weight: 500; color: #374150; line-height: 1.5; }
+    .section-heading { font-size: 10px; font-weight: 700; color: ${BRAND.textBody}; margin-bottom: 4px; }
+    .bank-detail { font-size: 10px; font-weight: 500; color: ${BRAND.textBody}; line-height: 1.5; }
 
     .stamp-signature-wrapper { position: relative; width: 120px; display: flex; justify-content: center; }
     .stamp-container { position: relative; width: 149px; height: 55px; display: flex; align-items: center; justify-content: center; }
@@ -273,8 +274,8 @@ export function renderTaxInvoiceHtml(
 
     .payment-section { margin-bottom: 24px; }
     .payment-row { display: flex; gap: 8px; margin-bottom: 3px; }
-    .payment-label { flex: 0 0 140px; white-space: nowrap; font-size: 10px; color: #374150; font-weight: 500; }
-    .payment-value { font-size: 10px; font-weight: 600; color: #374150; white-space: nowrap; }
+    .payment-label { flex: 0 0 140px; white-space: nowrap; font-size: 10px; color: ${BRAND.textBody}; font-weight: 500; }
+    .payment-value { font-size: 10px; font-weight: 600; color: ${BRAND.textBody}; white-space: nowrap; }
   </style>
 </head>
 <body>
@@ -287,7 +288,7 @@ export function renderTaxInvoiceHtml(
       </div>
       <div class="logo-container" style="display:flex;align-items:center;gap:9px;justify-content:flex-end;">
         <img src="${ASSURIO_LOGO_DATA_URI}" alt="Assurio" style="width:40px;height:40px;object-fit:contain;" />
-        <span style="font-size:22px;font-weight:700;color:#0e1321;letter-spacing:-0.01em;">Assurio</span>
+        <span style="font-size:22px;font-weight:700;color:${BRAND.textHeading};letter-spacing:-0.01em;">Assurio</span>
       </div>
     </div>
 

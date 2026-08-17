@@ -1,5 +1,6 @@
 'use client';
 import PageLoader from '@/app/components/PageLoader';
+import { BRAND } from '../../lib/brand';
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
@@ -23,8 +24,10 @@ import {
 } from 'lucide-react';
 import {
   createOrder,
+  createSubject,
   defaultPackage,
   deleteIdDocument,
+  getWallet,
   validateDiscount,
   me,
   uploadIdDocument,
@@ -35,15 +38,21 @@ import { getToken } from '../../lib/session';
 import { doLogout } from '../../lib/logout';
 import { CLIENT_NAV } from '../../components/Sidebar';
 import AppShell from '../../components/AppShell';
-import { saveDraft, type CandidateDraft, type IdDocument } from './draft';
+import {
+  clearDraft,
+  saveDraft,
+  type CandidateDraft,
+  type IdDocument,
+} from './draft';
 import {
   createServerDraft,
+  deleteServerDraft,
   fetchServerDraft,
   saveServerDraft,
 } from './server-draft';
 import {
-  checkEta,
   missingLabels,
+  performableEta,
   splitChecks,
   type CheckFieldKey,
 } from './checks';
@@ -90,7 +99,7 @@ const FIELD_STEP: Record<CheckFieldKey, 1 | 2 | 3> = {
   uan: 3,
 };
 
-const ROLE_OPTIONS = [
+const PRESET_ROLES = [
   'Maid',
   'Driver',
   'Cook',
@@ -99,7 +108,15 @@ const ROLE_OPTIONS = [
   'Office Staff',
   'Nanny',
   'Security',
-].map((role) => ({ label: role, value: role }));
+];
+
+/** Sentinel value for the "Other" entry — never stored as the actual role. */
+const ROLE_OTHER = '__other__';
+
+const ROLE_OPTIONS = [
+  ...PRESET_ROLES.map((role) => ({ label: role, value: role })),
+  { label: 'Other (type your own)', value: ROLE_OTHER },
+];
 
 const GENDER_OPTIONS = ['Male', 'Female', 'Other'].map((g) => ({
   label: g,
@@ -184,6 +201,9 @@ export default function AddCandidatePage() {
   const [highlightField, setHighlightField] = useState<CheckFieldKey | null>(
     null,
   );
+  // "Other" is a UI-only choice — the typed value is what lands in form.role.
+  // Resuming a draft whose saved role isn't a preset re-opens the text field.
+  const [roleIsCustom, setRoleIsCustom] = useState(false);
 
   // Bill amount is driven by the DB default package (admin Packages page).
   const [priceInr, setPriceInr] = useState<number>(DEFAULT_PRICE_INR);
@@ -193,8 +213,14 @@ export default function AddCandidatePage() {
   const [discountMsg, setDiscountMsg] = useState('');
   const [applyingDiscount, setApplyingDiscount] = useState(false);
 
+  // Wallet: when the prepaid balance covers the price, the client can skip
+  // Razorpay entirely and pay from balance (server recomputes the price).
+  const [walletInr, setWalletInr] = useState<number | null>(null);
+  const [payMethod, setPayMethod] = useState<'razorpay' | 'wallet'>('razorpay');
+
   const discountAmount = Math.round((priceInr * discountPct) / 100);
   const finalAmount = Math.max(0, priceInr - discountAmount);
+  const walletCovers = walletInr !== null && walletInr >= finalAmount;
 
   useEffect(() => {
     const token = getToken();
@@ -253,6 +279,12 @@ export default function AddCandidatePage() {
               ? draft.idDocuments
               : [],
           });
+          // A saved role that isn't one of the presets was typed by hand —
+          // reopen the text field so it stays editable on resume.
+          const savedRole = (draft.role || '').trim();
+          if (savedRole && !PRESET_ROLES.includes(savedRole)) {
+            setRoleIsCustom(true);
+          }
         }
       } catch {
         /* not found / offline — continue without server persistence */
@@ -493,7 +525,17 @@ export default function AddCandidatePage() {
       .catch(() => {
         /* keep fallback price */
       });
+    getWallet(token)
+      .then((w) => setWalletInr(w.balanceInr))
+      .catch(() => {
+        /* wallet unavailable — Razorpay path still works */
+      });
   }, []);
+
+  // If the balance stops covering the bill (e.g. discount removed), fall back.
+  useEffect(() => {
+    if (!walletCovers && payMethod === 'wallet') setPayMethod('razorpay');
+  }, [walletCovers, payMethod]);
 
   async function applyDiscount() {
     const token = getToken();
@@ -538,6 +580,39 @@ export default function AddCandidatePage() {
       const token = getToken();
       if (!token) throw new Error('Session expired');
 
+      // Wallet path: no Razorpay round-trip — the server debits the balance
+      // and creates the candidate in one transaction, then we land on the
+      // success page with the created record.
+      if (payMethod === 'wallet' && walletCovers) {
+        const subject = await createSubject(token, {
+          name: form.name.trim(),
+          email: form.email.trim() || undefined,
+          phone: form.phone.trim() || undefined,
+          role: form.role.trim() || undefined,
+          panNumber: form.pan.trim() || undefined,
+          aadhaarNumber: form.aadhaar.replace(/\s/g, '').trim() || undefined,
+          dob: form.dob.trim() || undefined,
+          fatherName: form.fatherName.trim() || undefined,
+          permanentAddress: form.permanentAddress.trim() || undefined,
+          pincode: form.pincode.trim() || undefined,
+          drivingLicense: form.drivingLicense.trim() || undefined,
+          voterId: form.voterId.trim() || undefined,
+          passportFileNo: form.passportFileNo.trim() || undefined,
+          uan: form.uan.trim() || undefined,
+          consentAcceptedAt: form.consentAcceptedAt || undefined,
+          payment: {
+            method: 'wallet',
+            discountCode: appliedCode || undefined,
+          },
+        });
+        sessionStorage.setItem('assurio:created', JSON.stringify(subject));
+        clearDraft();
+        if (draftId) void deleteServerDraft(draftId);
+        sessionStorage.removeItem('assurio:draft-id');
+        router.push('/home/new/success?wallet=1');
+        return;
+      }
+
       // Persist the draft so the success page can create the candidate + clean
       // up this draft once payment is confirmed.
       saveDraft(form);
@@ -580,7 +655,7 @@ export default function AddCandidatePage() {
             email: form.email || undefined,
             contact: form.phone || undefined,
           },
-          themeColor: '#0f172a',
+          themeColor: BRAND.ink,
         });
       } catch {
         // Modal dismissed — stay on the review step so they can retry.
@@ -732,6 +807,19 @@ export default function AddCandidatePage() {
               12/14px defaults, scoped to this form only (see globals.css). */}
           <section className="bgv-fill-form min-w-0 max-w-4xl flex-1 pb-24 lg:pb-0">
 
+        {/* Consent-first reminder — shown on every step of the form. */}
+        <div className="mb-5">
+          <Callout
+            state="Info"
+            configuration="Text & Subtext"
+            title="Consent-based verification"
+            subtext="All checks start only after the candidate accepts the consent agreement. If they decline or don't respond, the full amount is refunded to your wallet."
+            showAction={false}
+            showCloseIcon={false}
+            multiline
+          />
+        </div>
+
         {/* ─── STEP 1 : Contact ─── */}
         {step === 1 && (
           <div className="flex flex-col gap-6">
@@ -774,11 +862,30 @@ export default function AddCandidatePage() {
 
               <InputFieldWrapper label="Role" optional>
                 <SelectInput
-                  value={form.role}
+                  value={roleIsCustom ? ROLE_OTHER : form.role}
                   placeholder="Select a role"
                   options={ROLE_OPTIONS}
-                  onChange={(next) => set('role', next)}
+                  onChange={(next) => {
+                    if (next === ROLE_OTHER) {
+                      setRoleIsCustom(true);
+                      set('role', '');
+                    } else {
+                      setRoleIsCustom(false);
+                      set('role', next);
+                    }
+                  }}
                 />
+                {roleIsCustom && (
+                  <div className="mt-2">
+                    <Input
+                      autoFocus
+                      value={form.role}
+                      placeholder="Enter the role (e.g. Gardener)"
+                      maxLength={40}
+                      onChange={(event) => set('role', event.target.value)}
+                    />
+                  </div>
+                )}
               </InputFieldWrapper>
 
               <InputFieldWrapper
@@ -1035,6 +1142,11 @@ export default function AddCandidatePage() {
                     set('aadhaar', formatAadhaar(event.target.value))
                   }
                 />
+                <p className="mt-1.5 flex items-start gap-1.5 text-body-sm text-text-subheading">
+                  <ShieldCheck className="mt-0.5 size-3.5 shrink-0" />
+                  Only the candidate can verify their Aadhaar. After payment,
+                  we&apos;ll email them a secure DigiLocker link.
+                </p>
               </InputFieldWrapper>
 
               <InputFieldWrapper
@@ -1259,7 +1371,7 @@ export default function AddCandidatePage() {
                   </h3>
                   <div className="grid gap-3 sm:grid-cols-2">
                     {performable.map((c, i) => {
-                      const eta = checkEta(c.id);
+                      const eta = performableEta(c);
                       return (
                         <RevealBox
                           key={c.id}
@@ -1271,10 +1383,10 @@ export default function AddCandidatePage() {
                             {c.label}
                           </span>
                           <span className="inline-flex shrink-0 items-center gap-1 text-body-sm text-text-subheading">
-                            {eta === '24h' ? (
-                              <Clock className="size-3" />
-                            ) : (
+                            {eta === 'Instant on consent' ? (
                               <Zap className="size-3" />
+                            ) : (
+                              <Clock className="size-3" />
                             )}
                             {eta}
                           </span>
@@ -1383,7 +1495,7 @@ export default function AddCandidatePage() {
                     </div>
                     <div className="mt-0.5 text-body-sm text-text-subheading">
                       {performable.length} check
-                      {performable.length === 1 ? '' : 's'} ready to run
+                      {performable.length === 1 ? '' : 's'} included
                     </div>
                   </div>
                   <div className="shrink-0 text-body-md tabular-nums text-text-body">
@@ -1468,9 +1580,46 @@ export default function AddCandidatePage() {
               </label>
             </div>
 
+            {walletCovers && (
+              <div className="flex flex-col gap-2 rounded-lg border border-border-default bg-white p-4">
+                <div className="text-body-md font-medium text-text-heading">
+                  Pay using
+                </div>
+                <label className="flex w-fit cursor-pointer items-center gap-2 select-none">
+                  <input
+                    type="radio"
+                    name="pay-method"
+                    checked={payMethod === 'wallet'}
+                    onChange={() => setPayMethod('wallet')}
+                    className="accent-primary"
+                  />
+                  <span className="text-body-md text-text-body">
+                    Wallet balance{' '}
+                    <span className="text-text-subheading">
+                      (₹{(walletInr ?? 0).toLocaleString('en-IN')} available)
+                    </span>
+                  </span>
+                </label>
+                <label className="flex w-fit cursor-pointer items-center gap-2 select-none">
+                  <input
+                    type="radio"
+                    name="pay-method"
+                    checked={payMethod === 'razorpay'}
+                    onChange={() => setPayMethod('razorpay')}
+                    className="accent-primary"
+                  />
+                  <span className="text-body-md text-text-body">
+                    Card / UPI via Razorpay
+                  </span>
+                </label>
+              </div>
+            )}
+
             <div className="inline-flex items-center gap-1.5 text-body-sm text-text-subheading">
               <ShieldCheck className="size-3.5" />
-              Secured by Razorpay
+              {payMethod === 'wallet'
+                ? 'Paid from your Assurio wallet — auto-refunded if the candidate declines consent'
+                : 'Secured by Razorpay'}
             </div>
 
             <Divider />
@@ -1494,7 +1643,7 @@ export default function AddCandidatePage() {
                 disabled={paying || !tcAgreed}
                 rightIcon={<ArrowRight className="size-4" />}
               >
-                {paying ? 'Opening secure checkout…' : `Proceed to pay ₹${finalAmount}`}
+                {paying ? (payMethod === 'wallet' ? 'Processing…' : 'Opening secure checkout…') : payMethod === 'wallet' ? `Pay ₹${finalAmount} from wallet` : `Proceed to pay ₹${finalAmount}`}
               </Button>
             </div>
           </div>
@@ -1553,7 +1702,7 @@ export default function AddCandidatePage() {
               disabled={paying || !tcAgreed}
               rightIcon={<ArrowRight className="size-4" />}
             >
-              {paying ? 'Opening secure checkout…' : `Proceed to pay ₹${finalAmount}`}
+              {paying ? (payMethod === 'wallet' ? 'Processing…' : 'Opening secure checkout…') : payMethod === 'wallet' ? `Pay ₹${finalAmount} from wallet` : `Proceed to pay ₹${finalAmount}`}
             </Button>
           )}
         </div>

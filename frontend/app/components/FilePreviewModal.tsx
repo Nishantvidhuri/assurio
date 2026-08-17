@@ -83,7 +83,7 @@ export default function FilePreviewModal({
               alignItems: 'flex-start',
               justifyContent: 'center',
               padding: 16,
-              background: '#f4f4f5',
+              background: 'var(--color-neutral-300)',
             }}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}

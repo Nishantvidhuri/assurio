@@ -70,6 +70,41 @@ function getCrimeRisk(s: Subject): string | undefined {
   return data?.risk_assessment?.risk_type;
 }
 
+/**
+ * The one status rule for a candidate — used by BOTH the desktop table row and
+ * the mobile card, so the two can never disagree.
+ *
+ * Consent outcome wins (those cases are closed and already refunded). Otherwise
+ * it reports progress across ALL applicable checks, from the same server-computed
+ * count the report shows. It deliberately does NOT say "Completed" just because
+ * some result exists — that was the old mobile rule, which showed Completed at 5/7.
+ */
+function subjectStatusChip(s: Subject): { label: string; variant: StatusVariant } {
+  if (s.consentStatus === 'DECLINED') return { label: 'Refused', variant: 'Failure' };
+  if (s.consentStatus === 'EXPIRED') return { label: 'Expired', variant: 'Failure' };
+  if (s.consentStatus === 'PENDING')
+    return { label: 'Awaiting consent', variant: 'Warning' };
+
+  const done = s.progress?.done ?? 0;
+  const total = s.progress?.total ?? 0;
+  if (total > 0 && done >= total) return { label: 'Completed', variant: 'Success' };
+  if (done > 0)
+    return { label: `In progress · ${done}/${total}`, variant: 'Warning' };
+  return {
+    label: s.status || 'invited',
+    variant: s.status === 'active' ? 'Success' : 'Warning',
+  };
+}
+
+// Text colour for the mobile card, mirroring the RDS chip variants above.
+const STATUS_TEXT_CLASS: Record<StatusVariant, string> = {
+  Success: 'text-success',
+  Warning: 'text-warning',
+  Failure: 'text-failure',
+  Default: 'text-text-subheading',
+  Primary: 'text-primary',
+};
+
 // Maps a crime-risk label onto an RDS status-chip variant.
 function crimeVariant(risk: string): StatusVariant {
   const r = risk.toLowerCase();
@@ -273,14 +308,17 @@ export default function HomePage() {
           {/* Toolbar */}
           {subjects.length > 0 && (
             <div className="hd-toolbar">
-              <div className="w-full sm:w-[320px]">
+              {/* Full-width on phone; fixed width from md up. */}
+              <div className="w-full md:w-[320px]">
                 <SearchBar
                   value={query}
                   onChange={setQuery}
                   placeholder="Search candidates by name, email or role"
+                  containerClassName="w-full"
                 />
               </div>
-              <span className="ml-auto text-body-sm text-text-placeholder">
+              {/* Count is desktop-only noise on a phone. */}
+              <span className="ml-auto hidden text-body-sm text-text-placeholder md:inline">
                 {filtered.length} {filtered.length === 1 ? 'candidate' : 'candidates'}
               </span>
             </div>
@@ -494,7 +532,7 @@ export default function HomePage() {
                           {draftName}
                         </span>
                         {draftRole && (
-                          <span className="rounded-full bg-[#f1f5f9] px-2 py-0.5 text-body-sm text-text-subheading">
+                          <span className="rounded-full bg-neutral-300 px-2 py-0.5 text-body-sm text-text-subheading">
                             {draftRole}
                           </span>
                         )}
@@ -551,6 +589,7 @@ export default function HomePage() {
                   const hasReport = Boolean(
                     s.panResult || s.aadhaarResult || s.crimeResult,
                   );
+                  const chip = subjectStatusChip(s);
                   const phone = (s.phone || '').trim();
                   return (
                     <div
@@ -572,7 +611,7 @@ export default function HomePage() {
                             {s.name}
                           </span>
                           {s.role && (
-                            <span className="rounded-full bg-[#f1f5f9] px-2 py-0.5 text-body-sm text-text-subheading">
+                            <span className="rounded-full bg-neutral-300 px-2 py-0.5 text-body-sm text-text-subheading">
                               {s.role}
                             </span>
                           )}
@@ -582,15 +621,11 @@ export default function HomePage() {
                         </div>
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
-                        {hasReport ? (
-                          <span className="text-body-sm font-semibold text-success">
-                            Completed
-                          </span>
-                        ) : (
-                          <span className="text-body-sm font-semibold capitalize text-warning">
-                            {s.status || 'invited'}
-                          </span>
-                        )}
+                        <span
+                          className={`whitespace-nowrap text-body-sm font-semibold capitalize ${STATUS_TEXT_CLASS[chip.variant]}`}
+                        >
+                          {chip.label}
+                        </span>
                         <RowMenu
                           isOpen={openMenu === `m-${s.id}`}
                           onOpen={() =>
@@ -669,25 +704,9 @@ function SubjectRow({
   // A downloadable report exists once any check has produced a result.
   const hasReport = Boolean(s.panResult || s.aadhaarResult || s.crimeResult);
   const initial = (s.name || '?').charAt(0).toUpperCase();
-  // Verification progress across the 3 core checks (PAN, Aadhaar, Crime). Some
-  // finish instantly; crime takes time — so show "In progress · X/3".
-  const checksDone = [panOk, aadhaarOk, Boolean(s.crimeResult)].filter(
-    Boolean,
-  ).length;
-  const statusLabel =
-    checksDone >= 3
-      ? 'Completed'
-      : checksDone > 0
-        ? `In progress · ${checksDone}/3`
-        : s.status || 'invited';
-  const statusVariant: StatusVariant =
-    checksDone >= 3
-      ? 'Success'
-      : checksDone > 0
-        ? 'Warning'
-        : s.status === 'active'
-          ? 'Success'
-          : 'Warning';
+  // Progress across ALL applicable checks + consent outcome — same rule the
+  // mobile card uses, so the list and the report always agree (e.g. 5/7).
+  const { label: statusLabel, variant: statusVariant } = subjectStatusChip(s);
   const crimeChip: { label: string; variant: StatusVariant } = crimeRisk
     ? { label: crimeRisk, variant: crimeVariant(crimeRisk) }
     : crimePending
@@ -714,8 +733,10 @@ function SubjectRow({
             {/* Shown only on mobile — summary + expand toggle */}
             <div className="cd-cell-mobile-row">
               {s.role && <span className="cd-cell-role-pill">{s.role}</span>}
-              <span className={`cd-status cd-status-${s.status || 'invited'}`}>
-                {s.status || 'invited'}
+              <span
+                className={`cd-status ${STATUS_TEXT_CLASS[statusVariant]}`}
+              >
+                {statusLabel}
               </span>
               <span className="cd-cell-checks">
                 <span className={panOk ? 'cd-chk cd-chk-ok' : 'cd-chk cd-chk-off'} title="PAN">P</span>

@@ -138,7 +138,7 @@ function SuccessPage() {
         <main className="suc-main">
           <div className="suc-card">
             <div className="suc-seal">
-              <span className="co-spinner" style={{ borderColor: 'rgba(5,150,105,0.35)', borderTopColor: '#059669', width: 28, height: 28 }} />
+              <span className="co-spinner" style={{ borderColor: 'var(--color-success-300)', borderTopColor: 'var(--color-success)', width: 28, height: 28 }} />
             </div>
             <h1 className="suc-title">
               Verifying <em>payment</em>
@@ -157,7 +157,7 @@ function SuccessPage() {
           <div className="suc-card">
             <div
               className="suc-seal"
-              style={{ background: '#fee2e2', borderColor: '#fecaca', color: '#dc2626' }}
+              style={{ background: 'var(--color-failure-100)', borderColor: 'var(--color-failure-200)', color: 'var(--color-failure)' }}
             >
               <XCircle size={42} strokeWidth={1.6} />
             </div>

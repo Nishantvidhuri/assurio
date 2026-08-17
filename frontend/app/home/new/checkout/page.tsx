@@ -1,5 +1,6 @@
 'use client';
 import PageLoader from '@/app/components/PageLoader';
+import { BRAND } from '../../../lib/brand';
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -24,7 +25,7 @@ import {
 import { getToken } from '../../../lib/session';
 import { doLogout } from '../../../lib/logout';
 import { loadDraft, maskAadhaar, type CandidateDraft } from '../draft';
-import { checkEta, missingLabels, splitChecks } from '../checks';
+import { missingLabels, performableEta, splitChecks } from '../checks';
 
 const PRICE_INR = 399;
 
@@ -111,7 +112,7 @@ export default function CandidateCheckoutPage() {
             email: draft.email || undefined,
             contact: draft.phone || undefined,
           },
-          themeColor: '#0f172a',
+          themeColor: BRAND.ink,
         });
       } catch {
         // User dismissed the modal — stay on the page, let them retry.
@@ -226,16 +227,16 @@ export default function CandidateCheckoutPage() {
                   </div>
                   <div className="co-checks-list">
                     {performable.map((c) => {
-                      const eta = checkEta(c.id);
+                      const eta = performableEta(c);
                       return (
                         <div key={c.id} className="co-check co-check-ok">
                           <CheckCircle2 size={16} className="co-check-icon" />
                           <span className="co-check-name">{c.label}</span>
                           <span className="co-check-tag">
-                            {eta === '24h' ? (
-                              <Clock size={11} />
-                            ) : (
+                            {eta === 'Instant on consent' ? (
                               <Zap size={11} />
+                            ) : (
+                              <Clock size={11} />
                             )}
                             {eta}
                           </span>

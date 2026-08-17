@@ -58,6 +58,7 @@ const ADMIN_NAV: SidebarItem[] = [
   { href: '/admin/packages', label: 'Packages', icon: ICONS.packages },
   { href: '/admin/operations', label: 'Operations', icon: ICONS.operations },
   { href: '/admin/test-verification', label: 'Test Verification', icon: ICONS.testVerification },
+  { href: '/admin/whatsapp', label: 'WhatsApp', icon: ICONS.whatsapp },
 ];
 
 function fmtINR(n: number): string {
@@ -195,7 +196,13 @@ export default function InvoicesPage() {
     () => filtered.reduce((s, r) => s + (r.apiCost ?? 0), 0),
     [filtered],
   );
-  const profit = total - apiSpend;
+  // Consent refunds go back as wallet credit — the cash stays with us, but it
+  // is unearned (the checks never ran), so it can't count as revenue.
+  const refunded = useMemo(
+    () => filtered.reduce((s, r) => s + (r.refunded ?? 0), 0),
+    [filtered],
+  );
+  const profit = total - refunded - apiSpend;
 
   const sorted = useMemo(() => {
     if (!sortKey) return filtered;
@@ -265,8 +272,9 @@ export default function InvoicesPage() {
               paid for.
             </p>
           </div>
-          <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
             <StatCard label="Collected" value={fmtINR(total)} />
+            <StatCard label="Refunded" value={fmtINR(refunded)} />
             <StatCard label="API spend" value={fmtINR(apiSpend)} />
             <StatCard
               label="Profit"
@@ -431,9 +439,11 @@ function InvoiceRow({
   onDetails: () => void;
 }) {
   const dt = fmtDate(row.paidAt);
-  // Prefer the S3 presigned URL when available; fall back to the backend print renderer.
+  // Admin and client both go through this one endpoint, which streams the
+  // invoice PDF stored on S3 at payment time — a single source of truth (and,
+  // unlike a raw presigned link, it sets the download filename + disposition).
   const printUrl = invoicePrintUrl(row.id);
-  const download = row.pdfUrl ?? (printUrl + '?download=1');
+  const download = printUrl + '?download=1';
 
   return (
     <TableRow hoverable>
@@ -454,7 +464,14 @@ function InvoiceRow({
         statusVariant={row.status === 'paid' ? 'Success' : 'Failure'}
       />
       <TableCell value={
-        <RowMenu isOpen={isOpen} onOpen={onOpen} onClose={onClose} onDetails={onDetails} download={download} />
+        <RowMenu
+          isOpen={isOpen}
+          onOpen={onOpen}
+          onClose={onClose}
+          onDetails={onDetails}
+          preview={printUrl}
+          download={download}
+        />
       } />
     </TableRow>
   );
@@ -564,7 +581,7 @@ function InvoiceDetailsDialog({
   }, [row, onClose]);
 
   if (!row) return null;
-  const download = row.pdfUrl ?? invoicePrintUrl(row.id) + '?download=1';
+  const download = invoicePrintUrl(row.id) + '?download=1';
 
   return (
     <div
@@ -738,12 +755,14 @@ function RowMenu({
   onOpen,
   onClose,
   onDetails,
+  preview,
   download,
 }: {
   isOpen: boolean;
   onOpen: () => void;
   onClose: () => void;
   onDetails: () => void;
+  preview: string;
   download: string;
 }) {
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -819,6 +838,16 @@ function RowMenu({
             role="menu"
             style={{ position: 'fixed', top: pos.top, left: pos.left, zIndex: 60 }}
           >
+            <a
+              href={preview}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block w-full px-4 py-2 text-left text-body-md text-text-body hover:bg-neutral-200"
+              onClick={onClose}
+              role="menuitem"
+            >
+              Preview Invoice
+            </a>
             <button
               type="button"
               className="block w-full px-4 py-2 text-left text-body-md text-text-body hover:bg-neutral-200"

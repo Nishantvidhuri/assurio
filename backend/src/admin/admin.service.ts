@@ -6,37 +6,16 @@ import { Subject } from '../../generated/prisma/client';
 import { eventsForSubject, summarizeEvents } from '../subjects/billing';
 import { S3Service } from '../common/s3.service';
 import { OutboxService } from '../outbox/outbox.service';
+import { computeSubjectProgress } from '../subjects/subject-progress';
 
 function crimeRisk(result: unknown): string | null {
   const data = (result as { data?: { risk_assessment?: { risk_type?: string } } } | null)?.data;
   return data?.risk_assessment?.risk_type ?? null;
 }
 
-/**
- * Progress across the checks that actually apply to a candidate — i.e. the ones
- * they provided the required inputs for. `total` is the applicable count,
- * `done` is how many of those have a stored result.
- */
-function subjectProgress(d: Subject): { done: number; total: number } {
-  // "Done" = the check finished processing — a stored result, whether a
-  // success or a failure (`{ __checkError }`). Both are terminal, not pending.
-  const done = (v: unknown) => Boolean(v);
-  const checks: Array<[boolean, boolean]> = [
-    [Boolean(d.panNumber), done(d.panResult)],
-    [Boolean(d.digilockerClientId), done(d.aadhaarResult)],
-    [Boolean(d.drivingLicense && d.dob), done(d.dlResult)],
-    [Boolean(d.voterId), done(d.voterResult)],
-    [Boolean(d.passportFileNo && d.dob), done(d.passportResult)],
-    [Boolean(d.uan), done(d.employmentResult)],
-    [Boolean(d.dob && d.permanentAddress), done(d.crimeResult)],
-    [Boolean(d.panNumber && d.dob && d.permanentAddress), done(d.creditResult)],
-  ];
-  const applicable = checks.filter(([a]) => a);
-  return {
-    total: applicable.length,
-    done: applicable.filter(([, done]) => done).length,
-  };
-}
+// Progress across the applicable checks — single source of truth shared with
+// the candidates list + report so every surface shows the same ratio.
+const subjectProgress = computeSubjectProgress;
 
 @Injectable()
 export class AdminService {
@@ -164,6 +143,9 @@ export class AdminService {
         hasAadhaar: Boolean(d.aadhaarResult),
         hasPanImages: Boolean(d.panFront || d.panBack),
         crimeRisk: crimeRisk(d.crimeResult),
+        // Consent gates every check — the admin list needs it to avoid showing
+        // "In progress" for a case that was refused or is still awaiting consent.
+        consentStatus: d.consentStatus,
         createdAt: d.createdAt,
         updatedAt: d.updatedAt,
       };
@@ -256,6 +238,7 @@ export class AdminService {
         hasAadhaar: Boolean(d.aadhaarResult),
         hasPanImages: Boolean(d.panFront || d.panBack),
         crimeRisk: crimeRisk(d.crimeResult),
+        consentStatus: d.consentStatus,
         checksDone: prog.done,
         checksTotal: prog.total,
         createdAt: d.createdAt,
@@ -331,11 +314,27 @@ export class AdminService {
   }
 
   async listInvoices() {
-    const [invoices, users, subjects] = await Promise.all([
+    const [invoices, users, subjects, refunds] = await Promise.all([
       this.prisma.invoice.findMany({ where: { status: 'paid' }, orderBy: { paidAt: 'desc' } }),
       this.prisma.user.findMany({ where: { role: { not: 'admin' } } }),
       this.prisma.subject.findMany(),
+      // Consent refunds are credited back to the client's wallet, so the money
+      // sits with us as an unearned balance rather than being recognised
+      // revenue. Surfacing it per-invoice keeps the P&L honest.
+      this.prisma.walletTransaction.findMany({
+        where: { reason: 'CONSENT_REFUND' },
+        select: { subjectId: true, amountPaise: true },
+      }),
     ]);
+
+    const refundBySubject = new Map<string, number>();
+    for (const r of refunds) {
+      if (!r.subjectId) continue;
+      refundBySubject.set(
+        r.subjectId,
+        (refundBySubject.get(r.subjectId) ?? 0) + r.amountPaise / 100,
+      );
+    }
 
     const usersById = new Map(users.map((u) => [u.id, { name: u.name, email: u.email }]));
     const subjectByEmail = new Map<string, Subject>();
@@ -386,6 +385,8 @@ export class AdminService {
           crime: Boolean(subject?.crimeResult),
         },
         apiCost,
+        // Amount already returned to the client's wallet for this case.
+        refunded: subject ? (refundBySubject.get(subject.id) ?? 0) : 0,
         subjectId: subject ? subject.id : null,
         razorpayPaymentId: inv.razorpayPaymentId,
         pdfUrl: presignedMap.get(inv.id) ?? null,
@@ -403,6 +404,14 @@ export class AdminService {
           orderBy: { paidAt: 'desc' },
         })
       : null;
+    // Document images are stored as S3 keys (durable-upload port) or legacy
+    // base64 — presign keys so the admin UI + report can render them.
+    const [panFront, panBack, aadhaarFront, aadhaarBack] = await Promise.all([
+      this.s3.resolveViewableUrl(doc.panFront),
+      this.s3.resolveViewableUrl(doc.panBack),
+      this.s3.resolveViewableUrl(doc.aadhaarFront),
+      this.s3.resolveViewableUrl(doc.aadhaarBack),
+    ]);
     return {
       id: doc.id,
       name: doc.name,
@@ -414,13 +423,17 @@ export class AdminService {
       ownerName: owner?.name ?? 'Unknown',
       ownerEmail: owner?.email ?? '',
       clientName: owner?.name ?? '',
+      // Drives the closed/awaiting-consent state in the shared report view.
+      consentStatus: doc.consentStatus,
+      creditRequestId: doc.creditRequestId,
+      fatherName: doc.fatherName,
       amountPaid: invoice ? Number(invoice.total) : null,
       caseRef: invoice?.invoiceNumber || 'VER-' + doc.id.slice(-6).toUpperCase(),
-      panFront: doc.panFront,
-      panBack: doc.panBack,
+      panFront,
+      panBack,
       panNumber: doc.panNumber,
-      aadhaarFront: doc.aadhaarFront,
-      aadhaarBack: doc.aadhaarBack,
+      aadhaarFront,
+      aadhaarBack,
       aadhaarNumber: doc.aadhaarNumber,
       dob: doc.dob,
       permanentAddress: doc.permanentAddress,

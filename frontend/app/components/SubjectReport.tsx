@@ -11,24 +11,31 @@ import {
   useEffect,
   useState,
   type Dispatch,
+  type ReactNode,
   type SetStateAction,
 } from 'react';
 import {
   AlertTriangle,
   ArrowLeft,
   CheckCircle2,
+  Clock,
   Download,
   FileText,
   Hourglass,
+  MoreVertical,
   RefreshCw,
   Send,
+  XCircle,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   adminSendVerificationLink,
   downloadSubjectReport,
   fetchPdfBlobUrl,
   recheckSubject,
-  subjectReportBlobUrl,
+  manualPassCheck,
+  type ManualPassType,
+  subjectReportUrl,
   type AadhaarKyc,
   type PanData,
 } from '../lib/api';
@@ -42,7 +49,7 @@ import {
   type RequiredInput,
 } from './CheckCard';
 import FilePreviewModal, { type PreviewFile } from './FilePreviewModal';
-import { Tag } from '@/shared/components/ui';
+import { Button, Tag, Textarea } from '@/shared/components/ui';
 
 /**
  * Minimal shape this report needs — satisfied by both the client `Subject` and
@@ -79,7 +86,10 @@ export interface SubjectReportData {
   aadhaarFront?: string | null;
   aadhaarBack?: string | null;
   crimeRequestId?: string | null;
+  creditRequestId?: string | null;
+  fatherName?: string | null;
   digilockerClientId?: string | null;
+  consentStatus?: 'PENDING' | 'GRANTED' | 'DECLINED' | 'EXPIRED';
   createdAt?: string;
   updatedAt?: string;
 }
@@ -311,6 +321,111 @@ function docsFrom(
     .map(([name, url]) => ({ name, url: url as string }));
 }
 
+/**
+ * True when the candidate's stored Aadhaar carries every address field the
+ * credit bureau requires. Mirrors the backend gate (bgv-address.ts) so the UI
+ * explains exactly the condition the engine waits on.
+ */
+/**
+ * True when the Aadhaar KYC carries *any* usable address fragment. The crime
+ * vendor takes a free-text address (unlike the credit bureau, which needs every
+ * structured field), so this is the looser gate the backend applies there.
+ */
+/**
+ * The vendor's own report file, when the API returns one instead of (or as well
+ * as) structured fields — KonnectNxt hands the credit report back as a hosted
+ * PDF URL. Mirrors vendorReportUrl in subject-report-html.ts.
+ */
+function vendorReportUrl(result: unknown): string | null {
+  if (!result || typeof result !== 'object') return null;
+  const isUrl = (v: unknown): v is string =>
+    typeof v === 'string' && /^https?:\/\//i.test(v.trim());
+  const o = result as Record<string, unknown>;
+  if (isUrl(o.data)) return o.data.trim();
+  const inner =
+    o.data && typeof o.data === 'object'
+      ? (o.data as Record<string, unknown>)
+      : o;
+  for (const k of ['report_url','reportUrl','pdf_url','pdfUrl','report','pdf','url','file_url']) {
+    if (isUrl(inner[k])) return (inner[k] as string).trim();
+    if (isUrl(o[k])) return (o[k] as string).trim();
+  }
+  return null;
+}
+
+function aadhaarHasAddress(result: unknown): boolean {
+  if (!result || typeof result !== 'object' || '__checkError' in result) {
+    return false;
+  }
+  const address = (result as { address?: Record<string, unknown> }).address;
+  if (!address || typeof address !== 'object') return false;
+  return ['house', 'street', 'locality', 'landmark', 'vtc', 'subDistrict',
+    'district', 'state', 'pincode']
+    .some((k) => String(address[k] ?? '').trim().length > 0);
+}
+
+function aadhaarAddressComplete(result: unknown): boolean {
+  if (!result || typeof result !== 'object' || '__checkError' in result) {
+    return false;
+  }
+  const address = (result as { address?: Record<string, unknown> }).address;
+  if (!address || typeof address !== 'object') return false;
+  const val = (k: string): string => String(address[k] ?? '').trim();
+  const city = val('subDistrict') || val('district') || val('vtc');
+  const street = ['house', 'street', 'locality', 'landmark']
+    .map(val)
+    .filter(Boolean)
+    .join(', ');
+  return Boolean(street && city && val('state') && val('pincode'));
+}
+
+/**
+ * Resolve the candidate's father's name the same way the backend does
+ * (Aadhaar care-of → PAN → typed form value), so the card never asks for
+ * something Aadhaar already supplied. W/O is skipped — that's a husband, not
+ * a father.
+ */
+function resolveFatherName(subject: {
+  aadhaarResult?: unknown;
+  panResult?: unknown;
+  fatherName?: string | null;
+}): string {
+  const pick = (result: unknown): string => {
+    if (!result || typeof result !== 'object' || '__checkError' in result) {
+      return '';
+    }
+    const outer = result as Record<string, unknown>;
+    const data =
+      outer.data && typeof outer.data === 'object'
+        ? (outer.data as Record<string, unknown>)
+        : outer;
+    for (const key of ['father_name', 'fathers_name', 'fatherName']) {
+      const v = data[key];
+      if (typeof v === 'string' && v.trim()) return v.trim();
+    }
+    return '';
+  };
+
+  const aadhaar =
+    subject.aadhaarResult &&
+    typeof subject.aadhaarResult === 'object' &&
+    !('__checkError' in subject.aadhaarResult)
+      ? (subject.aadhaarResult as { address?: { careOf?: string | null } })
+      : null;
+  const careOf = (aadhaar?.address?.careOf ?? '').trim();
+  const fromCareOf =
+    careOf && !/^w\s*\/\s*o\b/i.test(careOf)
+      ? careOf.replace(/^(?:s\s*\/\s*o|d\s*\/\s*o|c\s*\/\s*o)\s*:?\s*/i, '').trim()
+      : '';
+
+  return (
+    pick(subject.aadhaarResult) ||
+    fromCareOf ||
+    pick(subject.panResult) ||
+    (subject.fatherName ?? '').trim()
+  );
+}
+
 /* ---------- report ---------- */
 
 export default function SubjectReport({
@@ -339,6 +454,25 @@ export default function SubjectReport({
       ? String((r as { __checkError: unknown }).__checkError)
       : null;
 
+  // An admin passed this check by hand because the vendor could not answer.
+  // Surfaced as its own status so the report never implies the source
+  // confirmed it.
+  const manualOf = (
+    r: unknown,
+  ): { passedBy: string; passedAt: string; reason: string | null } | null => {
+    if (!r || typeof r !== 'object' || !('__manualOverride' in r)) return null;
+    const m = r as {
+      passedBy?: unknown;
+      passedAt?: unknown;
+      reason?: unknown;
+    };
+    return {
+      passedBy: String(m.passedBy ?? 'an administrator'),
+      passedAt: String(m.passedAt ?? ''),
+      reason: m.reason ? String(m.reason) : null,
+    };
+  };
+
   const panErr = errOf(subject.panResult);
   const aadhaarErr = errOf(subject.aadhaarResult);
   const dlErr = errOf(subject.dlResult);
@@ -346,9 +480,19 @@ export default function SubjectReport({
   const passportErr = errOf(subject.passportResult);
   const employmentErr = errOf(subject.employmentResult);
 
-  const pan = (panErr ? null : subject.panResult) as PanData | null;
-  const aadhaar = (aadhaarErr ? null : subject.aadhaarResult) as AadhaarKyc | null;
-  const crime = subject.crimeResult as { data?: CrimeReport } | null;
+  // Admin manual overrides, per check.
+  const panManual = manualOf(subject.panResult);
+  const aadhaarManual = manualOf(subject.aadhaarResult);
+  const dlManual = manualOf(subject.dlResult);
+  const voterManual = manualOf(subject.voterResult);
+  const passportManual = manualOf(subject.passportResult);
+  const employmentManual = manualOf(subject.employmentResult);
+  const crimeManual = manualOf(subject.crimeResult);
+  const creditManual = manualOf(subject.creditResult);
+
+  const pan = (panErr || panManual ? null : subject.panResult) as PanData | null;
+  const aadhaar = (aadhaarErr || aadhaarManual ? null : subject.aadhaarResult) as AadhaarKyc | null;
+  const crime = (crimeManual ? null : subject.crimeResult) as { data?: CrimeReport } | null;
   const crimeReport: CrimeReport = crime?.data ?? {};
   const crimePending = Boolean(subject.crimeRequestId) && !crime;
   const dlStarted = Boolean(subject.digilockerClientId);
@@ -359,18 +503,34 @@ export default function SubjectReport({
   const dlPending = !aadhaar && (dlStarted || Boolean(subject.aadhaarNumber));
   const panPending = Boolean(subject.panNumber) && !pan && !panErr;
 
-  const drivingLicence = (dlErr ? null : subject.dlResult ?? null) as Record<string, unknown> | null;
-  const voter = (voterErr ? null : subject.voterResult ?? null) as Record<string, unknown> | null;
-  const passport = (passportErr ? null : subject.passportResult ?? null) as Record<string, unknown> | null;
-  const employment = (employmentErr ? null : subject.employmentResult ?? null) as Record<string, unknown> | null;
-  const credit = (subject.creditResult ?? null) as Record<string, unknown> | null;
+  const drivingLicence = (dlErr || dlManual ? null : subject.dlResult ?? null) as Record<string, unknown> | null;
+  const voter = (voterErr || voterManual ? null : subject.voterResult ?? null) as Record<string, unknown> | null;
+  const passport = (passportErr || passportManual ? null : subject.passportResult ?? null) as Record<string, unknown> | null;
+  const employment = (employmentErr || employmentManual ? null : subject.employmentResult ?? null) as Record<string, unknown> | null;
+  const credit = (creditManual ? null : subject.creditResult ?? null) as Record<string, unknown> | null;
 
 
   const [docPreview, setDocPreview] = useState<PreviewFile | null>(null);
   const [recalling, setRecalling] = useState<string | null>(null);
+  const [passing, setPassing] = useState<string | null>(null);
+  // Manual-override confirmation panel: which check, why, and any error.
+  const [manualTarget, setManualTarget] = useState<{
+    type: ManualPassType;
+    label: string;
+  } | null>(null);
+  const [manualReason, setManualReason] = useState('');
+  const [manualError, setManualError] = useState('');
   const [downloading, setDownloading] = useState(false);
-  const [reportOpen, setReportOpen] = useState(false);
   const [sendingLink, setSendingLink] = useState(false);
+  // Mobile kebab menu holding the report actions (desktop shows them inline).
+  const [actionsOpen, setActionsOpen] = useState(false);
+
+  useEffect(() => {
+    if (!actionsOpen) return;
+    const close = () => setActionsOpen(false);
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [actionsOpen]);
   // TAT is an internal/admin metric — hidden on the client ("employee") side.
   const tat = admin ? formatTat(subject.createdAt, subject.updatedAt) : undefined;
 
@@ -420,6 +580,28 @@ export default function SubjectReport({
       );
     } finally {
       setRecalling(null);
+    }
+  }
+
+  async function confirmManualPass() {
+    if (!subject.id || !manualTarget) return;
+    setPassing(manualTarget.type);
+    setManualError('');
+    try {
+      const updated = await manualPassCheck(
+        subject.id,
+        manualTarget.type,
+        manualReason.trim(),
+      );
+      onSubjectUpdate?.(updated as unknown as SubjectReportData);
+      setManualTarget(null);
+      setManualReason('');
+    } catch (err) {
+      setManualError(
+        err instanceof Error ? err.message : 'Could not mark this check passed.',
+      );
+    } finally {
+      setPassing(null);
     }
   }
 
@@ -643,39 +825,98 @@ export default function SubjectReport({
   ];
   // Crime & credit have no Recall button, but the chips still show what the
   // candidate must provide before these can run.
+  // Mirrors the engine: DOB, address and father's name may each come from the
+  // form OR the verified Aadhaar, so a blank form field doesn't make the check
+  // inapplicable while DigiLocker can still supply it.
+  const aadhaarKycDob = String(
+    (subject.aadhaarResult as { dob?: unknown } | null)?.dob ?? '',
+  ).trim();
+  const crimeDobValue = subject.dob || aadhaarKycDob;
+  const crimeAddressValue = subject.permanentAddress?.trim()
+    ? subject.permanentAddress
+    : aadhaarHasAddress(subject.aadhaarResult)
+      ? 'From verified Aadhaar'
+      : '';
+  // Vendor-supplied report files (KonnectNxt returns these as hosted PDFs).
+  const creditReportUrl = vendorReportUrl(subject.creditResult);
+  const crimeReportUrl = vendorReportUrl(subject.crimeResult);
+  const creditDocs: CheckDocument[] = creditReportUrl
+    ? [{ name: 'Credit bureau report (PDF)', url: creditReportUrl, contentType: 'application/pdf' }]
+    : [];
+  const crimeDocs: CheckDocument[] = crimeReportUrl
+    ? [{ name: 'Court record report (PDF)', url: crimeReportUrl, contentType: 'application/pdf' }]
+    : [];
+
   const crimeReqs: RequiredInput[] = [
     { label: 'Full name', value: subject.name },
-    { label: 'Date of birth', value: subject.dob },
-    { label: 'Permanent address', value: subject.permanentAddress },
+    { label: 'Date of birth', value: crimeDobValue },
+    { label: 'Address', value: crimeAddressValue },
+    { label: "Father's name", value: resolveFatherName(subject) },
   ];
+  // The credit bureau needs PAN + DOB + father's name, and takes the address
+  // from the candidate's verified Aadhaar (a typed address is rejected).
+  const creditAadhaarReady = aadhaarAddressComplete(subject.aadhaarResult);
+  const creditFatherName = resolveFatherName(subject);
+  const creditPhone =
+    String(subject.phone ?? '').replace(/\D/g, '').length >= 10;
   const creditReqs: RequiredInput[] = [
     { label: 'PAN number', value: subject.panNumber },
     { label: 'Date of birth', value: subject.dob },
-    { label: 'Permanent address', value: subject.permanentAddress },
+    { label: "Father's name", value: creditFatherName },
+    { label: 'Phone number', value: subject.phone },
+    {
+      label: 'Verified Aadhaar address',
+      value: creditAadhaarReady ? 'Available' : '',
+    },
   ];
 
   // Per-check status (drives the tag, the progress ratio, and — on the client
   // side — whether an inapplicable "Not provided" card is shown at all).
   const aadhaarStatus = aadhaarErr
     ? 'failed'
-    : checkStatus(Boolean(aadhaar), dlPending, aadhaarReqs);
-  const panStatus = panErr
-    ? 'failed'
-    : checkStatus(Boolean(pan), panPending, panReqs);
-  const dlStatus = dlErr
-    ? 'failed'
-    : checkStatus(Boolean(drivingLicence), false, dlReqs);
-  const voterStatus = voterErr
-    ? 'failed'
-    : checkStatus(Boolean(voter), false, voterReqs);
-  const passportStatus = passportErr
-    ? 'failed'
-    : checkStatus(Boolean(passport), false, passportReqs);
-  const employmentStatus = employmentErr
-    ? 'failed'
-    : checkStatus(Boolean(employment), false, employmentReqs);
-  const crimeStatusVal = checkStatus(Boolean(crime), crimePending, crimeReqs);
-  const creditStatus = checkStatus(Boolean(credit), false, creditReqs);
+    : aadhaarManual
+      ? 'manual'
+      : checkStatus(Boolean(aadhaar), dlPending, aadhaarReqs);
+  const panStatus = panManual
+    ? 'manual'
+    : panErr
+      ? 'failed'
+      : checkStatus(Boolean(pan), panPending, panReqs);
+  const dlStatus = dlManual
+    ? 'manual'
+    : dlErr
+      ? 'failed'
+      : checkStatus(Boolean(drivingLicence), false, dlReqs);
+  const voterStatus = voterManual
+    ? 'manual'
+    : voterErr
+      ? 'failed'
+      : checkStatus(Boolean(voter), false, voterReqs);
+  const passportStatus = passportManual
+    ? 'manual'
+    : passportErr
+      ? 'failed'
+      : checkStatus(Boolean(passport), false, passportReqs);
+  const employmentStatus = employmentManual
+    ? 'manual'
+    : employmentErr
+      ? 'failed'
+      : checkStatus(Boolean(employment), false, employmentReqs);
+  const crimeStatusVal = crimeManual
+    ? 'manual'
+    : checkStatus(Boolean(crime), crimePending, crimeReqs);
+  const creditStatus = creditManual
+    ? 'manual'
+    : checkStatus(
+        Boolean(credit),
+        Boolean(subject.creditRequestId),
+        creditReqs,
+      );
+
+  // Consent refused / expired ⇒ the case is closed: no check ever ran and the
+  // charge was refunded, so the live check cards would be misleading.
+  const consentClosed =
+    subject.consentStatus === 'DECLINED' || subject.consentStatus === 'EXPIRED';
 
   const cardStatuses: CheckStatus[] = [
     aadhaarStatus,
@@ -691,11 +932,16 @@ export default function SubjectReport({
     (s) => s !== 'unavailable',
   ).length;
   // A check counts as "done" once it has finished processing — including a
-  // Failed (invalid / not found) result, which is a terminal state, not pending.
+  // Failed (invalid / not found) result, which is a terminal state, not pending,
+  // and a manual override, which is an admin-recorded outcome.
   const doneCount = cardStatuses.filter(
-    (s) => s === 'done' || s === 'failed',
+    (s) => s === 'done' || s === 'failed' || s === 'manual',
   ).length;
-  const successCount = cardStatuses.filter((s) => s === 'done').length;
+  // Manually-verified counts as a pass: the admin confirmed it offline because
+  // the source couldn't answer, so it completes the check rather than failing it.
+  const successCount = cardStatuses.filter(
+    (s) => s === 'done' || s === 'manual',
+  ).length;
   // Green only when every applicable check actually succeeded (no failures).
   const allDone = applicableCount > 0 && successCount === applicableCount;
   // Overall TAT = time from initiation until every applicable check finishes.
@@ -713,46 +959,164 @@ export default function SubjectReport({
   const recall = (type: RecallType) =>
     admin ? () => handleRecall(type) : undefined;
 
+  // Admin-only escape hatch, offered on any check that isn't already settled by
+  // the vendor — i.e. failed, stuck in progress, or awaiting the candidate.
+  const manualPass = (
+    type: ManualPassType,
+    label: string,
+    status: CheckStatus,
+  ) =>
+    admin && status !== 'done' && status !== 'manual'
+      ? () => {
+          setManualReason('');
+          setManualError('');
+          setManualTarget({ type, label });
+        }
+      : undefined;
+
   return (
     <div className="rp">
+      {/* Consent lifecycle — checks are locked until the candidate agrees;
+          declined/expired means the charge was auto-refunded to the wallet. */}
+      {subject.consentStatus === 'PENDING' && (
+        <div className="mb-4 flex items-start gap-2 rounded-md border border-border-warning bg-surface-warning px-4 py-3 text-body-md text-text-body">
+          <Clock size={16} className="mt-0.5 shrink-0 text-warning" />
+          <span>
+            <strong>Awaiting candidate consent.</strong> Checks start as soon as{' '}
+            {subject.name.split(' ')[0]} agrees via the verification link. If
+            they decline or don&apos;t respond within 7 days, the full charge is
+            refunded to your wallet automatically.
+          </span>
+        </div>
+      )}
       {/* Header — Recriauth-style: title row + candidate detail card */}
       <header className="mb-6">
-        <div className="mb-4 flex flex-wrap items-center gap-3">
-          {onBack && (
-            <button
-              type="button"
-              onClick={onBack}
-              aria-label="Back"
-              className="inline-flex size-8 shrink-0 items-center justify-center rounded-full text-text-heading transition-colors hover:bg-neutral-200"
-            >
-              <ArrowLeft size={20} />
-            </button>
-          )}
-          <h1 className="text-2xl font-semibold text-text-heading">
-            {subject.name}
-          </h1>
-          {subject.caseRef && (
-            <span className="text-body-sm font-medium text-text-placeholder">
-              #{subject.caseRef}
+        {/* Mobile: name with the case ref stacked under it and the action
+            buttons full-width below; the checks chip moves to the end of the
+            Details card. Desktop keeps the single inline row. */}
+        <div className="mb-4 flex flex-col gap-3 md:flex-row md:flex-wrap md:items-center">
+          <div className="flex min-w-0 items-center gap-3">
+            {onBack && (
+              <button
+                type="button"
+                onClick={onBack}
+                aria-label="Back"
+                className="inline-flex size-8 shrink-0 items-center justify-center rounded-full text-text-heading transition-colors hover:bg-neutral-200"
+              >
+                <ArrowLeft size={20} />
+              </button>
+            )}
+            <div className="min-w-0">
+              <h1 className="truncate text-2xl font-semibold text-text-heading">
+                {subject.name}
+              </h1>
+              {subject.caseRef && (
+                <span className="mt-0.5 block text-body-sm font-medium text-text-placeholder md:hidden">
+                  #{subject.caseRef}
+                </span>
+              )}
+            </div>
+            {subject.caseRef && (
+              <span className="hidden text-body-sm font-medium text-text-placeholder md:inline">
+                #{subject.caseRef}
+              </span>
+            )}
+            <span className="hidden md:inline-flex">
+              <Tag
+                variant={consentClosed ? 'Failure' : allDone ? 'Success' : 'Warning'}
+                label={
+                  consentClosed
+                    ? subject.consentStatus === 'DECLINED'
+                      ? 'Refused'
+                      : 'Expired'
+                    : `${doneCount}/${applicableCount} checks done`
+                }
+              />
             </span>
-          )}
-          <Tag
-            variant={allDone ? 'Success' : 'Warning'}
-            label={`${doneCount}/${applicableCount} checks done`}
-          />
-          <div className="ml-auto flex items-center gap-2">
+            {/* Mobile: every report action collapses into this kebab menu. */}
+            <div className="relative ml-auto md:hidden">
+              <button
+                type="button"
+                aria-label="Report actions"
+                aria-haspopup="menu"
+                aria-expanded={actionsOpen}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActionsOpen((o) => !o);
+                }}
+                className={`inline-flex size-9 items-center justify-center rounded-full text-text-heading transition-colors hover:bg-neutral-200 ${
+                  actionsOpen ? 'bg-neutral-200' : ''
+                }`}
+              >
+                <MoreVertical size={18} />
+              </button>
+              {actionsOpen && (
+                <div
+                  role="menu"
+                  className="absolute right-0 top-full z-50 mt-1 w-60 rounded-md border border-neutral-500 bg-white py-1 shadow-[0px_3px_10px_0px_rgba(11,26,59,0.1)]"
+                >
+                  {!consentClosed && (
+                    <button
+                      role="menuitem"
+                      className="flex w-full items-center gap-2 px-3 py-2.5 text-body-md font-medium text-text-body transition-colors hover:bg-neutral-200"
+                      disabled={sendingLink}
+                      onClick={() => {
+                        setActionsOpen(false);
+                        void handleSendLink();
+                      }}
+                    >
+                      <Send size={14} />
+                      {sendingLink ? 'Sending…' : 'Send verification link'}
+                    </button>
+                  )}
+                  <button
+                    role="menuitem"
+                    className="flex w-full items-center gap-2 px-3 py-2.5 text-body-md font-medium text-text-body transition-colors hover:bg-neutral-200"
+                    onClick={() => {
+                      setActionsOpen(false);
+                      window.open(
+                        subjectReportUrl(subject.id),
+                        '_blank',
+                        'noopener',
+                      );
+                    }}
+                  >
+                    <FileText size={14} />
+                    Preview report
+                  </button>
+                  <button
+                    role="menuitem"
+                    className="flex w-full items-center gap-2 px-3 py-2.5 text-body-md font-medium text-text-body transition-colors hover:bg-neutral-200"
+                    disabled={downloading}
+                    onClick={() => {
+                      setActionsOpen(false);
+                      void handleDownload();
+                    }}
+                  >
+                    <Download size={14} />
+                    {downloading ? 'Preparing…' : 'Download report'}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="hidden gap-2 md:ml-auto md:flex md:items-center">
+            {!consentClosed && (
+              <button
+                className="rp-refresh"
+                onClick={handleSendLink}
+                disabled={sendingLink}
+                title="Email the candidate their verification link (consent + Aadhaar)"
+              >
+                <Send size={13} className={sendingLink ? 'rp-refresh-spin' : ''} />
+                {sendingLink ? 'Sending…' : 'Send verification link'}
+              </button>
+            )}
             <button
               className="rp-refresh"
-              onClick={handleSendLink}
-              disabled={sendingLink}
-              title="Email the candidate their verification link (consent + Aadhaar)"
-            >
-              <Send size={13} className={sendingLink ? 'rp-refresh-spin' : ''} />
-              {sendingLink ? 'Sending…' : 'Send verification link'}
-            </button>
-            <button
-              className="rp-refresh"
-              onClick={() => setReportOpen(true)}
+              onClick={() =>
+                window.open(subjectReportUrl(subject.id), '_blank', 'noopener')
+              }
               title="Preview the full report"
             >
               <FileText size={13} />
@@ -788,6 +1152,23 @@ export default function SubjectReport({
         </div>
 
         <div className="rounded-xl border border-border-default bg-white p-6">
+          {/* Card header: Details title with the checks chip on the same row
+              (chip is here on mobile only — desktop shows it beside the name). */}
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-text-heading">Details</h2>
+            <span className="md:hidden">
+              <Tag
+                variant={consentClosed ? 'Failure' : allDone ? 'Success' : 'Warning'}
+                label={
+                  consentClosed
+                    ? subject.consentStatus === 'DECLINED'
+                      ? 'Refused'
+                      : 'Expired'
+                    : `${doneCount}/${applicableCount} checks done`
+                }
+              />
+            </span>
+          </div>
           <div className="grid grid-cols-2 gap-x-8 gap-y-5 sm:grid-cols-3 lg:grid-cols-4">
             <HeadField label="Full Name" value={subject.name} />
             <HeadField label="Email" value={subject.email} />
@@ -808,12 +1189,39 @@ export default function SubjectReport({
                     })
                   : null
               }
+              pill={
+                consentClosed ? (
+                  <span className="shrink-0 whitespace-nowrap rounded-full bg-surface-success px-2 py-0.5 text-body-sm font-medium text-success">
+                    Refunded
+                  </span>
+                ) : undefined
+              }
             />
             {admin && <HeadField label="Overall TAT" value={overallTat} />}
           </div>
         </div>
       </header>
 
+      {consentClosed ? (
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-border-default bg-neutral-100 px-6 py-12 text-center">
+          <XCircle className="size-9 text-failure" />
+          <h2 className="text-lg font-semibold text-text-heading">
+            {subject.consentStatus === 'DECLINED'
+              ? 'Verification closed — consent declined'
+              : 'Verification closed — consent expired'}
+          </h2>
+          <p className="max-w-md text-body-md text-text-body">
+            {subject.consentStatus === 'DECLINED'
+              ? `${subject.name.split(' ')[0]} declined the consent request, so no checks were run on their details.`
+              : `${subject.name.split(' ')[0]} didn’t respond to the consent request in time, so no checks were run on their details.`}{' '}
+            The full charge has been refunded to your wallet.
+          </p>
+          <p className="text-body-sm text-text-subheading">
+            To try again, start a new verification for this candidate.
+          </p>
+        </div>
+      ) : (
+        <>
       {/* 1 · Aadhaar */}
       {show(aadhaarStatus) && (
       <CheckCard
@@ -827,6 +1235,8 @@ export default function SubjectReport({
         onPreview={setDocPreview}
         onResend={aadhaar ? undefined : () => void handleSendLink()}
         resending={sendingLink}
+        onManualPass={manualPass('aadhaar', 'Aadhaar (DigiLocker)', aadhaarStatus)}
+        passing={passing === 'aadhaar'}
         requirements={aadhaarReqs}
       >
         {aadhaarErr ? (
@@ -859,9 +1269,13 @@ export default function SubjectReport({
         onPreview={setDocPreview}
         onRecall={recall('pan')}
         recalling={recalling === 'pan'}
+        onManualPass={manualPass('pan', 'PAN', panStatus)}
+        passing={passing === 'pan'}
         requirements={panReqs}
       >
-        {panErr ? (
+        {panManual ? (
+          <ManualTile info={panManual} />
+        ) : panErr ? (
           <ErrorTile message={panErr} />
         ) : pan ? (
           <PanReadout pan={pan} />
@@ -888,10 +1302,14 @@ export default function SubjectReport({
         tat={drivingLicence ? tat : undefined}
         onRecall={recall('dl')}
         recalling={recalling === 'dl'}
+        onManualPass={manualPass('dl', 'Driving Licence', dlStatus)}
+        passing={passing === 'dl'}
         requirements={dlReqs}
         comparison={dlCompare}
       >
-        {dlErr ? (
+        {dlManual ? (
+          <ManualTile info={dlManual} />
+        ) : dlErr ? (
           <ErrorTile message={dlErr} />
         ) : drivingLicence ? (
           <GenericReadout result={drivingLicence} />
@@ -917,10 +1335,14 @@ export default function SubjectReport({
         tat={voter ? tat : undefined}
         onRecall={recall('voter')}
         recalling={recalling === 'voter'}
+        onManualPass={manualPass('voter', 'Voter ID', voterStatus)}
+        passing={passing === 'voter'}
         requirements={voterReqs}
         comparison={voterCompare}
       >
-        {voterErr ? (
+        {voterManual ? (
+          <ManualTile info={voterManual} />
+        ) : voterErr ? (
           <ErrorTile message={voterErr} />
         ) : voter ? (
           <GenericReadout result={voter} />
@@ -946,10 +1368,14 @@ export default function SubjectReport({
         tat={passport ? tat : undefined}
         onRecall={recall('passport')}
         recalling={recalling === 'passport'}
+        onManualPass={manualPass('passport', 'Passport', passportStatus)}
+        passing={passing === 'passport'}
         requirements={passportReqs}
         comparison={passportCompare}
       >
-        {passportErr ? (
+        {passportManual ? (
+          <ManualTile info={passportManual} />
+        ) : passportErr ? (
           <ErrorTile message={passportErr} />
         ) : passport ? (
           <GenericReadout result={passport} />
@@ -975,10 +1401,14 @@ export default function SubjectReport({
         tat={employment ? tat : undefined}
         onRecall={recall('employment')}
         recalling={recalling === 'employment'}
+        onManualPass={manualPass('employment', 'Employment', employmentStatus)}
+        passing={passing === 'employment'}
         requirements={employmentReqs}
         comparison={employmentCompare}
       >
-        {employmentErr ? (
+        {employmentManual ? (
+          <ManualTile info={employmentManual} />
+        ) : employmentErr ? (
           <ErrorTile message={employmentErr} />
         ) : employment ? (
           <GenericReadout result={employment} />
@@ -1002,7 +1432,11 @@ export default function SubjectReport({
         status={crimeStatusVal}
         order={crimeStatusVal === 'unavailable' ? 1 : 0}
         tat={crime ? tat : undefined}
+        onManualPass={manualPass('crime', 'Criminal records', crimeStatusVal)}
+        passing={passing === 'crime'}
         requirements={crimeReqs}
+        documents={crimeDocs}
+        onPreview={setDocPreview}
       >
         {crime ? (
           <CrimeReadout
@@ -1032,21 +1466,43 @@ export default function SubjectReport({
         status={creditStatus}
         order={creditStatus === 'unavailable' ? 1 : 0}
         tat={credit ? tat : undefined}
+        onManualPass={manualPass('credit', 'Credit score', creditStatus)}
+        passing={passing === 'credit'}
         requirements={creditReqs}
+        documents={creditDocs}
+        onPreview={setDocPreview}
       >
         {credit ? (
-          <GenericReadout result={credit} />
+          creditReportUrl ? (
+            <VendorReportTile
+              label="Credit bureau report"
+              note="The bureau returned its report as a document rather than structured fields."
+              url={creditReportUrl}
+            />
+          ) : (
+            <GenericReadout result={credit} />
+          )
         ) : (
           <PendingTile
             label="Credit score check"
             hint={
-              creditStatus === 'unavailable'
-                ? 'Needs PAN, date of birth and permanent address.'
-                : 'Details submitted — awaiting the credit bureau result.'
+              subject.creditRequestId
+                ? 'Submitted to the credit bureau — the result typically arrives within 24 hours.'
+                : !subject.panNumber || !subject.dob
+                  ? 'Needs a PAN number and date of birth.'
+                  : !creditPhone
+                    ? 'The credit bureau requires a contact number for the candidate.'
+                    : !creditFatherName
+                      ? "The credit bureau requires the candidate's father's name — we take it from Aadhaar, PAN or the form."
+                      : !creditAadhaarReady
+                        ? 'Waiting on the candidate’s Aadhaar — the bureau needs the full verified address. Starts automatically once DigiLocker is done.'
+                        : 'Details submitted — awaiting the credit bureau result.'
             }
           />
         )}
       </CheckCard>
+      )}
+        </>
       )}
 
       {docPreview && (
@@ -1056,33 +1512,79 @@ export default function SubjectReport({
         />
       )}
 
-      {reportOpen && (
-        <SubjectReportModal
-          subjectId={subject.id}
-          title={`${subject.name} — Verification Report`}
-          onClose={() => setReportOpen(false)}
+      {manualTarget && (
+        <ManualPassModal
+          label={manualTarget.label}
+          reason={manualReason}
+          onReasonChange={setManualReason}
+          error={manualError}
+          busy={passing === manualTarget.type}
+          onCancel={() => setManualTarget(null)}
+          onConfirm={() => void confirmManualPass()}
         />
       )}
+
     </div>
   );
 }
 
-/** Inline preview of a real candidate's full Background Verification Report. */
-function SubjectReportModal({
-  subjectId,
-  title,
-  onClose,
-}: {
-  subjectId: string;
-  title: string;
-  onClose: () => void;
-}) {
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+/* ---------- subcomponents ---------- */
 
+/**
+ * Confirmation panel for an admin manual override. Plain fixed overlay rather
+ * than the RDS DialogBox, matching the pattern used elsewhere in this app
+ * (the DialogBox enter transition doesn't fire reliably here) — styling and
+ * controls are all RDS.
+ */
+/** Shown when the vendor's answer is a report file rather than data fields. */
+function VendorReportTile({
+  label,
+  note,
+  url,
+}: {
+  label: string;
+  note: string;
+  url: string;
+}) {
+  return (
+    <div className="flex items-start gap-3 rounded-lg border border-border-default bg-neutral-100 p-4">
+      <FileText className="mt-0.5 size-5 shrink-0 text-icon-default" />
+      <div className="min-w-0">
+        <div className="text-body-md font-medium text-text-heading">{label}</div>
+        <p className="mt-0.5 text-body-sm text-text-subheading">{note}</p>
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-1.5 inline-block text-body-sm font-medium text-text-link hover:underline"
+        >
+          Open the full report (PDF)
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function ManualPassModal({
+  label,
+  reason,
+  onReasonChange,
+  error,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  label: string;
+  reason: string;
+  onReasonChange: (v: string) => void;
+  error: string;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape' && !busy) onCancel();
     };
     document.addEventListener('keydown', onKey);
     const prev = document.body.style.overflow;
@@ -1091,97 +1593,141 @@ function SubjectReportModal({
       document.removeEventListener('keydown', onKey);
       document.body.style.overflow = prev;
     };
-  }, [onClose]);
-
-  useEffect(() => {
-    let cancelled = false;
-    let created: string | null = null;
-    setBlobUrl(null);
-    setError(null);
-    (async () => {
-      try {
-        const url = await subjectReportBlobUrl(subjectId);
-        if (cancelled) {
-          URL.revokeObjectURL(url);
-          return;
-        }
-        created = url;
-        setBlobUrl(url);
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Failed to load report');
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-      if (created) URL.revokeObjectURL(created);
-    };
-  }, [subjectId]);
+  }, [busy, onCancel]);
 
   return (
-    <div className="pdf-modal-backdrop" onClick={onClose} role="presentation">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget && !busy) onCancel();
+      }}
+    >
       <div
-        className="pdf-modal"
-        onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-label={title}
+        aria-label={`Mark ${label} as passed manually`}
+        className="w-full max-w-lg overflow-hidden rounded-xl border border-border-default bg-white shadow-lg"
       >
-        <header className="pdf-modal-head">
-          <div className="pdf-modal-title">{title}</div>
-          <div className="pdf-modal-actions">
-            {blobUrl && (
-              <a
-                className="pdf-modal-link"
-                href={blobUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Open in new tab ↗
-              </a>
-            )}
-            <button
-              type="button"
-              className="pdf-modal-close"
-              onClick={onClose}
-              aria-label="Close preview"
+        <div className="flex items-start gap-3 border-b border-border-default px-5 py-4">
+          <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-surface-warning text-warning">
+            <ShieldCheck size={18} />
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-body-lg font-semibold text-text-heading">
+              Mark &ldquo;{label}&rdquo; as passed manually
+            </h2>
+            <p className="mt-0.5 text-body-sm text-text-subheading">
+              Use this only when the verification source cannot return a result.
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-4 px-5 py-4">
+          <div className="rounded-lg border border-border-warning bg-surface-warning px-4 py-3 text-body-sm text-warning-900">
+            The report will show{' '}
+            <span className="font-semibold">Verified manually</span> against your
+            name — it will not claim the source confirmed this check.
+          </div>
+
+          <div>
+            <label
+              htmlFor="manual-pass-reason"
+              className="mb-1.5 block text-body-sm font-medium text-text-body"
             >
-              ×
-            </button>
+              Reason{' '}
+              <span className="font-normal text-text-placeholder">
+                (optional, stored on the record)
+              </span>
+            </label>
+            <Textarea
+              id="manual-pass-reason"
+              rows={3}
+              value={reason}
+              onChange={(e) => onReasonChange(e.target.value)}
+              placeholder="e.g. Passport office records not digitised; verified against the physical document."
+              disabled={busy}
+            />
           </div>
-        </header>
-        {error ? (
-          <div className="pdf-modal-empty">
-            <div>Couldn&apos;t load the report.</div>
-            <div className="pdf-modal-empty-sub">{error}</div>
-          </div>
-        ) : !blobUrl ? (
-          <div className="pdf-modal-empty">
-            <div>Generating report…</div>
-          </div>
-        ) : (
-          <iframe className="pdf-modal-frame" src={blobUrl} title={title} />
-        )}
+
+          {error && (
+            <div className="rounded-lg border border-border-error bg-surface-error px-4 py-2.5 text-body-sm text-failure">
+              {error}
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-border-default bg-neutral-100 px-5 py-3">
+          <Button variant="secondary" onClick={onCancel} disabled={busy}>
+            Cancel
+          </Button>
+          <Button onClick={onConfirm} disabled={busy} isLoading={busy}>
+            Mark as passed
+          </Button>
+        </div>
       </div>
     </div>
   );
 }
 
-/* ---------- subcomponents ---------- */
-
 function HeadField({
   label,
   value,
+  pill,
 }: {
   label: string;
   value?: string | null;
+  /** Small status pill rendered next to the value (e.g. "Refunded"). */
+  pill?: ReactNode;
 }) {
+  // Long values (emails) truncate to keep the card tidy; hovering shows the
+  // native tooltip and tapping/clicking toggles the full value inline.
+  const [expanded, setExpanded] = useState(false);
+  const has = Boolean(value && value.trim());
   return (
-    <div>
+    <div className="min-w-0">
       <div className="text-body-sm text-text-placeholder">{label}</div>
-      <div className="mt-1 text-body-md text-text-heading">
-        {value && value.trim() ? value : '—'}
+      {/* Wraps rather than truncating when a pill is present, so a short value
+          like an amount never gets clipped to make room for it. */}
+      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+        <span
+          className={`text-body-md text-text-heading ${
+            expanded ? 'break-words' : pill ? 'whitespace-nowrap' : 'truncate'
+          }`}
+          title={has ? (value as string) : undefined}
+          onClick={() => has && setExpanded((x) => !x)}
+        >
+          {has ? value : '—'}
+        </span>
+        {pill}
+      </div>
+    </div>
+  );
+}
+
+function ManualTile({
+  info,
+}: {
+  info: { passedBy: string; passedAt: string; reason: string | null };
+}) {
+  const when = info.passedAt
+    ? new Date(info.passedAt).toLocaleString('en-IN', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      })
+    : null;
+  return (
+    <div className="flex items-start gap-3 rounded-lg border border-border-warning bg-surface-warning p-4">
+      <ShieldCheck className="mt-0.5 size-5 shrink-0 text-warning" />
+      <div>
+        <div className="text-body-md font-medium text-warning">
+          Verified manually
+        </div>
+        <div className="mt-0.5 text-body-sm text-warning-900">
+          The verification source could not return a result, so this check was
+          passed by {info.passedBy}
+          {when ? ` on ${when}` : ''}.
+          {info.reason ? ` Reason: ${info.reason}` : ''}
+        </div>
       </div>
     </div>
   );

@@ -47,7 +47,7 @@ export function TatBadge({ tat, className }: TatBadgeProps) {
         // and the soft blue radial glow pooling toward the bottom-right that
         // fades to near-white toward the top-left.
         'inline-flex items-center whitespace-nowrap rounded-md border border-border-default px-2.5 py-0.5',
-        'bg-[radial-gradient(ellipse_at_bottom_right,#cddef4_0%,#e8edf8_42%,#f9fbff_78%)]',
+        'brand-tint-gradient',
         'text-[12px] leading-5 tracking-[0.25px]',
         model.breached ? 'text-failure' : 'text-text-body',
         className,

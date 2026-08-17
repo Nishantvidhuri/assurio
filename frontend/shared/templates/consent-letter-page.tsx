@@ -39,11 +39,11 @@ function RecriAuthLogoHeader() {
         />
         <path
           d="M15.52 29.9c-.5.54-1.29.5-1.63-.18L5.62 13.16c-.16-.31-.14-.67.04-.96.18-.3.5-.47.84-.47 6.71-.32 13.43 3.67 12.46 10.33-.44 2.97-1.54 5.8-3.44 7.84Z"
-          fill="#97AFFA"
+          fill="#b9b1f5"
         />
         <path
           d="M21.59 44.96c-4.63-7.34-4.32-15.47-1.28-21.57l.43-.85c3.33-6.63 10.11-10.82 17.52-10.82.35 0 .66.17.84.47.18.3.2.66.05.96 0 0-15.49 31.03-15.88 31.8-.35.7-1.23.71-1.68 0Z"
-          fill="#D2DDFF"
+          fill="#eae7fc"
         />
         <defs>
           <linearGradient
@@ -54,8 +54,8 @@ function RecriAuthLogoHeader() {
             y2="6.51"
             gradientUnits="userSpaceOnUse"
           >
-            <stop stopColor="#3350AD" />
-            <stop offset="1" stopColor="#5E82F8" />
+            <stop stopColor="#3e34ab" />
+            <stop offset="1" stopColor="#7469ea" />
           </linearGradient>
         </defs>
       </svg>
@@ -79,11 +79,11 @@ function WatermarkShield() {
         />
         <path
           d="M15.52 29.9c-.5.54-1.29.5-1.63-.18L5.62 13.16c-.16-.31-.14-.67.04-.96.18-.3.5-.47.84-.47 6.71-.32 13.43 3.67 12.46 10.33-.44 2.97-1.54 5.8-3.44 7.84Z"
-          fill="#97AFFA"
+          fill="#b9b1f5"
         />
         <path
           d="M21.59 44.96c-4.63-7.34-4.32-15.47-1.28-21.57l.43-.85c3.33-6.63 10.11-10.82 17.52-10.82.35 0 .66.17.84.47.18.3.2.66.05.96 0 0-15.49 31.03-15.88 31.8-.35.7-1.23.71-1.68 0Z"
-          fill="#D2DDFF"
+          fill="#eae7fc"
         />
         <defs>
           <linearGradient
@@ -94,8 +94,8 @@ function WatermarkShield() {
             y2="6.51"
             gradientUnits="userSpaceOnUse"
           >
-            <stop stopColor="#3350AD" />
-            <stop offset="1" stopColor="#5E82F8" />
+            <stop stopColor="#3e34ab" />
+            <stop offset="1" stopColor="#7469ea" />
           </linearGradient>
         </defs>
       </svg>

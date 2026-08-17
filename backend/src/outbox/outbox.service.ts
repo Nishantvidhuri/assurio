@@ -7,6 +7,7 @@ import { EmailService } from '../subjects/email.service';
 
 export type OutboxEventType =
   | 'email.invite'
+  | 'email.verification-link'
   | 'email.password-reset';
 
 @Injectable()
@@ -95,6 +96,15 @@ export class OutboxService {
     switch (event.eventType) {
       case 'email.invite':
         await this.email.sendInvite(p.to, p.name, p.inviteUrl);
+        break;
+
+      case 'email.verification-link':
+        await this.email.sendVerificationLink(
+          p.to,
+          p.name,
+          p.clientName,
+          p.verifyUrl,
+        );
         break;
 
       case 'email.password-reset':

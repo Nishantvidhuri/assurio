@@ -50,7 +50,7 @@ const MIN_EXPANDED_SIDEBAR_WIDTH = 188;
  *     size-9 (36px), p-2, rounded-md, items-center justify-center
  *     Icon only, no label
  *
- *   Active item: bg-[#e6edff], icon + text: text-text-link (#174ab5)
+ *   Active item: bg-brand-200, icon + text: text-text-link (#174ab5)
  *   Inactive item: icon + text: text-text-body (#374150)
  *
  * @example
@@ -298,7 +298,7 @@ const Sidebar = forwardRef<HTMLElement, SidebarProps>(
         <nav
           ref={ref}
           className={cn(
-            'flex flex-col gap-5 bg-[#F4F7FC] min-h-screen overflow-hidden',
+            'flex flex-col gap-5 bg-surface-shell min-h-screen overflow-hidden',
             // Nav is ALWAYS absolutely positioned inside the wrapper.
             // The wrapper's width decides whether surrounding layout
             // reflows (pinned) or stays put (overlay).
@@ -535,7 +535,7 @@ function SidebarMenu({ expanded, children }: { expanded: boolean; children: Reac
       {indicator.height > 0 && (
         <div
           className={cn(
-            'absolute left-1.5 right-1.5 rounded-md bg-[#e6edff] pointer-events-none',
+            'absolute left-1.5 right-1.5 rounded-md bg-brand-200 pointer-events-none',
             hasInit && 'transition-all duration-300 ease-in-out',
           )}
           style={{

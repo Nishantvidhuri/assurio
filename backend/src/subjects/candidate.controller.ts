@@ -16,6 +16,8 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { DraftService } from '../draft/draft.service';
 import { toSubjectResponse } from './subject-response';
 import { SubjectPatch, SubjectsService } from './subjects.service';
+import { SubjectVerificationService } from './subject-verification.service';
+import { ConsentSettlementService } from '../wallet/consent-settlement.service';
 
 interface RequestWithUser extends Request {
   user?: { sub?: string; role?: string };
@@ -43,6 +45,8 @@ export class CandidateController {
   constructor(
     private readonly svc: SubjectsService,
     private readonly draft: DraftService,
+    private readonly settlement: ConsentSettlementService,
+    private readonly subjectVerification: SubjectVerificationService,
   ) {}
 
   /** The logged-in candidate's own verification record. */
@@ -69,6 +73,20 @@ export class CandidateController {
       }
     }
     const doc = await this.svc.patchOwn(id, patch);
+
+    // Agreeing to the terms from the candidate dashboard is the same consent
+    // event as the public verify link — settle the state machine and start the
+    // paid checks exactly once (grantConsent is race-proof and one-way).
+    const consent = patch.consentResult as Record<string, unknown> | undefined;
+    if (consent && consent['agreedTerms'] === true) {
+      const outcome = await this.settlement.grantConsent(id);
+      if (outcome === 'granted') this.subjectVerification.runForSubject(id);
+    }
+
+    // Aadhaar arriving here carries the structured address the credit bureau
+    // needs, so re-run to fire anything that was deferred waiting on it.
+    if (patch.aadhaarResult) this.subjectVerification.runForSubject(id);
+
     return toSubjectResponse(doc);
   }
 

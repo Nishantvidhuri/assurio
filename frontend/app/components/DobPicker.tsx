@@ -40,7 +40,7 @@ const POPUP_SX = {
       background: 'var(--ok)',
       color: 'var(--card)',
       fontWeight: 700,
-      '&:hover': { background: '#26553b' },
+      '&:hover': { background: 'var(--color-success-800)' },
       '&:focus': { background: 'var(--ok)' },
     },
     '&.MuiPickerDay-today:not(.Mui-selected)': {
@@ -70,7 +70,7 @@ const POPUP_SX = {
     fontSize: '13px',
     borderRadius: '8px',
     '&:hover': { background: 'var(--paper-2)' },
-    '&.Mui-selected': { background: 'var(--ok)', color: 'var(--card)', '&:hover': { background: '#26553b' } },
+    '&.Mui-selected': { background: 'var(--ok)', color: 'var(--card)', '&:hover': { background: 'var(--color-success-800)' } },
   },
   '& .MuiPickersMonth-monthButton': {
     color: 'var(--ink)',
@@ -78,7 +78,7 @@ const POPUP_SX = {
     fontSize: '13px',
     borderRadius: '8px',
     '&:hover': { background: 'var(--paper-2)' },
-    '&.Mui-selected': { background: 'var(--ok)', color: 'var(--card)', '&:hover': { background: '#26553b' } },
+    '&.Mui-selected': { background: 'var(--ok)', color: 'var(--card)', '&:hover': { background: 'var(--color-success-800)' } },
   },
 };
 

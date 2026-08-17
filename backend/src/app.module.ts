@@ -19,6 +19,9 @@ import { DraftModule } from './draft/draft.module';
 import { CandidateDraftModule } from './candidate-draft/candidate-draft.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { InternalVendorsModule } from './modules/internal/vendors/internal-vendors.module';
+import { OpsModule } from './ops/ops.module';
+import { WalletModule } from './wallet/wallet.module';
+import { WhatsAppModule } from './common/whatsapp.module';
 
 @Module({
   imports: [
@@ -26,6 +29,8 @@ import { InternalVendorsModule } from './modules/internal/vendors/internal-vendo
       connection: {
         host: process.env.REDIS_HOST || 'localhost',
         port: parseInt(process.env.REDIS_PORT || '6379', 10),
+        // BullMQ v5 requires this on the blocking (worker) connection.
+        maxRetriesPerRequest: null,
       },
     }),
     // Rate-limit buckets used by ThrottlerGuard on the auth controller.
@@ -56,6 +61,9 @@ import { InternalVendorsModule } from './modules/internal/vendors/internal-vendo
     PaymentsModule,
     BulkModule,
     InternalVendorsModule,
+    OpsModule,
+    WalletModule,
+    WhatsAppModule,
   ],
 })
 export class AppModule implements NestModule {

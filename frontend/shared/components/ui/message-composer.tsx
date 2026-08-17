@@ -299,7 +299,7 @@ export function MessageComposer({
         className={cn(
           'flex-1 min-w-0 w-full bg-transparent outline-none resize-none overflow-y-auto px-3 pt-3',
           'text-body-md font-normal leading-[20px] tracking-body-md',
-          'text-[#374150] placeholder:text-neutral-600',
+          'text-neutral-800 placeholder:text-neutral-600',
           disabled && 'cursor-not-allowed',
         )}
       />

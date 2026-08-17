@@ -25,7 +25,7 @@ import { TextType } from './text-type';
  *   Border colors per state:
  *     Default          → border-border-default (#eeeff0)
  *     Hover            → border-[#e2e8f0]  (neutral-500 / color/border/click-hover)
- *     Focused/Active   → border-[#456ec4]  (primary blue / color/border/active)
+ *     Focused/Active   → border-brand-500  (primary blue / color/border/active)
  *     Disabled         → border-border-disabled (#f3f4f7)
  *
  *   Search icon:
@@ -184,7 +184,7 @@ const SearchBar = forwardRef<HTMLInputElement, SearchBarProps>(
     const borderClass = disabled
       ? 'border-border-disabled'
       : isFocused
-        ? 'border-[#456ec4]'
+        ? 'border-brand-500'
         : isHovered
           ? 'border-[var(--color-border-hover)]'
           : 'border-border-default';

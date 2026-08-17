@@ -155,14 +155,14 @@ export function PackageCard({
       ? { paddingTop: '40px', paddingBottom: '40px' }
       : { paddingTop: '20px', paddingBottom: '20px' }),
     ...(disabled
-      ? { background: '#f5f6f8' }
+      ? { background: 'var(--color-neutral-300)' }
       : isSelected
         ? {
             background:
-              'linear-gradient(180deg, rgba(0, 82, 255, 0.31) -5.84%, rgba(255, 255, 255, 0) 13.83%), #F9FBFF',
+              'linear-gradient(180deg, rgba(91, 79, 232, 0.31) -5.84%, rgba(255, 255, 255, 0) 13.83%), var(--color-brand-100)',
           }
         : isHovered
-          ? { background: '#f9fbff' }
+          ? { background: 'var(--color-brand-100)' }
           : { background: '#fff' }),
     ...style,
   };

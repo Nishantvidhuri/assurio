@@ -3,10 +3,11 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { fetchCsrf, login } from '../lib/api';
+import { fetchCsrf, login, loginWithGoogle } from '../lib/api';
 import { getUser, homePathForRole, saveSession } from '../lib/session';
 import { Eye, EyeOff } from 'lucide-react';
-import { IconApple, IconGoogle } from '../components/AuthIcons';
+import { IconGoogle } from '../components/AuthIcons';
+import { requestGoogleAuthCode } from '../lib/google-identity';
 import Brand from '../components/Brand';
 import {
   Button,
@@ -51,8 +52,20 @@ export default function LoginPage() {
     }
   }
 
-  function handleSocial() {
-    setError('Social sign-in is coming soon — please use your email for now.');
+  async function handleGoogle() {
+    setError('');
+    setLoading(true);
+    try {
+      const code = await requestGoogleAuthCode();
+      await fetchCsrf();
+      const { user } = await loginWithGoogle(code);
+      saveSession('', user);
+      router.push(homePathForRole(user.role));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Google sign-in failed');
+    } finally {
+      setLoading(false);
+    }
   }
 
   function handleForgot() {
@@ -63,7 +76,7 @@ export default function LoginPage() {
   if (redirecting) return null;
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#F4F7FC] px-4 py-10">
+    <div className="min-h-screen flex items-center justify-center bg-surface-shell px-4 py-10">
       <div className="w-full max-w-md rounded-xl border border-border-default bg-white p-8 shadow-[0px_1px_5px_0px_rgba(11,26,59,0.06)]">
         <div className="mb-6 flex justify-center [&_.brand]:mb-0">
           <Brand />
@@ -155,22 +168,15 @@ export default function LoginPage() {
           <span className="h-px flex-1 bg-border-hover" />
         </div>
 
-        <div className="flex gap-3">
+        <div>
           <Button
             variant="secondary"
-            onClick={handleSocial}
+            onClick={() => void handleGoogle()}
+            disabled={loading}
             leftIcon={<IconGoogle />}
-            className="flex-1"
+            className="w-full"
           >
-            Google
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={handleSocial}
-            leftIcon={<IconApple />}
-            className="flex-1"
-          >
-            Apple
+            Continue with Google
           </Button>
         </div>
 

@@ -5,6 +5,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   adminQueueHealth,
+  adminAcknowledgeAlert,
+  adminRunReconciliation,
   me,
   type AuthUser,
   type QueueHealth,
@@ -12,6 +14,7 @@ import {
   type QueueJob,
   type OutboxStats,
   type OutboxEvent,
+  type OpsAlert,
 } from '../../lib/api';
 import { getToken } from '../../lib/session';
 import { doLogout } from '../../lib/logout';
@@ -38,6 +41,7 @@ const ADMIN_NAV: SidebarItem[] = [
   { href: '/admin/packages', label: 'Packages', icon: ICONS.packages },
   { href: '/admin/operations', label: 'Operations', icon: ICONS.operations },
   { href: '/admin/test-verification', label: 'Test Verification', icon: ICONS.testVerification },
+  { href: '/admin/whatsapp', label: 'WhatsApp', icon: ICONS.whatsapp },
 ];
 
 function fmtDate(val: string | number | null): string {
@@ -45,6 +49,20 @@ function fmtDate(val: string | number | null): string {
   const d = typeof val === 'number' ? new Date(val) : new Date(val);
   if (isNaN(d.getTime())) return String(val);
   return d.toLocaleString();
+}
+
+function fmtDuration(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined) return '—';
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  if (m < 60) return s ? `${m}m ${s}s` : `${m}m`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
+
+function severityVariant(s: OpsAlert['severity']): 'Failure' | 'Warning' | 'Default' {
+  return s === 'CRITICAL' ? 'Failure' : s === 'WARNING' ? 'Warning' : 'Default';
 }
 
 function healthClass(h: QueueStat['health']): string {
@@ -67,6 +85,8 @@ export default function OperationsPage() {
   const [data, setData] = useState<QueueHealth | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [ackingId, setAckingId] = useState<string | null>(null);
+  const [reconciling, setReconciling] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -115,6 +135,30 @@ export default function OperationsPage() {
     };
   }, [router, fetchData]);
 
+  async function handleAcknowledge(id: string) {
+    setAckingId(id);
+    try {
+      await adminAcknowledgeAlert(id);
+      await fetchData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not acknowledge alert');
+    } finally {
+      setAckingId(null);
+    }
+  }
+
+  async function handleReconcile() {
+    setReconciling(true);
+    try {
+      await adminRunReconciliation();
+      await fetchData();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not run reconciliation');
+    } finally {
+      setReconciling(false);
+    }
+  }
+
   function handleLogout() {
     doLogout(router);
   }
@@ -140,6 +184,14 @@ export default function OperationsPage() {
           >
             {loading ? <span className="ops-spinner" /> : null}
             Refresh
+          </button>
+          <button
+            className="ops-btn ops-btn-secondary"
+            onClick={handleReconcile}
+            disabled={reconciling}
+          >
+            {reconciling ? <span className="ops-spinner" /> : null}
+            Run Reconciliation
           </button>
           <a
             className="ops-btn ops-btn-secondary"
@@ -197,6 +249,7 @@ export default function OperationsPage() {
                       <TableHeaderCell label="Delayed" />
                       <TableHeaderCell label="Failed" />
                       <TableHeaderCell label="Paused" />
+                      <TableHeaderCell label="Backlog" />
                       <TableHeaderCell label="Oldest waiting" />
                       <TableHeaderCell label="Oldest failed" />
                     </TableRow>
@@ -204,7 +257,7 @@ export default function OperationsPage() {
                 <TableBody>
                     {data.queues.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={9} className="text-center" value={<span className="text-text-placeholder">No queues found</span>} />
+                        <TableCell colSpan={10} className="text-center" value={<span className="text-text-placeholder">No queues found</span>} />
                         </TableRow>
                     ) : (
                       data.queues.map((q: QueueStat) => (
@@ -215,17 +268,79 @@ export default function OperationsPage() {
                               <span className="text-body-sm text-text-placeholder">{q.name}</span>
                             </div>
                           } />
-                          <TableCell type="status" statusLabel={q.health} statusVariant={q.health === 'HEALTHY' ? 'Success' : q.health === 'DEGRADED' ? 'Warning' : 'Failure'} />
+                          <TableCell type="status" statusLabel={q.health} statusVariant={q.health === 'HEALTHY' ? 'Success' : q.health === 'CRITICAL' ? 'Failure' : 'Warning'} />
                           <TableCell value={q.waiting} />
                           <TableCell value={q.active} />
                           <TableCell value={q.delayed} />
                           <TableCell value={q.failed} />
                           <TableCell value={q.paused} />
+                          <TableCell value={fmtDuration(q.backlogAgeSeconds)} />
                           <TableCell value={q.oldestWaiting ? fmtDate(q.oldestWaiting) : '—'} />
                           <TableCell value={q.oldestFailed ? fmtDate(q.oldestFailed) : '—'} />
                         </TableRow>
                       ))
                     )}
+                </TableBody>
+              </Table>
+            </section>
+
+            {/* Active alerts */}
+            <section className="ops-section">
+              <h2 className="ops-section-title">
+                Active alerts{' '}
+                <span className="text-body-sm text-text-placeholder">
+                  {data.activeAlerts.length} active
+                </span>
+              </h2>
+              <Table bordered className="bg-white">
+                <TableHeader>
+                  <TableRow>
+                    <TableHeaderCell label="Severity" />
+                    <TableHeaderCell label="Type" />
+                    <TableHeaderCell label="Queue" />
+                    <TableHeaderCell label="Title & message" />
+                    <TableHeaderCell label="Count" />
+                    <TableHeaderCell label="Last seen" />
+                    <TableHeaderCell label="Status" />
+                    <TableHeaderCell label="" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {data.activeAlerts.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center" value={<span className="text-text-placeholder">No active alerts right now</span>} />
+                    </TableRow>
+                  ) : (
+                    data.activeAlerts.map((a: OpsAlert) => (
+                      <TableRow hoverable key={a.id}>
+                        <TableCell type="status" statusLabel={a.severity} statusVariant={severityVariant(a.severity)} />
+                        <TableCell value={a.type} />
+                        <TableCell value={a.queueName || '—'} />
+                        <TableCell value={
+                          <div className="flex flex-col">
+                            <span className="font-medium">{a.title}</span>
+                            <span className="text-body-sm text-text-placeholder">{a.message}</span>
+                          </div>
+                        } />
+                        <TableCell value={a.occurrenceCount} />
+                        <TableCell value={fmtDate(a.lastOccurredAt)} />
+                        <TableCell type="status" statusLabel={a.status} statusVariant={a.status === 'ACKNOWLEDGED' ? 'Warning' : 'Failure'} />
+                        <TableCell value={
+                          a.status === 'ACKNOWLEDGED' ? (
+                            <span className="text-body-sm text-text-placeholder">Acknowledged</span>
+                          ) : (
+                            <button
+                              className="ops-btn ops-btn-secondary"
+                              onClick={() => handleAcknowledge(a.id)}
+                              disabled={ackingId === a.id}
+                            >
+                              {ackingId === a.id ? 'Acknowledging…' : 'Acknowledge'}
+                            </button>
+                          )
+                        } />
+                      </TableRow>
+                    ))
+                  )}
                 </TableBody>
               </Table>
             </section>

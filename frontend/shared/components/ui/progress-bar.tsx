@@ -35,7 +35,7 @@ export function ProgressBar({
     <div className={cn('flex items-center gap-4', className)}>
       <div
         className={cn(
-          'h-2 flex-1 overflow-hidden rounded-full bg-[#e2e8f0]',
+          'h-2 flex-1 overflow-hidden rounded-full bg-neutral-500',
           trackClassName,
         )}
       >

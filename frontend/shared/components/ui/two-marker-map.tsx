@@ -74,7 +74,7 @@ export function TwoMarkerMap({
   // Red = declared (what the candidate filled in). Blue = live captured
   // GPS. Same colour pairing the verifier reads on the call recording
   // legend and the PDF report's legend table — keep these in sync.
-  const declaredIcon = useMemo(() => coloredPinIcon('#dc2626'), []); // red
+  const declaredIcon = useMemo(() => coloredPinIcon('var(--color-failure)'), []); // red
   const liveIcon = useMemo(() => coloredPinIcon('#2563eb'), []); // blue
 
   // When `declared` flips in/out (geocode resolves later), Leaflet
@@ -115,7 +115,7 @@ export function TwoMarkerMap({
                 [live.latitude, live.longitude],
               ]}
               pathOptions={{
-                color: '#64748b',
+                color: 'var(--color-neutral-700)',
                 weight: 2,
                 dashArray: '6 6',
                 opacity: 0.8,

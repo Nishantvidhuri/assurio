@@ -1,3 +1,5 @@
+import { clearSession } from './session';
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 export interface AuthUser {
@@ -22,6 +24,46 @@ function getCsrfToken(): string {
 
 const MUTATION_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
+/**
+ * Endpoints where a 401 is a normal answer rather than an expired session —
+ * a wrong password or a rejected Google code must show an inline error, not
+ * bounce the user out of the page they're on.
+ */
+const AUTH_ENDPOINTS = [
+  '/auth/login',
+  '/auth/signup',
+  '/auth/google',
+  '/auth/logout',
+  '/auth/csrf',
+];
+
+/**
+ * A 401 anywhere else means the session cookie is gone or expired (the
+ * httpOnly cookie can lapse while localStorage still holds a stale user), so
+ * there's nothing the page can usefully render. Clear local state and send the
+ * user to login — handled here once instead of in all ~21 pages that call the
+ * API, so no screen can get stuck on a dead session.
+ */
+function handleExpiredSession(path: string): void {
+  if (typeof window === 'undefined') return;
+  if (AUTH_ENDPOINTS.some((p) => path.startsWith(p))) return;
+
+  clearSession();
+  // Guard against a redirect loop if we're somehow already on /login.
+  if (!window.location.pathname.startsWith('/login')) {
+    window.location.replace('/login');
+  }
+}
+
+/**
+ * Same expired-session guard for the raw `fetch` calls that can't go through
+ * request() (multipart uploads, PDF blobs) — so a dead session behaves
+ * identically everywhere.
+ */
+function guardAuth(res: Response, path: string): void {
+  if (res.status === 401) handleExpiredSession(path);
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const method = (options.method || 'GET').toUpperCase();
   const csrfHeader: Record<string, string> = MUTATION_METHODS.has(method)
@@ -43,6 +85,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok) {
+    if (res.status === 401) handleExpiredSession(path);
     const message = Array.isArray(data.message)
       ? data.message.join(', ')
       : data.message || 'Something went wrong';
@@ -73,6 +116,19 @@ export async function login(email: string, password: string): Promise<AuthRespon
   const data = await request<{ user: AuthUser }>('/auth/login', {
     method: 'POST',
     body: JSON.stringify({ email, password })
+  });
+  return { token: '', user: data.user };
+}
+
+/**
+ * Complete Google sign-in: the popup's one-time authorization code is
+ * exchanged and verified server-side, which then sets the same httpOnly
+ * session cookies as email login.
+ */
+export async function loginWithGoogle(code: string): Promise<AuthResponse> {
+  const data = await request<{ user: AuthUser }>('/auth/google', {
+    method: 'POST',
+    body: JSON.stringify({ code })
   });
   return { token: '', user: data.user };
 }
@@ -244,9 +300,20 @@ export interface Subject {
   crimeResult: Record<string, unknown> | null;
   consentResult: ConsentResult | null;
   consentAcceptedAt?: string | null;
+  consentStatus?: ConsentStatus;
+  consentDecidedAt?: string | null;
+  // Real progress across all applicable checks (matches the report, e.g. 5/7).
+  progress?: { done: number; total: number };
   createdAt?: string;
   updatedAt?: string;
 }
+
+/**
+ * Candidate-consent lifecycle. PENDING → checks are on hold and the charge is
+ * refundable; GRANTED → checks run; DECLINED / EXPIRED → the charge was
+ * auto-refunded to the client wallet.
+ */
+export type ConsentStatus = 'PENDING' | 'GRANTED' | 'DECLINED' | 'EXPIRED';
 
 export interface ConsentResult {
   mode: 'TYPED' | 'UPLOADED';
@@ -283,33 +350,135 @@ export interface UploadedIdDocument {
   url: string | null;
 }
 
+interface UploadIntentResponse {
+  uploadSessionId: string;
+  key: string;
+  uploadUrl: string;
+  requiredHeaders: Record<string, string>;
+  expiresAt: string;
+}
+
+function uploadErrorMessage(data: unknown, fallback: string): string {
+  const m = (data as { message?: string | string[] } | null)?.message;
+  if (Array.isArray(m)) return m.join(', ');
+  return typeof m === 'string' && m ? m : fallback;
+}
+
 /**
- * Upload one ID document (PDF/JPG/PNG). The server virus-scans it before it
- * reaches S3. Uses FormData directly — we must NOT set Content-Type so the
- * browser adds the multipart boundary; auth rides on the httpOnly cookie.
+ * Durably upload one ID document (PDF/JPG/PNG) via presigned direct-to-S3:
+ *   1) POST /uploads/intent           → presign a PUT
+ *   2) PUT  <uploadUrl>              → bytes go straight to S3 (never through us)
+ *   3) POST /uploads/:id/confirm      → hands off to the finalize + scan workers
+ *   4) poll GET /uploads/:id          → resolve once the scan verdict is CLEAN
+ *
+ * The API never buffers the file, so a server crash mid-upload can't lose it —
+ * the job state lives in Postgres/Redis and resumes. Returns the same shape the
+ * old single-POST flow did, so callers and the draft's idDocuments[] are
+ * unchanged. `onStatus` (optional) surfaces the live lifecycle state for UI.
  */
 export async function uploadIdDocument(
   file: File,
+  onStatus?: (status: string) => void,
 ): Promise<UploadedIdDocument> {
-  const form = new FormData();
-  form.append('file', file);
-  const res = await fetch(`${API_URL}/uploads/id-document`, {
+  // 1) Intent — presign the PUT.
+  const intentRes = await fetch(`${API_URL}/uploads/intent`, {
     method: 'POST',
     credentials: 'include',
     headers: {
+      'Content-Type': 'application/json',
       'X-CSRF-Token': getCsrfToken(),
       'ngrok-skip-browser-warning': 'true',
     },
-    body: form,
+    body: JSON.stringify({
+      category: 'ID_DOCUMENT',
+      contentType: file.type,
+      filename: file.name,
+      sizeBytes: file.size,
+    }),
   });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const message = Array.isArray(data.message)
-      ? data.message.join(', ')
-      : data.message || 'Upload failed';
-    throw new Error(message);
+  const intent = await intentRes.json().catch(() => ({}));
+  guardAuth(intentRes, '/uploads/intent');
+  if (!intentRes.ok) {
+    throw new Error(uploadErrorMessage(intent, 'Could not start the upload'));
   }
-  return data as UploadedIdDocument;
+  const { uploadSessionId, uploadUrl, requiredHeaders } =
+    intent as UploadIntentResponse;
+
+  // 2) PUT the bytes straight to S3 — no cookie/CSRF, this is S3 not our API.
+  const putRes = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: requiredHeaders,
+    body: file,
+  });
+  if (!putRes.ok) {
+    throw new Error(`Upload to storage failed (${putRes.status})`);
+  }
+
+  // 3) Confirm — enqueue the durable finalize + scan pipeline.
+  const confirmRes = await fetch(
+    `${API_URL}/uploads/${encodeURIComponent(uploadSessionId)}/confirm`,
+    {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'X-CSRF-Token': getCsrfToken(),
+        'ngrok-skip-browser-warning': 'true',
+      },
+    },
+  );
+  guardAuth(confirmRes, '/uploads/confirm');
+  if (!confirmRes.ok) {
+    const data = await confirmRes.json().catch(() => ({}));
+    throw new Error(uploadErrorMessage(data, 'Could not confirm the upload'));
+  }
+
+  // 4) Poll until the worker reports a verdict (CLEAN / INFECTED / FAILED).
+  const startedAt = Date.now();
+  const TIMEOUT_MS = 90_000;
+  const INTERVAL_MS = 1_500;
+  for (;;) {
+    if (Date.now() - startedAt > TIMEOUT_MS) {
+      throw new Error('Upload is taking longer than expected. Please retry.');
+    }
+    await new Promise((resolve) => setTimeout(resolve, INTERVAL_MS));
+    const statusRes = await fetch(
+      `${API_URL}/uploads/${encodeURIComponent(uploadSessionId)}`,
+      {
+        credentials: 'include',
+        headers: {
+          'X-CSRF-Token': getCsrfToken(),
+          'ngrok-skip-browser-warning': 'true',
+        },
+      },
+    );
+    const body = (await statusRes.json().catch(() => ({}))) as {
+      status?: string;
+      key?: string;
+      url?: string | null;
+      name?: string;
+      contentType?: string;
+      size?: number;
+    };
+    if (!statusRes.ok) continue; // transient — keep polling within the timeout
+    const status = body.status ?? '';
+    onStatus?.(status);
+    if (status === 'CLEAN') {
+      return {
+        key: body.key ?? '',
+        name: body.name ?? file.name,
+        contentType: body.contentType ?? file.type,
+        size: body.size ?? file.size,
+        url: body.url ?? null,
+      };
+    }
+    if (status === 'INFECTED') {
+      throw new Error('This file failed the virus scan and was not saved.');
+    }
+    if (status === 'FAILED' || status === 'EXPIRED') {
+      throw new Error('Upload failed. Please try again.');
+    }
+    // INTENT_CREATED / PRESIGNED / COMPLETED / SCANNING → keep polling.
+  }
 }
 
 /** Force-re-run a single ID check for a subject ("Recall API"). */
@@ -321,6 +490,32 @@ export function recheckSubject(
   return request<Subject>(
     `/subjects/${encodeURIComponent(id)}/recheck/${type}`,
     { method: 'POST' },
+  );
+}
+
+export type ManualPassType =
+  | 'pan'
+  | 'aadhaar'
+  | 'voter'
+  | 'passport'
+  | 'dl'
+  | 'employment'
+  | 'crime'
+  | 'credit';
+
+/**
+ * Admin override: record a check as passed by hand when the vendor API can't
+ * answer. Stored as an attributed manual override — the report shows "Verified
+ * manually", it does not masquerade as a vendor result.
+ */
+export function manualPassCheck(
+  id: string,
+  type: ManualPassType,
+  reason?: string,
+): Promise<Subject> {
+  return request<Subject>(
+    `/subjects/${encodeURIComponent(id)}/manual-pass/${type}`,
+    { method: 'POST', body: JSON.stringify({ reason }) },
   );
 }
 
@@ -356,6 +551,15 @@ export function createSubject(
     passportFileNo?: string;
     uan?: string;
     consentAcceptedAt?: string;
+    /**
+     * How this check is paid. 'razorpay' hands the verified paymentId to the
+     * server, which routes it through the wallet ledger (credit + hold) so the
+     * charge is refundable until the candidate consents. 'wallet' pays from
+     * the existing balance (price computed server-side).
+     */
+    payment?:
+      | { method: 'wallet'; discountCode?: string }
+      | { method: 'razorpay'; razorpayPaymentId: string };
   },
 ): Promise<Subject & { emailSent?: boolean }> {
   return request<Subject & { emailSent?: boolean }>('/subjects', {
@@ -389,6 +593,7 @@ export interface AdminSubjectRow {
   hasAadhaar: boolean;
   hasPanImages: boolean;
   crimeRisk: string | null;
+  consentStatus?: ConsentStatus;
   checksDone?: number;
   checksTotal?: number;
   createdAt?: string;
@@ -508,6 +713,22 @@ export function candidateMe(token: string): Promise<Subject> {
   return request<Subject>('/candidate/me');
 }
 
+/**
+ * Presign stored document-image keys for preview. Returns a map of
+ * key → viewable URL (legacy base64 / http values map to themselves; unknown
+ * keys map to null). Used to render a candidate's own uploaded documents,
+ * including on resume from a saved draft where only the S3 key is known.
+ */
+export function signDocumentKeys(
+  _token: string,
+  keys: string[],
+): Promise<Record<string, string | null>> {
+  return request<{ urls: Record<string, string | null> }>('/uploads/sign', {
+    method: 'POST',
+    body: JSON.stringify({ keys }),
+  }).then((r) => r.urls);
+}
+
 export function candidatePatch(
   token: string,
   patch: Partial<Subject>,
@@ -545,6 +766,7 @@ export interface VerificationLogEntry {
 }
 
 export interface AdminSubjectDetail {
+  consentStatus?: ConsentStatus;
   id: string;
   name: string;
   role: string;
@@ -698,6 +920,75 @@ export function verifyPaymentLink(
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
+// ===== Wallet (prepaid balance + refunds) =====
+
+export interface WalletInfo {
+  balancePaise: number;
+  balanceInr: number;
+  currency: string;
+}
+
+export interface WalletTxn {
+  id: string;
+  type: 'CREDIT' | 'DEBIT';
+  reason:
+    | 'TOPUP'
+    | 'VERIFICATION_CHARGE'
+    | 'CONSENT_REFUND'
+    | 'ADMIN_CREDIT'
+    | 'ADMIN_DEBIT';
+  amountPaise: number;
+  balanceAfterPaise: number;
+  subjectId: string | null;
+  invoiceId: string | null;
+  note: string | null;
+  createdAt: string;
+}
+
+export function getWallet(token: string): Promise<WalletInfo> {
+  return request<WalletInfo>('/wallet');
+}
+
+export function getWalletTransactions(
+  token: string,
+  cursor?: string,
+): Promise<{ items: WalletTxn[]; nextCursor: string | null }> {
+  const qs = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
+  return request(`/wallet/transactions${qs}`);
+}
+
+/** Create a Razorpay Order to add money to the wallet. */
+export function createWalletTopupOrder(
+  token: string,
+  amount: number,
+): Promise<OrderResponse> {
+  return request<OrderResponse>('/wallet/topup/order', {
+    method: 'POST',
+    body: JSON.stringify({ amount }),
+  });
+}
+
+/** Verify the checkout callback and credit the wallet (exactly-once). */
+export function verifyWalletTopup(
+  token: string,
+  input: {
+    razorpay_order_id: string;
+    razorpay_payment_id: string;
+    razorpay_signature: string;
+  },
+): Promise<{
+  verified: boolean;
+  credited?: boolean;
+  balancePaise?: number;
+  invoiceId?: string;
+  invoiceNumber?: string;
+}> {
+  return request('/wallet/topup/verify', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
 /** Public URL to the print-friendly invoice (opens in a new tab). */
 export function invoicePrintUrl(invoiceId: string): string {
   return `${API_BASE}/payments/invoice/${encodeURIComponent(invoiceId)}/print`;
@@ -766,6 +1057,9 @@ export interface AadhaarKyc {
 
 export interface VerifyLinkInfo {
   candidateName: string;
+  consentStatus?: ConsentStatus;
+  /** Checks that will run once consent is granted (server-derived). */
+  checks?: Array<{ key: string; label: string }>;
   clientName: string;
   email: string;
   phone: string;
@@ -814,6 +1108,17 @@ export async function verifyLinkConsent(token: string): Promise<void> {
     { method: 'POST', headers: PUBLIC_HEADERS },
   );
   await publicJson(res);
+}
+
+/** Candidate declines consent — closes the case and refunds the client's hold. */
+export async function verifyLinkDecline(
+  token: string,
+): Promise<{ ok: boolean; declined: boolean; refunded: boolean }> {
+  const res = await fetch(
+    `${API_URL}/verify-link/${encodeURIComponent(token)}/decline`,
+    { method: 'POST', headers: PUBLIC_HEADERS },
+  );
+  return publicJson(res);
 }
 
 export async function verifyLinkUpdate(
@@ -1117,6 +1422,8 @@ export interface AdminInvoiceRow {
   checks: { pan: boolean; aadhaar: boolean; crime: boolean };
   /** Vendor/API cost spent on this invoice's verification calls (₹). */
   apiCost: number;
+  /** Returned to the client's wallet (consent declined/expired), in ₹. */
+  refunded?: number;
   subjectId: string | null;
   razorpayPaymentId: string;
   /** Presigned S3 URL for the invoice PDF (null if not yet uploaded). */
@@ -1232,23 +1539,10 @@ export async function mockReportBlobUrl(
  * Auth via the httpOnly `as_access` cookie (no Authorization header — not in the
  * CORS allow-list).
  */
-export async function subjectReportBlobUrl(
-  subjectId: string,
-): Promise<string> {
-  const res = await fetch(`${API_URL}/subjects/${subjectId}/report`, {
-    credentials: 'include',
-    headers: { 'ngrok-skip-browser-warning': 'true' },
-  });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    const candidate = (data as { message?: unknown })?.message;
-    const message = Array.isArray(candidate)
-      ? candidate.join(', ')
-      : (candidate as string) || `Failed to load report (HTTP ${res.status})`;
-    throw new Error(message);
-  }
-  const blob = await res.blob();
-  return URL.createObjectURL(blob);
+
+/** Direct URL to a candidate's report PDF — for opening in a new tab. */
+export function subjectReportUrl(subjectId: string): string {
+  return `${API_URL}/subjects/${encodeURIComponent(subjectId)}/report`;
 }
 
 /**
@@ -1267,6 +1561,7 @@ export async function downloadSubjectReport(
     credentials: 'include',
     headers: { 'ngrok-skip-browser-warning': 'true' },
   });
+  guardAuth(res, '/subjects/report');
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     const candidate = (data as { message?: unknown })?.message;
@@ -1328,9 +1623,24 @@ export function bulkStatus(token: string, batchId: string): Promise<BulkBatchSta
 // ===== Admin Operations =====
 
 export interface QueueStat {
-  name: string; label: string; health: 'HEALTHY' | 'DEGRADED' | 'CRITICAL';
+  name: string; label: string; health: 'HEALTHY' | 'WARNING' | 'DEGRADED' | 'CRITICAL';
   waiting: number; active: number; delayed: number; failed: number; paused: number;
+  backlogAgeSeconds?: number | null;
   oldestWaiting: string | null; oldestFailed: string | null;
+}
+
+export interface OpsAlert {
+  id: string;
+  type: string;
+  severity: 'INFO' | 'WARNING' | 'CRITICAL';
+  status: 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED';
+  queueName: string | null;
+  title: string;
+  message: string;
+  occurrenceCount: number;
+  firstOccurredAt: string;
+  lastOccurredAt: string;
+  acknowledgedAt: string | null;
 }
 
 export interface QueueJob {
@@ -1363,11 +1673,160 @@ export interface QueueHealth {
   generatedAt: string;
   thresholds: { deadJob: number; backlogSec: number };
   queues: QueueStat[];
+  activeAlerts: OpsAlert[];
+  monitoredQueueCount: number;
   recentJobs: QueueJob[];
   outboxStats: OutboxStats;
   recentOutboxEvents: OutboxEvent[];
 }
 
 export async function adminQueueHealth(_token?: string): Promise<QueueHealth> {
-  return request<QueueHealth>('/admin/ops/queues');
+  return request<QueueHealth>('/admin/ops/overview');
+}
+
+/** Acknowledge an active operational alert. */
+export async function adminAcknowledgeAlert(id: string): Promise<void> {
+  await request(`/admin/ops/alerts/${encodeURIComponent(id)}/acknowledge`, {
+    method: 'POST',
+  });
+}
+
+/** Run the observability sweep on demand (re-evaluates queue health + alerts). */
+export async function adminRunReconciliation(): Promise<{ ok: true }> {
+  return request<{ ok: true }>('/admin/ops/reconciliation/run', {
+    method: 'POST',
+  });
+}
+
+/* ── WhatsApp (OpenWA) ── */
+
+export function checkWhatsAppNumber(
+  _token: string,
+  phone: string,
+): Promise<{ phone: string; onWhatsApp: boolean | null }> {
+  return request<{ phone: string; onWhatsApp: boolean | null }>(
+    `/whatsapp/check/${encodeURIComponent(phone)}`,
+  );
+}
+
+export interface WaMessage {
+  id: string;
+  waMessageId?: string;
+  chatId?: string;
+  body: string;
+  type: string;
+  direction: 'inbound' | 'outbound';
+  timestamp: number;
+  status?: string;
+  mediaMimetype?: string;
+  /** Durable presigned S3 URL when the platform kept its own copy of the media. */
+  mediaUrl?: string;
+  /** Client-only: object URL for an optimistically-sent local attachment. */
+  localUrl?: string;
+}
+
+/** Conversation (sent + received) with a WhatsApp number. */
+export function getWhatsAppMessages(
+  _token: string,
+  phone: string,
+): Promise<{ phone: string; configured: boolean; messages: WaMessage[] }> {
+  return request(`/whatsapp/messages/${encodeURIComponent(phone)}`);
+}
+
+/**
+ * Fetches a message's stored media (image/pdf) through the authenticated proxy
+ * and returns an object URL. Caller must revokeObjectURL when done.
+ */
+export async function fetchWhatsAppMediaUrl(
+  chatId: string,
+  messageId: string,
+): Promise<string> {
+  const res = await fetch(
+    `${API_URL}/whatsapp/media?chatId=${encodeURIComponent(
+      chatId,
+    )}&messageId=${encodeURIComponent(messageId)}`,
+    { credentials: 'include' },
+  );
+  if (!res.ok) throw new Error('media unavailable');
+  return URL.createObjectURL(await res.blob());
+}
+
+export interface WaChat {
+  id: string;
+  phone: string;
+  name: string;
+  isGroup: boolean;
+  unreadCount: number;
+  timestamp: number;
+  lastMessage: string;
+}
+
+export interface WaScenario {
+  id: string;
+  audience: 'client' | 'candidate';
+  label: string;
+  trigger: string;
+  text: string;
+}
+
+/** Every lifecycle notification with sample data, for the /whatsapptest page. */
+export function getWhatsAppScenarios(): Promise<{ scenarios: WaScenario[] }> {
+  return request('/whatsapp/scenarios');
+}
+
+/** Send catalog scenarios to a number. Omit `ids` to send all of them. */
+export function sendWhatsAppScenarios(
+  phone: string,
+  ids?: string[],
+): Promise<{ sent: number; results: Array<{ id: string; ok: boolean }> }> {
+  return request('/whatsapp/scenarios/send', {
+    method: 'POST',
+    body: JSON.stringify({ phone, ids }),
+  });
+}
+
+/** Conversations for the connected session. Always restricted server-side to
+ *  the platform's candidates/clients — personal chats/groups never returned. */
+export function getWhatsAppChats(
+  _token: string,
+): Promise<{ configured: boolean; chats: WaChat[] }> {
+  return request('/whatsapp/chats');
+}
+
+export function sendWhatsAppText(
+  _token: string,
+  phone: string,
+  message: string,
+): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>('/whatsapp/send', {
+    method: 'POST',
+    body: JSON.stringify({ phone, message }),
+  });
+}
+
+export function sendWhatsAppPdf(
+  _token: string,
+  phone: string,
+  base64: string,
+  filename: string,
+  caption?: string,
+): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>('/whatsapp/send-pdf', {
+    method: 'POST',
+    body: JSON.stringify({ phone, base64, filename, caption }),
+  });
+}
+
+export function sendWhatsAppImage(
+  _token: string,
+  phone: string,
+  base64: string,
+  mimetype: string,
+  filename: string,
+  caption?: string,
+): Promise<{ ok: boolean }> {
+  return request<{ ok: boolean }>('/whatsapp/send-image', {
+    method: 'POST',
+    body: JSON.stringify({ phone, base64, mimetype, filename, caption }),
+  });
 }

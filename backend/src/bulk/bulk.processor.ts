@@ -3,6 +3,7 @@ import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { SubjectsService } from '../subjects/subjects.service';
 import { OutboxService } from '../outbox/outbox.service';
+import { UsersService } from '../users/users.service';
 import { PrismaService } from '../common/prisma.service';
 import { EventsService } from '../common/events.service';
 import { toSubjectResponse } from '../subjects/subject-response';
@@ -36,6 +37,7 @@ export class BulkProcessor extends WorkerHost {
     private readonly outbox: OutboxService,
     private readonly prisma: PrismaService,
     private readonly events: EventsService,
+    private readonly users: UsersService,
   ) {
     super();
   }
@@ -46,12 +48,19 @@ export class BulkProcessor extends WorkerHost {
     try {
       const doc = await this.subjects.create(userId, candidate);
       const response = toSubjectResponse(doc);
-      const inviteUrl = response.inviteUrl as string;
 
-      await this.outbox.emit('email.invite', {
+      // Same as the single-candidate flow: send the consent link, not the
+      // set-password page — consent is what unblocks the checks.
+      const client = await this.users.findById(userId);
+      const baseUrl =
+        process.env.PUBLIC_APP_URL?.replace(/\/$/, '') ||
+        process.env.APP_URL ||
+        'http://localhost:3000';
+      await this.outbox.emit('email.verification-link', {
         to: doc.email,
         name: doc.name,
-        inviteUrl,
+        clientName: client?.name ?? 'Your employer',
+        verifyUrl: `${baseUrl}/verify/${doc.inviteToken}`,
       });
 
       const updated = await this.prisma.bulkBatch.update({

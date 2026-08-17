@@ -27,7 +27,7 @@ export default function TermsBox({ onAgreedChange, agreed, label }: TermsBoxProp
         <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
           Review T&amp;C
         </span>
-        <span style={{ marginLeft: 'auto', fontSize: 11.5, color: scrolled ? '#059669' : 'var(--ink-2)' }}>
+        <span style={{ marginLeft: 'auto', fontSize: 11.5, color: scrolled ? 'var(--color-success)' : 'var(--ink-2)' }}>
           {scrolled ? '✓ Scrolled to end' : 'Scroll to read all'}
         </span>
       </div>
@@ -50,11 +50,10 @@ export default function TermsBox({ onAgreedChange, agreed, label }: TermsBoxProp
           Terms and Conditions
         </h3>
         <p style={{ marginBottom: 10, fontSize: 11.5 }}>
-          Issued by <strong style={{ color: 'var(--ink)' }}>Handy Online Solution Private Limited</strong>,
+          Issued by <strong style={{ color: 'var(--ink)' }}>Recrivio Technologies Private Limited</strong>,
           a company incorporated under the Companies Act, 2013, with its registered office at
-          D2-12A02, Parsvnath Exotica, Sector 53, Golf Course Road, Gurgaon, Haryana – 122011
-          and corporate office at 1st Floor, Plot No. 34, Sector 44, Gurugram, Haryana – 122003
-          (<strong style={{ color: 'var(--ink)' }}>"Company"</strong>).
+          Ram Ganga Nagar, Awas Yojana M.O 2, R.K. University, Bareilly, Uttar Pradesh – 243006
+          (<strong style={{ color: 'var(--ink)' }}>"Company"</strong>), operating the Assurio platform.
           By clicking "I Agree" or by accessing or using the Platform, you acknowledge that you
           have read, understood, and agree to be bound by these Terms.
         </p>
@@ -141,7 +140,7 @@ export default function TermsBox({ onAgreedChange, agreed, label }: TermsBoxProp
         </Section>
 
         <Section n="12" title="Governing Law and Jurisdiction">
-          <p>These Terms are governed by and construed in accordance with the laws of India. The courts at Gurugram, Haryana shall have exclusive jurisdiction over any dispute arising out of or in connection with these Terms or the use of the Platform.</p>
+          <p>These Terms are governed by and construed in accordance with the laws of India. The courts at Bareilly, Uttar Pradesh shall have exclusive jurisdiction over any dispute arising out of or in connection with these Terms or the use of the Platform.</p>
         </Section>
 
         <p style={{ marginTop: 14, fontSize: 11, color: 'var(--ink-2)', fontStyle: 'italic' }}>
@@ -165,7 +164,7 @@ export default function TermsBox({ onAgreedChange, agreed, label }: TermsBoxProp
           {label ?? (
             <>
               I confirm that I have obtained the candidate's consent and I agree to
-              the Terms &amp; Conditions of Handy Online Solution Private Limited,
+              the Terms &amp; Conditions of Recrivio Technologies Private Limited,
               operating the Assurio platform.
             </>
           )}

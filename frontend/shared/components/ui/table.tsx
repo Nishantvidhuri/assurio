@@ -54,9 +54,9 @@ import arrowDownIcon from '@/public/assets/icons/arrow-down-medium/Arrow_Down_Me
  *   No-data              → em-dash "—"
  *
  *   Status chip (Default/Warning/Success/Failure/Primary)
- *     Warning → bg-[#fff9ec] text-[#ffb522]   (surface/warning + text/warning)
- *     Success → bg-[#edfff4] text-icon-success
- *     Failure → bg-[#fff0f0] text-failure
+ *     Warning → bg-warning-100 text-warning   (surface/warning + text/warning)
+ *     Success → bg-success-100 text-icon-success
+ *     Failure → bg-failure-100 text-failure
  *     Primary → bg-primary-200 text-primary
  *     Default → bg-neutral-400 text-text-body
  *
@@ -77,9 +77,9 @@ const statusChipVariants = cva(
     variants: {
       variant: {
         Default: 'bg-neutral-400 text-text-body',
-        Success: 'bg-[#edfff4] text-icon-success',
-        Warning: 'bg-[#fff9ec] text-[#ffb522]',
-        Failure: 'bg-[#fff0f0] text-failure',
+        Success: 'bg-success-100 text-icon-success',
+        Warning: 'bg-warning-100 text-warning',
+        Failure: 'bg-failure-100 text-failure',
         Primary: 'bg-primary-200 text-primary',
       },
     },

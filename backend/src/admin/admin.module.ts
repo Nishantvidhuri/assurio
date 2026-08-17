@@ -6,10 +6,12 @@ import { UsersService } from '../users/users.service';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { InvoiceLifecycleService } from '../payments/invoice-lifecycle.service';
+import { ReportModule } from '../subjects/report.module';
 
 @Module({
   imports: [
     AuthModule,
+    ReportModule,
     BullModule.registerQueue({ name: 'candidate-invite' }),
   ],
   controllers: [AdminController],

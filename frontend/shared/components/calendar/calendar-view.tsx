@@ -199,9 +199,9 @@ export const CALENDAR_PRESET_COLORS = {
   subdued: {
     colorName: 'rds-subdued',
     lightColors: {
-      main: '#828d9d', // --color-text-subheading / --color-neutral-700
+      main: 'var(--color-neutral-700)', // --color-text-subheading / --color-neutral-700
       container: '#f3f4f7', // --color-neutral-300
-      onContainer: '#828d9d',
+      onContainer: 'var(--color-neutral-700)',
     },
   },
 } as const satisfies Record<string, CalendarColorPalette>;

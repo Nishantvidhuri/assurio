@@ -226,9 +226,9 @@ function Calendar({
         // cells get squeezed by `w-full` table layout.
         selected: cn(
           'relative z-10',
-          '[&>button]:bg-[#174AB5]',
+          '[&>button]:bg-primary',
           '[&>button]:text-white',
-          '[&>button]:hover:bg-[#174AB5]',
+          '[&>button]:hover:bg-primary',
           '[&>button]:rounded-md',
           '[&>button]:size-9',
         ),

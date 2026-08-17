@@ -5,6 +5,8 @@ import { AuthService } from './auth.service';
 import { CsrfGuard } from './csrf.guard';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { UsersService } from '../users/users.service';
+import { GoogleAuthController } from './google/google-auth.controller';
+import { GoogleAuthService } from './google/google-auth.service';
 
 @Module({
   imports: [
@@ -13,8 +15,14 @@ import { UsersService } from '../users/users.service';
       signOptions: { expiresIn: '7d' },
     }),
   ],
-  controllers: [AuthController],
-  providers: [AuthService, UsersService, JwtAuthGuard, CsrfGuard],
+  controllers: [AuthController, GoogleAuthController],
+  providers: [
+    AuthService,
+    GoogleAuthService,
+    UsersService,
+    JwtAuthGuard,
+    CsrfGuard,
+  ],
   exports: [JwtModule, JwtAuthGuard, CsrfGuard],
 })
 export class AuthModule {}

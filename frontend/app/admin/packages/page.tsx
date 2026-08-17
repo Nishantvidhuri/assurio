@@ -36,6 +36,11 @@ const ADMIN_NAV: SidebarItem[] = [
     label: 'Test Verification',
     icon: ICONS.testVerification,
   },
+  {
+    href: '/admin/whatsapp',
+    label: 'WhatsApp',
+    icon: ICONS.whatsapp,
+  },
 ];
 
 export default function AdminPackagesPage() {

@@ -23,6 +23,7 @@ const ADMIN_NAV: SidebarItem[] = [
   { href: '/admin/packages', label: 'Packages', icon: ICONS.packages },
   { href: '/admin/operations', label: 'Operations', icon: ICONS.operations },
   { href: '/admin/test-verification', label: 'Test Verification', icon: ICONS.testVerification },
+  { href: '/admin/whatsapp', label: 'WhatsApp', icon: ICONS.whatsapp },
 ];
 
 function monthName(): string {

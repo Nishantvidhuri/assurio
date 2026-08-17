@@ -1,8 +1,12 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { BRAND } from '../common/brand-colors';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import * as crypto from 'crypto';
 import Razorpay from 'razorpay';
 import { PrismaService } from '../common/prisma.service';
 import { Invoice } from '../../generated/prisma/client';
+import { INVOICE_PDF_JOB, INVOICE_PDF_QUEUE } from './invoice-pdf.service';
 
 export interface InvoiceLineItem {
   description: string;
@@ -58,7 +62,10 @@ export class PaymentsService {
   private readonly logger = new Logger(PaymentsService.name);
   private client: Razorpay | null = null;
 
-  constructor(private readonly prisma: PrismaService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    @InjectQueue(INVOICE_PDF_QUEUE) private readonly invoicePdfQueue: Queue,
+  ) {
     const key_id = process.env.RAZORPAY_KEY_ID;
     const key_secret = process.env.RAZORPAY_KEY_SECRET;
     if (!key_id || !key_secret) {
@@ -195,7 +202,11 @@ export class PaymentsService {
     const existing = await this.prisma.invoice.findUnique({
       where: { razorpayPaymentId: args.razorpayPaymentId },
     });
-    if (existing) return existing;
+    if (existing) {
+      // Self-heal: an earlier render that never completed gets re-queued.
+      if (!existing.pdfS3Key) this.queueInvoicePdf(existing.id);
+      return existing;
+    }
 
     const link = await this.fetchPaymentLink(args.razorpayPaymentLinkId);
     const totalRupees = Math.round(Number(link.amount)) / 100;
@@ -211,7 +222,7 @@ export class PaymentsService {
     const invoiceNumber = await this.nextInvoiceNumber();
 
     try {
-      return await this.prisma.invoice.create({
+      const created = await this.prisma.invoice.create({
         data: {
           invoiceNumber,
           userId: args.userId,
@@ -232,11 +243,16 @@ export class PaymentsService {
           notes: link.notes,
         },
       });
+      this.queueInvoicePdf(created.id);
+      return created;
     } catch (err) {
       const again = await this.prisma.invoice.findUnique({
         where: { razorpayPaymentId: args.razorpayPaymentId },
       });
-      if (again) return again;
+      if (again) {
+        if (!again.pdfS3Key) this.queueInvoicePdf(again.id);
+        return again;
+      }
       throw err;
     }
   }
@@ -249,7 +265,10 @@ export class PaymentsService {
     const existing = await this.prisma.invoice.findUnique({
       where: { razorpayPaymentId: args.razorpayPaymentId },
     });
-    if (existing) return existing;
+    if (existing) {
+      if (!existing.pdfS3Key) this.queueInvoicePdf(existing.id);
+      return existing;
+    }
 
     const rzp = this.requireClient();
     const order = (await rzp.orders.fetch(args.razorpayOrderId)) as unknown as {
@@ -272,7 +291,7 @@ export class PaymentsService {
     const invoiceNumber = await this.nextInvoiceNumber();
 
     try {
-      return await this.prisma.invoice.create({
+      const created = await this.prisma.invoice.create({
         data: {
           invoiceNumber,
           userId: args.userId,
@@ -292,13 +311,45 @@ export class PaymentsService {
           notes: notes as any,
         },
       });
+      this.queueInvoicePdf(created.id);
+      return created;
     } catch (err) {
       const again = await this.prisma.invoice.findUnique({
         where: { razorpayPaymentId: args.razorpayPaymentId },
       });
-      if (again) return again;
+      if (again) {
+        if (!again.pdfS3Key) this.queueInvoicePdf(again.id);
+        return again;
+      }
       throw err;
     }
+  }
+
+  /**
+   * Queue the receipt PDF as soon as the invoice exists, so preview/download
+   * stream a stored object instead of re-rendering. Keyed by invoice id, so a
+   * replayed payment can never produce a second render.
+   */
+  private queueInvoicePdf(invoiceId: string): void {
+    void this.invoicePdfQueue
+      .add(
+        INVOICE_PDF_JOB,
+        { invoiceId },
+        {
+          jobId: `invoice-${invoiceId}`,
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 5_000 },
+          removeOnComplete: true,
+          removeOnFail: 50,
+        },
+      )
+      .catch((err: unknown) =>
+        this.logger.warn(
+          `Failed to queue invoice PDF for ${invoiceId}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        ),
+      );
   }
 
   async updatePdfS3Key(invoiceId: string, key: string): Promise<void> {
@@ -373,45 +424,45 @@ export class PaymentsService {
 <title>Invoice ${escapeHtml(inv.invoiceNumber)}</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0;}
-  html,body{background:#f6f7f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#0f172a;-webkit-font-smoothing:antialiased;}
+  html,body{background:${BRAND.surface};font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:${BRAND.ink};-webkit-font-smoothing:antialiased;}
   body{padding:32px 16px;}
-  .page{max-width:680px;margin:0 auto;background:#ffffff;border:1px solid #e2e6ee;border-radius:18px;overflow:hidden;box-shadow:0 2px 24px rgba(15,23,42,0.08);}
-  .header{background:#0f172a;padding:36px 40px 32px;display:flex;justify-content:space-between;align-items:flex-start;}
+  .page{max-width:680px;margin:0 auto;background:#ffffff;border:1px solid ${BRAND.borderSoft};border-radius:18px;overflow:hidden;box-shadow:0 2px 24px rgba(15,23,42,0.08);}
+  .header{background:${BRAND.ink};padding:36px 40px 32px;display:flex;justify-content:space-between;align-items:flex-start;}
   .logo-row{display:flex;align-items:center;gap:13px;}
-  .logo-mark{width:42px;height:42px;background:#f6f7f9;border-radius:10px;display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:22px;font-weight:500;color:#0f172a;flex-shrink:0;}
-  .logo-name{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:22px;font-weight:500;color:#f6f7f9;letter-spacing:-0.01em;}
-  .logo-tagline{font-size:11px;color:#475569;margin-top:2px;letter-spacing:0.04em;}
+  .logo-mark{width:42px;height:42px;background:${BRAND.surface};border-radius:10px;display:flex;align-items:center;justify-content:center;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:22px;font-weight:500;color:${BRAND.ink};flex-shrink:0;}
+  .logo-name{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:22px;font-weight:500;color:${BRAND.surface};letter-spacing:-0.01em;}
+  .logo-tagline{font-size:11px;color:${BRAND.textBody};margin-top:2px;letter-spacing:0.04em;}
   .header-right{text-align:right;}
-  .inv-label{font-size:10px;font-weight:600;letter-spacing:0.18em;text-transform:uppercase;color:#475569;margin-bottom:4px;}
-  .inv-number{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:22px;font-weight:500;color:#f6f7f9;letter-spacing:-0.01em;}
-  .badge{display:inline-block;margin-top:8px;background:#059669;color:#d1fae5;font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;padding:4px 12px;border-radius:99px;border:1px solid #05966966;}
+  .inv-label{font-size:10px;font-weight:600;letter-spacing:0.18em;text-transform:uppercase;color:${BRAND.textBody};margin-bottom:4px;}
+  .inv-number{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:22px;font-weight:500;color:${BRAND.surface};letter-spacing:-0.01em;}
+  .badge{display:inline-block;margin-top:8px;background:${BRAND.success};color:#d1fae5;font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;padding:4px 12px;border-radius:99px;border:1px solid ${BRAND.success}66;}
   .body{padding:36px 40px;}
-  .meta{display:grid;grid-template-columns:1fr 1fr;gap:24px;padding-bottom:28px;border-bottom:1px solid #e2e6ee;margin-bottom:28px;}
-  .meta-label{font-size:10px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:#8494ab;margin-bottom:6px;}
-  .meta-value{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;font-weight:500;color:#0f172a;line-height:1.45;}
-  .meta-sub{font-size:12px;color:#475569;margin-top:3px;}
+  .meta{display:grid;grid-template-columns:1fr 1fr;gap:24px;padding-bottom:28px;border-bottom:1px solid ${BRAND.borderSoft};margin-bottom:28px;}
+  .meta-label{font-size:10px;font-weight:600;letter-spacing:0.14em;text-transform:uppercase;color:${BRAND.textMuted};margin-bottom:6px;}
+  .meta-value{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;font-weight:500;color:${BRAND.ink};line-height:1.45;}
+  .meta-sub{font-size:12px;color:${BRAND.textBody};margin-top:3px;}
   .meta-right{text-align:right;}
   table{width:100%;border-collapse:collapse;margin-bottom:0;}
-  thead tr{border-bottom:2px solid #0f172a;}
-  th{font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#8494ab;padding:0 0 10px;text-align:left;}
+  thead tr{border-bottom:2px solid ${BRAND.ink};}
+  th{font-size:10px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:${BRAND.textMuted};padding:0 0 10px;text-align:left;}
   th.num{text-align:right;}
-  tbody tr{border-bottom:1px solid #e2e6ee;}
-  tbody tr.alt{background:#f6f7f955;}
-  td{padding:13px 0;font-size:13.5px;color:#0f172a;vertical-align:top;}
+  tbody tr{border-bottom:1px solid ${BRAND.borderSoft};}
+  tbody tr.alt{background:${BRAND.surface}55;}
+  td{padding:13px 0;font-size:13.5px;color:${BRAND.ink};vertical-align:top;}
   td.desc{font-weight:500;padding-right:16px;}
-  td.num{text-align:right;color:#475569;}
-  td.bold{font-weight:700;color:#0f172a;}
-  .totals{margin-top:20px;padding-top:16px;border-top:1px solid #e2e6ee;}
-  .totals-row{display:flex;justify-content:space-between;font-size:13px;color:#475569;padding:4px 0;}
-  .totals-row.grand{margin-top:12px;padding-top:14px;border-top:2px solid #0f172a;font-size:18px;font-weight:700;color:#0f172a;}
-  .pay-strip{background:#f6f7f9;border:1px solid #e2e6ee;border-radius:10px;padding:18px 20px;margin-top:28px;display:grid;grid-template-columns:1fr 1fr;}
-  .pay-label{font-size:10px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:#8494ab;margin-bottom:5px;}
-  .pay-value{font-size:13px;font-weight:600;color:#0f172a;word-break:break-all;}
+  td.num{text-align:right;color:${BRAND.textBody};}
+  td.bold{font-weight:700;color:${BRAND.ink};}
+  .totals{margin-top:20px;padding-top:16px;border-top:1px solid ${BRAND.borderSoft};}
+  .totals-row{display:flex;justify-content:space-between;font-size:13px;color:${BRAND.textBody};padding:4px 0;}
+  .totals-row.grand{margin-top:12px;padding-top:14px;border-top:2px solid ${BRAND.ink};font-size:18px;font-weight:700;color:${BRAND.ink};}
+  .pay-strip{background:${BRAND.surface};border:1px solid ${BRAND.borderSoft};border-radius:10px;padding:18px 20px;margin-top:28px;display:grid;grid-template-columns:1fr 1fr;}
+  .pay-label{font-size:10px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;color:${BRAND.textMuted};margin-bottom:5px;}
+  .pay-value{font-size:13px;font-weight:600;color:${BRAND.ink};word-break:break-all;}
   .pay-right{text-align:right;}
-  .footer{margin-top:32px;padding-top:20px;border-top:1px solid #e2e6ee;display:flex;justify-content:space-between;align-items:center;}
-  .footer-left{font-size:11px;color:#8494ab;line-height:1.7;}
-  .footer-stamp{font-size:11.5px;color:#059669;font-weight:600;letter-spacing:0.04em;}
-  @media print{*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}html,body{background:#f6f7f9!important;padding:0!important;}.page{box-shadow:none!important;border-radius:0!important;}}
+  .footer{margin-top:32px;padding-top:20px;border-top:1px solid ${BRAND.borderSoft};display:flex;justify-content:space-between;align-items:center;}
+  .footer-left{font-size:11px;color:${BRAND.textMuted};line-height:1.7;}
+  .footer-stamp{font-size:11.5px;color:${BRAND.success};font-weight:600;letter-spacing:0.04em;}
+  @media print{*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}html,body{background:${BRAND.surface}!important;padding:0!important;}.page{box-shadow:none!important;border-radius:0!important;}}
 </style>
 </head>
 <body>

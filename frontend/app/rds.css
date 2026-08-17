@@ -304,41 +304,46 @@ input[type="password"]::-ms-reveal {
   --aspect-video: 16 / 9;
 
   /* ═══════════════════════════════════════════════════════════════════════
-   * COLORS
+   * COLORS — SINGLE SOURCE OF TRUTH
    *
-   * Organized by Figma variable collection:
-   *   1. Base palette  — raw color scales (blue, navy, green, red, yellow, neutral)
-   *   2. Data viz      — chart / visualization palette
-   *   3. Semantic      — primary, accent, success, failure, warning
-   *   4. Contextual    — text, surface, border, icon
+   * ┌─────────────────────────────────────────────────────────────────────┐
+   * │  TO REBRAND THE ENTIRE APP, EDIT *ONLY* THE MASTER PALETTE BELOW.   │
+   * │  Every other color token in this file — semantic, contextual,       │
+   * │  shadcn aliases — is a var() reference into these scales, and       │
+   * │  globals.css / epalify.css / components consume those tokens.       │
+   * │  (Server-rendered PDFs & emails read the same hex values from       │
+   * │   backend/src/common/brand-colors.ts — keep the two in sync.)       │
+   * └─────────────────────────────────────────────────────────────────────┘
+   *
+   * Current palette: "Violet & Ink" — violet primary, near-black ink accent.
    * ═════════════════════════════════════════════════════════════════════ */
 
   --color-black: #000000;
   --color-white: #ffffff;
 
-  /* ── Blue (Brand) ────────────────────────────────────────────────────── */
-  --color-blue-100: #f9fbff;
-  --color-blue-200: #e8edf8;
-  --color-blue-300: #94acdd;
-  --color-blue-400: #6486cd;
-  --color-blue-500: #456ec4;
-  --color-blue-600: #174ab5;
-  --color-blue-700: #1543a5;
-  --color-blue-800: #103581;
-  --color-blue-900: #0d2964;
-  --color-blue-1000: #0a1f4c;
+  /* ── MASTER · Brand (violet) ─────────────────────────────────────────── */
+  --color-brand-100: #f8f7fe;
+  --color-brand-200: #eae7fc;
+  --color-brand-300: #b9b1f5;
+  --color-brand-400: #9187ef;
+  --color-brand-500: #7469ea;
+  --color-brand-600: #5b4fe8;
+  --color-brand-700: #4f43d6;
+  --color-brand-800: #3e34ab;
+  --color-brand-900: #302a85;
+  --color-brand-1000: #262165;
 
-  /* ── Navy ─────────────────────────────────────────────────────────────── */
-  --color-navy-100: #e7e9ed;
-  --color-navy-200: #dbdee4;
-  --color-navy-300: #b4bac7;
-  --color-navy-400: #0e204a;
-  --color-navy-500: #0d1d43;
-  --color-navy-600: #0b1a3b;
-  --color-navy-700: #0b1838;
-  --color-navy-800: #08132c;
+  /* ── MASTER · Ink (accent, buttons, sidebar) ─────────────────────────── */
+  --color-ink-100: #e9e9ee;
+  --color-ink-200: #dedee4;
+  --color-ink-300: #b8b8c5;
+  --color-ink-400: #191831;
+  --color-ink-500: #16152c;
+  --color-ink-600: #131226;
+  --color-ink-700: #111020;
+  --color-ink-800: #0d0c19;
 
-  /* ── Green ────────────────────────────────────────────────────────────── */
+  /* ── MASTER · Green (success) ────────────────────────────────────────── */
   --color-green-100: #eaf7ef;
   --color-green-200: #bfe5cd;
   --color-green-300: #9fd8b4;
@@ -350,7 +355,7 @@ input[type="password"]::-ms-reveal {
   --color-green-900: #1a5e33;
   --color-green-1000: #144827;
 
-  /* ── Red ──────────────────────────────────────────────────────────────── */
+  /* ── MASTER · Red (failure) ──────────────────────────────────────────── */
   --color-red-100: #fcebeb;
   --color-red-200: #f6c2c2;
   --color-red-300: #f2a4a4;
@@ -362,7 +367,7 @@ input[type="password"]::-ms-reveal {
   --color-red-900: #7d1f1f;
   --color-red-1000: #5f1818;
 
-  /* ── Yellow ───────────────────────────────────────────────────────────── */
+  /* ── MASTER · Yellow (warning) ───────────────────────────────────────── */
   --color-yellow-100: #fff9ec;
   --color-yellow-200: #ffebc4;
   --color-yellow-300: #ffe2a8;
@@ -374,19 +379,42 @@ input[type="password"]::-ms-reveal {
   --color-yellow-900: #8c6a24;
   --color-yellow-1000: #6b511c;
 
-  /* ── Neutral ──────────────────────────────────────────────────────────── */
+  /* ── MASTER · Neutral (greys; 200/500/900 carry the brand undertone) ── */
   --color-neutral-100: #ffffff;
-  --color-neutral-200: #f9fbff;
-  --color-neutral-300: #f3f4f7;
-  --color-neutral-400: #eeeff0;
-  --color-neutral-500: #e2e8f0;
-  --color-neutral-600: #a5acb6;
-  --color-neutral-700: #828d9d;
-  --color-neutral-800: #374150;
-  --color-neutral-900: #0e1321;
+  --color-neutral-200: #f9f8fe;
+  --color-neutral-300: #f3f3f7;
+  --color-neutral-400: #eeeef0;
+  --color-neutral-500: #e5e4ef;
+  --color-neutral-600: #a6a5b6;
+  --color-neutral-700: #85839d;
+  --color-neutral-800: #3a3850;
+  --color-neutral-900: #100f21;
+  /* App-shell background (behind cards/sidebar) — part of the master palette. */
+  --color-surface-shell: #f1f0fa;
 
-  /* ── Data Visualization ──────────────────────────────────────────────── */
-  --color-dataviz-100: #4b6cd6;
+  /* ── Legacy palette names (old Figma collections) → master refs ──────── */
+  --color-blue-100: var(--color-brand-100);
+  --color-blue-200: var(--color-brand-200);
+  --color-blue-300: var(--color-brand-300);
+  --color-blue-400: var(--color-brand-400);
+  --color-blue-500: var(--color-brand-500);
+  --color-blue-600: var(--color-brand-600);
+  --color-blue-700: var(--color-brand-700);
+  --color-blue-800: var(--color-brand-800);
+  --color-blue-900: var(--color-brand-900);
+  --color-blue-1000: var(--color-brand-1000);
+
+  --color-navy-100: var(--color-ink-100);
+  --color-navy-200: var(--color-ink-200);
+  --color-navy-300: var(--color-ink-300);
+  --color-navy-400: var(--color-ink-400);
+  --color-navy-500: var(--color-ink-500);
+  --color-navy-600: var(--color-ink-600);
+  --color-navy-700: var(--color-ink-700);
+  --color-navy-800: var(--color-ink-800);
+
+  /* ── Data-viz (charts; 100 tracks the brand) ─────────────────────────── */
+  --color-dataviz-100: var(--color-brand-500);
   --color-dataviz-200: #ff8c3c;
   --color-dataviz-300: #2dd4bf;
   --color-dataviz-400: #a855f7;
@@ -395,144 +423,156 @@ input[type="password"]::-ms-reveal {
   --color-dataviz-700: #b2586e;
   --color-dataviz-800: #7c3aed;
 
-  /* ── Semantic: Primary ───────────────────────────────────────────────── */
-  --color-primary-bg: #f9fbff;
-  --color-primary-200: #e8edf8;
-  --color-primary-300: #94acdd;
-  --color-primary-400: #6486cd;
-  --color-primary-500: #456ec4;
-  --color-primary: #174ab5;
-  --color-primary-700: #1543a5;
-  --color-primary-800: #103581;
-  --color-primary-900: #0d2964;
-  --color-primary-1000: #0a1f4c;
+  /* ── Semantic: Primary → brand ───────────────────────────────────────── */
+  --color-primary-bg: var(--color-brand-100);
+  --color-primary-200: var(--color-brand-200);
+  --color-primary-300: var(--color-brand-300);
+  --color-primary-400: var(--color-brand-400);
+  --color-primary-500: var(--color-brand-500);
+  --color-primary: var(--color-brand-600);
+  --color-primary-700: var(--color-brand-700);
+  --color-primary-800: var(--color-brand-800);
+  --color-primary-900: var(--color-brand-900);
+  --color-primary-1000: var(--color-brand-1000);
 
-  /* ── Semantic: Accent (Navy) ─────────────────────────────────────────── */
-  --color-accent-100: #e7e9ed;
-  --color-accent-200: #dbdee4;
-  --color-accent-300: #b4bac7;
-  --color-accent-400: #0e204a;
-  --color-accent-500: #0d1d43;
-  --color-accent: #0b1a3b;
-  --color-accent-700: #0b1838;
-  --color-accent-800: #08132c;
+  /* ── Semantic: Accent → ink ──────────────────────────────────────────── */
+  --color-accent-100: var(--color-ink-100);
+  --color-accent-200: var(--color-ink-200);
+  --color-accent-300: var(--color-ink-300);
+  --color-accent-400: var(--color-ink-400);
+  --color-accent-500: var(--color-ink-500);
+  --color-accent: var(--color-ink-600);
+  --color-accent-700: var(--color-ink-700);
+  --color-accent-800: var(--color-ink-800);
 
-  /* ── Semantic: Success ───────────────────────────────────────────────── */
-  --color-success-100: #eaf7ef;
-  --color-success-200: #bfe5cd;
-  --color-success-300: #9fd8b4;
-  --color-success-400: #74c792;
-  --color-success-500: #59bc7d;
-  --color-success: #2fab5d;
-  --color-success-700: #2b9c55;
-  --color-success-800: #217942;
-  --color-success-900: #1a5e33;
-  --color-success-1000: #144827;
+  /* ── Semantic: Success → green ───────────────────────────────────────── */
+  --color-success-100: var(--color-green-100);
+  --color-success-200: var(--color-green-200);
+  --color-success-300: var(--color-green-300);
+  --color-success-400: var(--color-green-400);
+  --color-success-500: var(--color-green-500);
+  --color-success: var(--color-green-600);
+  --color-success-700: var(--color-green-700);
+  --color-success-800: var(--color-green-800);
+  --color-success-900: var(--color-green-900);
+  --color-success-1000: var(--color-green-1000);
 
-  /* ── Semantic: Failure ───────────────────────────────────────────────── */
-  --color-failure-100: #fcebeb;
-  --color-failure-200: #f6c2c2;
-  --color-failure-300: #f2a4a4;
-  --color-failure-400: #ec7a7a;
-  --color-failure-500: #e96161;
-  --color-failure: #e33939;
-  --color-failure-700: #cf3434;
-  --color-failure-800: #a12828;
-  --color-failure-900: #7d1f1f;
-  --color-failure-1000: #5f1818;
+  /* ── Semantic: Failure → red ─────────────────────────────────────────── */
+  --color-failure-100: var(--color-red-100);
+  --color-failure-200: var(--color-red-200);
+  --color-failure-300: var(--color-red-300);
+  --color-failure-400: var(--color-red-400);
+  --color-failure-500: var(--color-red-500);
+  --color-failure: var(--color-red-600);
+  --color-failure-700: var(--color-red-700);
+  --color-failure-800: var(--color-red-800);
+  --color-failure-900: var(--color-red-900);
+  --color-failure-1000: var(--color-red-1000);
 
-  /* ── Semantic: Warning ───────────────────────────────────────────────── */
-  --color-warning-100: #fff9ec;
-  --color-warning-200: #ffebc4;
-  --color-warning-300: #ffe2a8;
-  --color-warning-400: #ffd580;
-  --color-warning-500: #ffcd68;
-  --color-warning: #ffb522;
-  --color-warning-700: #e8af3c;
-  --color-warning-800: #b5882f;
-  --color-warning-900: #8c6a24;
-  --color-warning-1000: #6b511c;
+  /* ── Semantic: Warning → yellow ──────────────────────────────────────── */
+  --color-warning-100: var(--color-yellow-100);
+  --color-warning-200: var(--color-yellow-200);
+  --color-warning-300: var(--color-yellow-300);
+  --color-warning-400: var(--color-yellow-400);
+  --color-warning-500: var(--color-yellow-500);
+  --color-warning: var(--color-yellow-600);
+  --color-warning-700: var(--color-yellow-700);
+  --color-warning-800: var(--color-yellow-800);
+  --color-warning-900: var(--color-yellow-900);
+  --color-warning-1000: var(--color-yellow-1000);
 
   /* ── Contextual: Text ────────────────────────────────────────────────── */
-  --color-text-heading: #0e1321;
-  --color-text-subheading: #828d9d;
-  --color-text-body: #374150;
-  --color-text-disabled: #a5acb6;
-  --color-text-white: #ffffff;
-  --color-text-link: #174ab5;
-  --color-text-link-hover: #0b1838;
-  --color-text-info: #174ab5;
-  --color-text-error: #e33939;
-  --color-text-warning: #ffb522;
-  --color-text-success: #2fab5d;
+  --color-text-heading: var(--color-neutral-900);
+  --color-text-subheading: var(--color-neutral-700);
+  --color-text-body: var(--color-neutral-800);
+  --color-text-disabled: var(--color-neutral-600);
+  --color-text-white: var(--color-white);
+  --color-text-link: var(--color-brand-600);
+  --color-text-link-hover: var(--color-ink-700);
+  --color-text-info: var(--color-brand-600);
+  --color-text-error: var(--color-red-600);
+  --color-text-warning: var(--color-yellow-600);
+  --color-text-success: var(--color-green-600);
 
   /* ── Contextual: Surface ─────────────────────────────────────────────── */
-  --color-surface-primary: #174ab5;
-  --color-surface-page: #ffffff;
-  --color-surface-nav: #f9fbff;
-  --color-surface-success: #eaf7ef;
-  --color-surface-error: #fcebeb;
-  --color-surface-warning: #fff9ec;
-  --color-surface-disabled: #eeeff0;
-  --color-surface-info: #f9fbff;
-  --color-surface-btn-primary: #0e204a;
-  --color-surface-btn-primary-hover: #0d2964;
-  --color-surface-btn-secondary: #ffffff;
-  --color-surface-btn-secondary-hover: #f9fbff;
-  --color-surface-tooltip: #08132c;
+  --color-surface-primary: var(--color-brand-600);
+  --color-surface-page: var(--color-white);
+  --color-surface-nav: var(--color-brand-100);
+  --color-surface-success: var(--color-green-100);
+  --color-surface-error: var(--color-red-100);
+  --color-surface-warning: var(--color-yellow-100);
+  --color-surface-disabled: var(--color-neutral-400);
+  --color-surface-info: var(--color-brand-100);
+  --color-surface-btn-primary: var(--color-ink-400);
+  --color-surface-btn-primary-hover: var(--color-brand-900);
+  --color-surface-btn-secondary: var(--color-white);
+  --color-surface-btn-secondary-hover: var(--color-brand-100);
+  --color-surface-tooltip: var(--color-ink-800);
 
   /* ── Contextual: Border ──────────────────────────────────────────────── */
-  --color-border-default: #eeeff0;
-  --color-border-hover: #e2e8f0;
-  --color-border-disabled: #f3f4f7;
-  --color-border-focused: #174ab5;
-  --color-border-pressed: #e2e8f0;
-  --color-border-active: #456ec4;
-  --color-border-success: #2fab5d;
-  --color-border-failure: #e33939;
-  --color-border-warning: #ffb522;
-  --color-border-info: #174ab5;
+  --color-border-default: var(--color-neutral-400);
+  --color-border-hover: var(--color-neutral-500);
+  --color-border-disabled: var(--color-neutral-300);
+  --color-border-focused: var(--color-brand-600);
+  --color-border-pressed: var(--color-neutral-500);
+  --color-border-active: var(--color-brand-500);
+  --color-border-success: var(--color-green-600);
+  --color-border-failure: var(--color-red-600);
+  --color-border-warning: var(--color-yellow-600);
+  --color-border-info: var(--color-brand-600);
 
   /* ── Contextual: Icon ────────────────────────────────────────────────── */
-  --color-icon-default: #374150;
-  --color-icon-muted: #828d9d;
-  --color-icon-disabled: #a5acb6;
-  --color-icon-white: #ffffff;
-  --color-icon-success: #2fab5d;
-  --color-icon-warning: #ffb522;
-  --color-icon-failure: #e33939;
-  --color-icon-info: #174ab5;
-  --color-icon-link: #174ab5;
+  --color-icon-default: var(--color-neutral-800);
+  --color-icon-muted: var(--color-neutral-700);
+  --color-icon-disabled: var(--color-neutral-600);
+  --color-icon-white: var(--color-white);
+  --color-icon-success: var(--color-green-600);
+  --color-icon-warning: var(--color-yellow-600);
+  --color-icon-failure: var(--color-red-600);
+  --color-icon-info: var(--color-brand-600);
+  --color-icon-link: var(--color-brand-600);
 
   /* ── shadcn/ui compatibility aliases ─────────────────────────────────── */
-  --color-background: #ffffff;
-  --color-foreground: #0e1321;
-  --color-muted: #f3f4f7;
-  --color-muted-foreground: #828d9d;
-  --color-popover: #ffffff;
-  --color-popover-foreground: #0e1321;
-  --color-card: #ffffff;
-  --color-card-foreground: #0e1321;
-  --color-destructive: #e33939;
-  --color-destructive-foreground: #ffffff;
-  --color-secondary: #f3f4f7;
-  --color-secondary-foreground: #0e1321;
-  --color-input: #eeeff0;
-  --color-ring: #174ab5;
+  --color-background: var(--color-white);
+  --color-foreground: var(--color-neutral-900);
+  --color-muted: var(--color-neutral-300);
+  --color-muted-foreground: var(--color-neutral-700);
+  --color-popover: var(--color-white);
+  --color-popover-foreground: var(--color-neutral-900);
+  --color-card: var(--color-white);
+  --color-card-foreground: var(--color-neutral-900);
+  --color-destructive: var(--color-red-600);
+  --color-destructive-foreground: var(--color-white);
+  --color-secondary: var(--color-neutral-300);
+  --color-secondary-foreground: var(--color-neutral-900);
+  --color-input: var(--color-neutral-400);
+  --color-ring: var(--color-brand-600);
 }
 
 /* Tailwind v4 drops user CSS placed in `@layer components { ... }`, so these
    rules are intentionally unlayered. */
+
+/* Soft brand-tinted radial used by CheckCard / TatBadge "in progress" chips —
+   defined here (with vars) so it re-tints itself on a palette change. */
+.brand-tint-gradient {
+  background-image: radial-gradient(
+    ellipse at bottom right,
+    #d6d1f7 0%,
+    var(--color-brand-200) 42%,
+    var(--color-brand-100) 78%
+  );
+}
+
 .wavy-feedback-pill {
   border-radius: 900px;
   border: 1px solid rgba(109, 94, 244, 0.78);
   background-image: linear-gradient(
     -45deg,
-    #174ab5,
+    var(--color-brand-600),
     #7b61ff,
     #5b3bff,
     #7b61ff,
-    #174ab5
+    var(--color-brand-600)
   );
   background-size: 400% 400%;
   background-position: 0% 50%;
@@ -551,7 +591,7 @@ input[type="password"]::-ms-reveal {
   animation: none;
   background-image: linear-gradient(
     92deg,
-    #174ab5 -17.02%,
+    var(--color-brand-600) -17.02%,
     #7b61ff 126.9%
   );
   background-size: 100% 100%;
@@ -620,7 +660,7 @@ body {
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: #A5ACB6 transparent;
+  scrollbar-color: var(--color-neutral-600) transparent;
 }
 
 *::-webkit-scrollbar {
@@ -633,12 +673,12 @@ body {
 }
 
 *::-webkit-scrollbar-thumb {
-  background-color: #A5ACB6;
+  background-color: var(--color-neutral-600);
   border-radius: 9999px;
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background-color: #828d9d;
+  background-color: var(--color-neutral-700);
 }
 
 button:hover:not(:disabled):not([aria-disabled="true"]) {
@@ -661,7 +701,7 @@ button:hover:not(:disabled):not([aria-disabled="true"]) {
 
 @layer base {
   :focus-visible {
-    outline: 1px solid #174ab5;
+    outline: 1px solid var(--color-primary);
   }
 
   :focus:not(:focus-visible) {
@@ -677,10 +717,10 @@ button:hover:not(:disabled):not([aria-disabled="true"]) {
   border-radius: 8px;
   background: linear-gradient(
     to right,
-    #174ab5 0%,
-    #174ab5 var(--fill, 0%),
-    #eeeff0 var(--fill, 0%),
-    #eeeff0 100%
+    var(--color-primary) 0%,
+    var(--color-primary) var(--fill, 0%),
+    var(--color-border-default) var(--fill, 0%),
+    var(--color-border-default) 100%
   );
   outline: none;
   cursor: pointer;
@@ -702,7 +742,7 @@ button:hover:not(:disabled):not([aria-disabled="true"]) {
 .range-slider::-moz-range-progress {
   height: 4px;
   border-radius: 8px;
-  background: #174ab5;
+  background: var(--color-primary);
 }
 
 .range-slider::-webkit-slider-thumb {
@@ -711,8 +751,8 @@ button:hover:not(:disabled):not([aria-disabled="true"]) {
   width: 16px;
   height: 16px;
   border-radius: 9999px;
-  border: 0.75px solid #eeeff0;
-  background: #ffffff;
+  border: 0.75px solid var(--color-border-default);
+  background: var(--color-white);
   box-shadow: 0 0.8px 6px rgba(11, 26, 59, 0.05);
   margin-top: -6px;
   cursor: pointer;
@@ -723,8 +763,8 @@ button:hover:not(:disabled):not([aria-disabled="true"]) {
   width: 16px;
   height: 16px;
   border-radius: 9999px;
-  border: 0.75px solid #eeeff0;
-  background: #ffffff;
+  border: 0.75px solid var(--color-border-default);
+  background: var(--color-white);
   box-shadow: 0 0.8px 6px rgba(11, 26, 59, 0.05);
   cursor: pointer;
   transition: transform 120ms ease-out;

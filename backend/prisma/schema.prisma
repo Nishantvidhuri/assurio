@@ -16,6 +16,10 @@ model User {
   phone               String?
   resetToken          String?
   resetTokenExpiresAt DateTime?
+  /// Google account `sub` claim — stable unique ID for Google sign-in. Linked
+  /// on first Google login (matched by verified email) or set at creation for
+  /// accounts born via Google. Password login stays available alongside it.
+  googleId            String?   @unique
   createdAt           DateTime  @default(now())
 
   // Client billing (ported from Recriauth): PREPAID clients buy credits up
@@ -27,6 +31,7 @@ model User {
 
   subjects Subject[]
   invoices Invoice[]
+  wallet   Wallet?
 }
 
 model Subject {
@@ -68,7 +73,25 @@ model Subject {
   crimeResult       Json?
   consentResult     Json?
   consentAcceptedAt DateTime?
+  // Candidate-consent state machine gating the paid checks. PENDING → the
+  // wallet charge is a refundable hold and no vendor API may be called;
+  // GRANTED → checks run, the hold is consumed; DECLINED / EXPIRED → the hold
+  // is refunded to the client wallet. Transitions are one-way and enforced
+  // with conditional updates (WHERE consentStatus = 'PENDING') so exactly one
+  // outcome can ever win — never both checks and a refund.
+  consentStatus     ConsentStatus @default(PENDING)
+  consentDecidedAt  DateTime?
   verificationLog   Json      @default("[]")
+  // Server-generated BGV report PDF, regenerated (debounced) on every status
+  // update and stored on S3. Preview/download stream this object, not an
+  // on-the-fly render. Previous object is deleted when a new one is written.
+  reportPdfS3Key      String?
+  reportPdfGeneratedAt DateTime?
+  /// Set once every applicable check has a stored result — the moment the
+  /// verification is 100% done. Also the idempotency guard for delivering the
+  /// finished report to the client: set exactly once, so the PDF is sent once.
+  reportCompletedAt   DateTime?
+  reportSentAt        DateTime?
   resetToken        String?
   resetTokenExpiresAt DateTime?
   createdAt         DateTime  @default(now())
@@ -237,6 +260,54 @@ model OutboxEvent {
 
   @@index([status])
   @@index([processAfter])
+}
+
+// =====================================================================
+// Operational alerts — powers the /admin/operations "Active alerts" panel.
+// Self-healing: raised (upsert on dedupeKey) by the observability sweep and by
+// event-driven callers; auto-resolved when the condition clears. Ported from
+// Recriauth's OperationalAlert model, trimmed to Assurio's alert types.
+// =====================================================================
+enum OperationalAlertType {
+  DEAD_JOBS
+  QUEUE_BACKLOG_AGE
+  OUTBOX_FAILURE
+  DOCUMENT_STORAGE_MISMATCH
+  INFECTED_DOCUMENT_SPIKE
+}
+
+enum OperationalAlertSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum OperationalAlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+model OperationalAlert {
+  id                   String                   @id @default(cuid())
+  dedupeKey            String                   @unique
+  type                 OperationalAlertType
+  severity             OperationalAlertSeverity
+  status               OperationalAlertStatus   @default(OPEN)
+  queueName            String?
+  title                String
+  message              String
+  metadata             Json?
+  occurrenceCount      Int                      @default(1)
+  firstOccurredAt      DateTime                 @default(now())
+  lastOccurredAt       DateTime                 @default(now())
+  acknowledgedAt       DateTime?
+  acknowledgedByUserId String?
+  resolvedAt           DateTime?
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
+
+  @@index([status, lastOccurredAt])
 }
 
 // =====================================================================
@@ -473,4 +544,136 @@ model DiscountCode {
   active     Boolean  @default(true)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+}
+
+/// Durable, crash-safe document upload session. The client PUTs bytes directly
+/// to S3 via a presigned URL — the API never buffers the file — and this row
+/// tracks the intent + lifecycle so a mid-request crash can be resumed from
+/// BullMQ/Redis and swept by the reconcile job. See UploadsModule.
+model DocumentUploadSession {
+  id                String               @id @default(cuid())
+  userId            String
+  /// AADHAAR | PAN | VOTER_ID | PASSPORT | DRIVING_LICENSE (generic string).
+  category          String
+  s3Key             String               @unique
+  contentType       String
+  expectedSizeBytes Int
+  status            DocumentUploadStatus @default(INTENT_CREATED)
+  scanStatus        String?
+  etag              String?
+  actualSize        Int?
+  originalFilename  String
+  attempts          Int                  @default(0)
+  lastError         String?
+  expiresAt         DateTime
+  /// Set when the client calls POST /uploads/:id/confirm. Lets reconcile
+  /// re-drive only sessions the client actually finished uploading, and lets
+  /// the expiry sweep skip confirmed-but-still-finalizing sessions.
+  confirmedAt       DateTime?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  @@index([status, expiresAt])
+  @@index([userId])
+}
+
+enum DocumentUploadStatus {
+  INTENT_CREATED
+  PRESIGNED
+  COMPLETED
+  SCANNING
+  CLEAN
+  INFECTED
+  EXPIRED
+  FAILED
+}
+
+/// ── Client wallet (prepaid balance) ──────────────────────────────────────────
+/// Money-safety rules, all enforced at the database layer:
+///  • Amounts are integer paise — never floats.
+///  • balancePaise is a cache; it is only ever written in the same row-locked
+///    transaction as the WalletTransaction ledger row, so cache and ledger
+///    cannot diverge.
+///  • Every ledger row has a unique idempotencyKey (charge:subject:<id>,
+///    refund:subject:<id>, topup:rzp:<paymentId>) — a top-up can never be
+///    credited twice and a subject can never be charged or refunded twice,
+///    no matter how often a job retries or a request is replayed.
+///  • Ledger rows are immutable: no service updates or deletes them.
+
+enum ConsentStatus {
+  PENDING
+  GRANTED
+  DECLINED
+  EXPIRED
+}
+
+enum WalletTransactionType {
+  CREDIT
+  DEBIT
+}
+
+enum WalletTransactionReason {
+  TOPUP
+  VERIFICATION_CHARGE
+  CONSENT_REFUND
+  ADMIN_CREDIT
+  ADMIN_DEBIT
+}
+
+model Wallet {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  /// Cached balance in paise (₹1 = 100). Always >= 0; capped well below the
+  /// Int32 limit by MAX_BALANCE_PAISE at the service layer.
+  balancePaise Int      @default(0)
+  currency     String   @default("INR")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user         User                @relation(fields: [userId], references: [id])
+  transactions WalletTransaction[]
+}
+
+model WalletTransaction {
+  id                String                  @id @default(cuid())
+  walletId          String
+  type              WalletTransactionType
+  reason            WalletTransactionReason
+  /// Always positive; direction comes from `type`.
+  amountPaise       Int
+  /// Balance snapshot after this entry — makes the ledger self-auditing.
+  balanceAfterPaise Int
+  /// Deliberately NOT a foreign key: the ledger must survive subject deletion.
+  subjectId         String?
+  invoiceId         String?
+  razorpayPaymentId String?
+  idempotencyKey    String                  @unique
+  note              String?
+  createdByUserId   String?
+  createdAt         DateTime                @default(now())
+
+  wallet Wallet @relation(fields: [walletId], references: [id])
+
+  @@index([walletId, createdAt])
+  @@index([subjectId])
+}
+
+/// Durable copy of an outbound WhatsApp attachment (image / document). The file
+/// is uploaded to S3 before sending so the chat UI can always re-render it after
+/// a refresh, independent of whatever OpenWA keeps on the message row. Keyed by
+/// the WhatsApp message id returned when the media was sent.
+model WhatsAppMediaAsset {
+  id          String   @id @default(cuid())
+  /// WhatsApp message id (waMessageId) this asset belongs to.
+  waMessageId String   @unique
+  /// Chat the message was sent to ("…@c.us" / "…@lid").
+  chatId      String
+  /// S3 object key of the stored file.
+  s3Key       String
+  mimetype    String
+  filename    String?
+  direction   String   @default("outbound")
+  createdAt   DateTime @default(now())
+
+  @@index([chatId])
 }

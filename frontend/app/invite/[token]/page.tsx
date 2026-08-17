@@ -72,7 +72,7 @@ export default function InvitePage() {
 
   if (loadError) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#F4F7FC] px-4 py-10">
+      <div className="min-h-screen flex items-center justify-center bg-surface-shell px-4 py-10">
         <div className="w-full max-w-md rounded-xl border border-border-default bg-white p-8 shadow-[0px_1px_5px_0px_rgba(11,26,59,0.06)]">
           <div className="mb-6 flex justify-center [&_.brand]:mb-0">
             <Brand />
@@ -93,14 +93,14 @@ export default function InvitePage() {
 
   if (!info) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#F4F7FC]">
+      <div className="min-h-screen flex items-center justify-center bg-surface-shell">
         <Loader description="Loading..." />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-start justify-center bg-[#F4F7FC] px-4 py-10">
+    <div className="min-h-screen flex items-start justify-center bg-surface-shell px-4 py-10">
       <div className="w-full max-w-[560px] rounded-xl border border-border-default bg-white p-8 shadow-[0px_1px_5px_0px_rgba(11,26,59,0.06)]">
         <div className="mb-6 flex justify-center [&_.brand]:mb-0">
           <Brand />

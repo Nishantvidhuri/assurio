@@ -1,5 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { readFileSync } from 'fs';
+import { PrismaService } from './prisma.service';
+import { S3Service } from './s3.service';
+import * as T from './whatsapp-templates';
 
 /**
  * Sends WhatsApp messages via an OpenWA instance
@@ -20,6 +24,11 @@ import { readFileSync } from 'fs';
 @Injectable()
 export class WhatsAppService {
   private readonly logger = new Logger(WhatsAppService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly s3: S3Service,
+  ) {}
 
   /** Cache: session name/id string → resolved UUID (refreshed on each process restart) */
   private resolvedSessionId: string | null = null;
@@ -44,7 +53,7 @@ export class WhatsAppService {
     const roleStr = role ? ` as *${role}*` : '';
 
     const caption =
-      `Hey ${firstName} 👋\n\n` +
+      `Hi ${firstName},\n\n` +
       `*${clientName}* registered you${roleStr} and initiated a background verification via *${clientName}*.\n\n` +
       `Tap below to begin — takes less than 10 minutes:\n` +
       `${inviteUrl}`;
@@ -210,6 +219,413 @@ export class WhatsAppService {
   }
 
   /**
+   * Reads the stored conversation with a number (both sent + received) so the
+   * admin page can render it as a WhatsApp chat. Returns null if OpenWA isn't
+   * configured/reachable. `direction: 'outbound'` = we sent it, `'inbound'` =
+   * received from the number.
+   */
+  async getMessages(
+    rawPhone: string,
+    limit = 50,
+  ): Promise<
+    | Array<{
+        id: string;
+        waMessageId?: string;
+        chatId: string;
+        body: string;
+        type: string;
+        direction: 'inbound' | 'outbound';
+        timestamp: number;
+        status?: string;
+        mediaMimetype?: string;
+        /** Durable presigned S3 URL when we kept our own copy of the media. */
+        mediaUrl?: string;
+      }>
+    | null
+  > {
+    const base = process.env.OPENWA_URL?.replace(/\/$/, '');
+    const session = process.env.OPENWA_SESSION;
+    const apiKey = process.env.OPENWA_API_KEY;
+    if (!base || !session) return null;
+
+    // Hard guard: never read a conversation that isn't a candidate/client.
+    if (!(await this.isPlatformTarget(rawPhone))) return [];
+
+    const chatId = this.toChatId(rawPhone);
+    if (!chatId) return null;
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['X-API-Key'] = apiKey;
+
+    const sessionId = await this.resolveSessionId(base, session, headers);
+    if (!sessionId) return null;
+    const sid = encodeURIComponent(sessionId);
+
+    const url = `${base}/sessions/${sid}/messages?chatId=${encodeURIComponent(chatId)}&limit=${limit}`;
+    try {
+      const res = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+      if (!res.ok) {
+        if (res.status === 400 && (await res.text().catch(() => '')).includes('not active')) {
+          this.resolvedSessionId = null;
+        }
+        return null;
+      }
+      const data = (await res.json().catch(() => null)) as unknown;
+      const rows: Array<Record<string, unknown>> = Array.isArray(data)
+        ? (data as Array<Record<string, unknown>>)
+        : (((data as { data?: unknown; messages?: unknown })?.data ??
+            (data as { messages?: unknown })?.messages ??
+            []) as Array<Record<string, unknown>>);
+      const mapped = rows
+        .map((m) => {
+          const dir = String(m.direction ?? '').toLowerCase();
+          const inbound =
+            dir.startsWith('in') || dir === 'received' || m.fromMe === false;
+          return {
+            id: String(m.id ?? m.waMessageId ?? ''),
+            waMessageId: m.waMessageId ? String(m.waMessageId) : undefined,
+            chatId: String(m.chatId ?? chatId),
+            body: String(m.body ?? ''),
+            type: String(m.type ?? 'chat'),
+            direction: (inbound ? 'inbound' : 'outbound') as
+              | 'inbound'
+              | 'outbound',
+            timestamp: Number(m.timestamp ?? 0),
+            status: m.status ? String(m.status) : undefined,
+            mediaMimetype: m.mediaMimetype ? String(m.mediaMimetype) : undefined,
+            mediaUrl: undefined as string | undefined,
+          };
+        })
+        .sort((a, b) => a.timestamp - b.timestamp);
+
+      // Attach the durable S3 copy for any message we stored ourselves, so the
+      // attachment always re-renders after a refresh.
+      const normId = (id: string) => id.replace(/_(in|out)$/i, '');
+      const waIds = mapped
+        .map((m) => m.waMessageId)
+        .filter((v): v is string => !!v)
+        .map(normId);
+      if (waIds.length) {
+        try {
+          const assets = await this.prisma.whatsAppMediaAsset.findMany({
+            where: { waMessageId: { in: waIds } },
+            select: { waMessageId: true, s3Key: true },
+          });
+          const byId = new Map(assets.map((a) => [a.waMessageId, a.s3Key]));
+          await Promise.all(
+            mapped.map(async (m) => {
+              const s3Key = m.waMessageId
+                ? byId.get(normId(m.waMessageId))
+                : undefined;
+              if (s3Key) {
+                m.mediaUrl = await this.s3
+                  .presignedUrl(s3Key)
+                  .catch(() => undefined);
+              }
+            }),
+          );
+        } catch (err) {
+          this.logger.warn(`WA media asset lookup failed: ${(err as Error)?.message}`);
+        }
+      }
+
+      return mapped;
+    } catch (err) {
+      this.logger.warn(`getMessages error: ${(err as Error)?.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Streams a message's stored media (image/pdf) as raw bytes. Server-side
+   * guarded to platform chats only — the same gate as reading a conversation.
+   * Returns null if not configured/reachable; throws nothing on 403 (returns null).
+   */
+  async getMessageMedia(
+    chatId: string,
+    messageId: string,
+  ): Promise<{ buffer: Buffer; mimetype: string } | null> {
+    const base = process.env.OPENWA_URL?.replace(/\/$/, '');
+    const session = process.env.OPENWA_SESSION;
+    const apiKey = process.env.OPENWA_API_KEY;
+    if (!base || !session || !chatId || !messageId) return null;
+
+    // Hard guard: never fetch media from a chat that isn't a candidate/client.
+    if (!(await this.isPlatformTarget(chatId))) return null;
+
+    const headers: Record<string, string> = {};
+    if (apiKey) headers['X-API-Key'] = apiKey;
+
+    const sessionId = await this.resolveSessionId(base, session, headers);
+    if (!sessionId) return null;
+    const sid = encodeURIComponent(sessionId);
+
+    const url = `${base}/sessions/${sid}/messages/${encodeURIComponent(
+      chatId,
+    )}/${encodeURIComponent(messageId)}/media`;
+    try {
+      const res = await fetch(url, {
+        headers,
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!res.ok) return null;
+      const mimetype =
+        res.headers.get('content-type')?.split(';')[0]?.trim() ||
+        'application/octet-stream';
+      const buffer = Buffer.from(await res.arrayBuffer());
+      return { buffer, mimetype };
+    } catch (err) {
+      this.logger.warn(`getMessageMedia error: ${(err as Error)?.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Lists all conversations for the session (for the chat-list pane). Returns
+   * null if OpenWA isn't configured/reachable.
+   */
+  /**
+   * Conversations for the session — ALWAYS restricted server-side to chats with
+   * the platform's own candidates + clients. Personal chats and groups are never
+   * returned, regardless of the caller. There is no opt-out.
+   */
+  async getChats(limit = 100): Promise<
+    | Array<{
+        id: string;
+        phone: string;
+        name: string;
+        isGroup: boolean;
+        unreadCount: number;
+        timestamp: number;
+        lastMessage: string;
+      }>
+    | null
+  > {
+    const base = process.env.OPENWA_URL?.replace(/\/$/, '');
+    const session = process.env.OPENWA_SESSION;
+    const apiKey = process.env.OPENWA_API_KEY;
+    if (!base || !session) return null;
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['X-API-Key'] = apiKey;
+
+    const sessionId = await this.resolveSessionId(base, session, headers);
+    if (!sessionId) return null;
+    const sid = encodeURIComponent(sessionId);
+
+    try {
+      const res = await fetch(`${base}/sessions/${sid}/chats?limit=${limit}`, {
+        headers,
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) return null;
+      const data = (await res.json().catch(() => null)) as unknown;
+      const rows: Array<Record<string, unknown>> = Array.isArray(data)
+        ? (data as Array<Record<string, unknown>>)
+        : (((data as { data?: unknown; chats?: unknown })?.data ??
+            (data as { chats?: unknown })?.chats ??
+            []) as Array<Record<string, unknown>>);
+      let mapped = rows.map((c) => {
+        const id = String(c.id ?? '');
+        return {
+          id,
+          phone: id.split('@')[0] || '',
+          name: String(c.name ?? id.split('@')[0] ?? ''),
+          isGroup: Boolean(c.isGroup) || id.endsWith('@g.us'),
+          unreadCount: Number(c.unreadCount ?? 0),
+          timestamp: Number(c.timestamp ?? 0),
+          lastMessage: String(c.lastMessage ?? ''),
+        };
+      });
+
+      // Always keep only 1:1 chats with candidates/clients (matched on the last
+      // 10 digits of their phone, found in the chat name or id). Personal chats
+      // and groups are dropped — enforced here, not by the caller.
+      const known = await this.knownPlatformPhones();
+      mapped = mapped.filter((c) => {
+        if (c.isGroup || known.size === 0) return false;
+        const digits = `${c.name} ${c.phone}`.replace(/\D/g, '');
+        for (const k of known) if (digits.includes(k)) return true;
+        return false;
+      });
+
+      return mapped.sort((a, b) => b.timestamp - a.timestamp);
+    } catch (err) {
+      this.logger.warn(`getChats error: ${(err as Error)?.message}`);
+      return null;
+    }
+  }
+
+  /** Last-10-digit phone suffixes of every candidate + client — the numbers
+   *  the platform sends WhatsApp to. Used to filter the chat list. */
+  private async knownPlatformPhones(): Promise<Set<string>> {
+    // Candidates (committed), clients, AND in-progress candidate drafts — the
+    // draft's phone lives inside its `data` JSON.
+    const [subjects, users, drafts] = await Promise.all([
+      this.prisma.subject.findMany({ select: { phone: true } }),
+      this.prisma.user.findMany({ select: { phone: true } }),
+      this.prisma.candidateFormDraft.findMany({ select: { data: true } }),
+    ]);
+    const set = new Set<string>();
+    const add = (raw: unknown) => {
+      const d = String(raw ?? '').replace(/\D/g, '');
+      if (d.length >= 10) set.add(d.slice(-10));
+    };
+    for (const r of subjects) add(r.phone);
+    for (const r of users) add(r.phone);
+    for (const dr of drafts) {
+      const data = dr.data as { phone?: unknown } | null;
+      if (data && typeof data === 'object') add(data.phone);
+    }
+    return set;
+  }
+
+  /**
+   * Server-side guard: is this target (a phone or a chat id) one of the
+   * platform's candidates/clients? Everything that reads or sends must gate on
+   * this, so no personal chat or arbitrary number is ever reachable. Groups
+   * (@g.us) are never allowed.
+   */
+  async isPlatformTarget(idOrPhone: string): Promise<boolean> {
+    if (!idOrPhone || idOrPhone.endsWith('@g.us')) return false;
+    const known = await this.knownPlatformPhones();
+    if (known.size === 0) return false;
+
+    // If the part before '@' (or the whole value) is a real phone, match on it.
+    const digits = idOrPhone.split('@')[0].replace(/\D/g, '');
+    if (digits.length >= 10 && known.has(digits.slice(-10))) return true;
+
+    // Otherwise (e.g. "…@lid" where the id is not the phone), only allow it if
+    // it appears in the platform-filtered chat list (matched by contact name).
+    if (idOrPhone.includes('@')) {
+      const chats = await this.getChats(200);
+      return (chats ?? []).some((c) => c.id === idOrPhone);
+    }
+    return false;
+  }
+
+  /* ================================================================== */
+  /*  Lifecycle notification templates                                   */
+  /*  All skip silently if OpenWA isn't configured (see send()).         */
+  /* ================================================================== */
+
+  // ── To the CLIENT ────────────────────────────────────────────────
+
+  /** Candidate's full report is ready. */
+  async sendReportReady(
+    clientPhone: string,
+    clientName: string,
+    candidateName: string,
+    reportUrl?: string,
+  ): Promise<boolean> {
+    return this.send(
+      clientPhone,
+      T.reportReadyText(clientName, candidateName, reportUrl),
+    );
+  }
+
+  /**
+   * Criminal records check result — reflects the actual risk band
+   * (high / medium / low), not just HIGH.
+   */
+  async sendCrimeRiskAlert(
+    clientPhone: string,
+    clientName: string,
+    candidateName: string,
+    risk: T.CrimeRisk,
+  ): Promise<boolean> {
+    return this.send(
+      clientPhone,
+      T.crimeRiskAlertText(clientName, candidateName, risk),
+    );
+  }
+
+  /** A wallet hold was refunded (consent expired after a week / declined). */
+  async sendRefundProcessed(
+    clientPhone: string,
+    clientName: string,
+    candidateName: string,
+    amountRupees?: number,
+  ): Promise<boolean> {
+    return this.send(
+      clientPhone,
+      T.refundProcessedText(clientName, candidateName, amountRupees),
+    );
+  }
+
+  /** Candidate declined the consent (client notification). */
+  async sendConsentDeclinedToClient(
+    clientPhone: string,
+    clientName: string,
+    candidateName: string,
+  ): Promise<boolean> {
+    return this.send(
+      clientPhone,
+      T.consentDeclinedToClientText(clientName, candidateName),
+    );
+  }
+
+  /** Candidate accepted the consent (client notification). */
+  async sendConsentAcceptedToClient(
+    clientPhone: string,
+    clientName: string,
+    candidateName: string,
+  ): Promise<boolean> {
+    return this.send(
+      clientPhone,
+      T.consentAcceptedToClientText(clientName, candidateName),
+    );
+  }
+
+  /** A saved candidate draft has been pending for a week — reminder. */
+  async sendDraftReminder(
+    clientPhone: string,
+    clientName: string,
+  ): Promise<boolean> {
+    return this.send(clientPhone, T.draftReminderText(clientName));
+  }
+
+  // ── To the CANDIDATE ───────────────────────
+
+  /** Someone started a verification — invite + the list of checks. */
+  async sendVerificationRequested(
+    candidatePhone: string,
+    candidateName: string,
+    clientName: string,
+    checks: string[],
+    inviteUrl: string,
+  ): Promise<boolean> {
+    return this.send(
+      candidatePhone,
+      T.verificationRequestedText(candidateName, clientName, checks, inviteUrl),
+    );
+  }
+
+  /** Candidate declined — confirmation to the candidate. */
+  async sendVerificationDeclinedToCandidate(
+    candidatePhone: string,
+    candidateName: string,
+    clientName: string,
+  ): Promise<boolean> {
+    return this.send(
+      candidatePhone,
+      T.verificationDeclinedToCandidateText(candidateName, clientName),
+    );
+  }
+
+  /** Candidate accepted — confirmation the verification has started. */
+  async sendVerificationAcceptedToCandidate(
+    candidatePhone: string,
+    candidateName: string,
+    clientName: string,
+  ): Promise<boolean> {
+    return this.send(
+      candidatePhone,
+      T.verificationAcceptedToCandidateText(candidateName, clientName),
+    );
+  }
+
+  /**
    * Sent to the CLIENT when they add a new candidate.
    * Summarises candidate details so the client has a record.
    */
@@ -227,13 +643,13 @@ export class WhatsAppService {
     const roleStr = candidate.role || 'Not specified';
     const phoneStr = candidate.phone || 'Not provided';
     const text =
-      `Hi ${firstName} 👋\n\n` +
+      `Hi ${firstName},\n\n` +
       `A new candidate has been added to your *Assurio* account.\n\n` +
-      `👤 *${candidate.name}*\n` +
+      `*${candidate.name}*\n` +
       `Role: ${roleStr}\n` +
       `Email: ${candidate.email}\n` +
       `Phone: ${phoneStr}\n\n` +
-      `Background verification is now in progress. You'll be notified when checks are complete.\n\n` +
+      `Background verification is now in progress. You will be notified when checks are complete.\n\n` +
       `_The Assurio Team_`;
     return this.send(clientPhone, text);
   }
@@ -256,14 +672,9 @@ export class WhatsAppService {
     const status =
       (crimeResult.status ?? crimeResult.verdict ?? '') as string;
 
-    const riskEmoji =
-      riskLevel === 'HIGH' ? '🔴' :
-      riskLevel === 'MEDIUM' ? '🟡' :
-      riskLevel === 'LOW' || riskLevel === 'CLEAR' ? '🟢' : '⚪';
-
     let text =
-      `📋 *Crime Check Report — ${candidateName}*\n\n` +
-      `${riskEmoji} Risk Level: *${riskLevel}*\n`;
+      `*Crime check report — ${candidateName}*\n\n` +
+      `Risk level: *${riskLevel}*\n`;
 
     if (status) {
       text += `Status: ${status}\n`;
@@ -305,7 +716,7 @@ export class WhatsAppService {
   ): Promise<boolean> {
     const safe = candidateName.replace(/[^a-zA-Z0-9 _-]/g, '').trim().replace(/ /g, '-') || 'candidate';
     const filename = `crime-report-${safe}.pdf`;
-    const caption = `📋 Crime check report for *${candidateName}* is ready.`;
+    const caption = `Crime check report for *${candidateName}* is ready.`;
     return this.sendDocument(clientPhone, pdfBuffer, filename, caption);
   }
 
@@ -567,7 +978,7 @@ export class WhatsAppService {
     </thead>
     <tbody>${caseRows}</tbody>
   </table>
-  ` : `<div class="no-cases">✅ No criminal records found for this individual.</div>`}
+  ` : `<div class="no-cases">No criminal records found for this individual.</div>`}
 
   <div class="footer">
     Assurio · Background verification infrastructure.<br />
@@ -626,6 +1037,126 @@ export class WhatsAppService {
       } catch { /* try next */ }
     }
     return false;
+  }
+
+  /**
+   * Sends an attachment (image or document) AND keeps a durable copy on S3.
+   *
+   * The file is uploaded to S3 first, then sent through OpenWA. The WhatsApp
+   * message id returned by the send is mapped to the S3 key in
+   * `WhatsAppMediaAsset`, so the chat UI re-renders the attachment from S3 on
+   * every refresh — independent of what OpenWA keeps on the message row.
+   */
+  async sendMediaBuffer(
+    rawPhone: string,
+    buffer: Buffer,
+    mimetype: string,
+    filename: string,
+    caption: string,
+    kind: 'image' | 'document',
+  ): Promise<{ ok: boolean }> {
+    const base = process.env.OPENWA_URL?.replace(/\/$/, '');
+    const session = process.env.OPENWA_SESSION;
+    const apiKey = process.env.OPENWA_API_KEY;
+    if (!base || !session) return { ok: false };
+
+    const chatId = this.toChatId(rawPhone);
+    if (!chatId) return { ok: false };
+
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (apiKey) headers['X-API-Key'] = apiKey;
+
+    const sessionId = await this.resolveSessionId(base, session, headers);
+    if (!sessionId) return { ok: false };
+    const sid = encodeURIComponent(sessionId);
+
+    // 1) Durable copy on S3 first (best-effort — sending still proceeds if it fails).
+    const ext =
+      mimetype === 'application/pdf'
+        ? '.pdf'
+        : mimetype === 'image/png'
+          ? '.png'
+          : mimetype === 'image/webp'
+            ? '.webp'
+            : mimetype === 'image/gif'
+              ? '.gif'
+              : mimetype.startsWith('image/')
+                ? '.jpg'
+                : (/\.[a-z0-9]+$/i.exec(filename)?.[0] ?? '');
+    const key = `whatsapp/outgoing/${randomUUID()}${ext}`;
+    let stored = false;
+    try {
+      await this.s3.upload(key, buffer, mimetype);
+      stored = true;
+    } catch (err) {
+      this.logger.warn(`WA media S3 upload failed: ${(err as Error)?.message}`);
+    }
+
+    // 2) Send through OpenWA (base64 — most reliable across forks).
+    const rawB64 = buffer.toString('base64');
+    const endpoints =
+      kind === 'image'
+        ? [
+            `${base}/sessions/${sid}/messages/send-image`,
+            `${base}/sessions/${sid}/messages/send-document`,
+          ]
+        : [
+            `${base}/sessions/${sid}/messages/send-document`,
+            `${base}/sessions/${sid}/messages/send-file`,
+            `${base}/sessions/${sid}/messages/send-image`,
+          ];
+
+    let ok = false;
+    let messageId: string | undefined;
+    for (const ep of endpoints) {
+      try {
+        const res = await fetch(ep, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ chatId, base64: rawB64, mimetype, filename, caption }),
+        });
+        if (res.ok) {
+          const data = (await res.json().catch(() => null)) as
+            | { messageId?: string; id?: string }
+            | null;
+          messageId = data?.messageId ?? data?.id ?? undefined;
+          ok = true;
+          this.logger.log(`Media sent to ${chatId} via ${ep.split('/').pop()}`);
+          break;
+        }
+        const rb = await res.text().catch(() => '');
+        if (res.status === 400 && rb.includes('not active')) {
+          this.resolvedSessionId = null;
+          break;
+        }
+        if (res.status !== 404 && res.status !== 405) {
+          this.logger.warn(`${ep.split('/').pop()} → ${res.status}: ${rb.slice(0, 100)}`);
+        }
+      } catch {
+        /* try next */
+      }
+    }
+
+    // 3) Map the WhatsApp message id → S3 key, or drop the orphan copy.
+    // The messages list annotates ids with a "_out"/"_in" suffix that the send
+    // response omits, so normalise before storing to keep the two in sync.
+    if (ok && stored && messageId) {
+      const normId = messageId.replace(/_(in|out)$/i, '');
+      try {
+        await this.prisma.whatsAppMediaAsset.upsert({
+          where: { waMessageId: normId },
+          update: { s3Key: key, mimetype, filename, chatId },
+          create: { waMessageId: normId, chatId, s3Key: key, mimetype, filename },
+        });
+      } catch (err) {
+        this.logger.warn(`WA media asset persist failed: ${(err as Error)?.message}`);
+      }
+    } else if (stored) {
+      // Not sent, or no id to map it to — don't litter the bucket.
+      this.s3.delete(key).catch(() => undefined);
+    }
+
+    return { ok };
   }
 
   /* ------------------------------------------------------------------ */
@@ -788,6 +1319,11 @@ export class WhatsAppService {
    */
   private toChatId(raw: string): string | null {
     if (!raw) return null;
+
+    // Already a full chat id (e.g. "123@lid", "123@g.us", "123@c.us" — the new
+    // WhatsApp addressing where the id is NOT the phone number). Use it verbatim
+    // so we route to the exact chat instead of mangling a fake number.
+    if (raw.includes('@')) return raw.trim();
 
     const countryCode = (process.env.OPENWA_COUNTRY_CODE || '91').replace(
       /^\+/,

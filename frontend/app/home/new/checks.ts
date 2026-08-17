@@ -37,6 +37,15 @@ export interface CheckDef {
   id: string;
   label: string;
   requires: CheckFieldKey[];
+  /**
+   * True when a verified Aadhaar can stand in for the permanent address this
+   * check needs, so leaving the address blank defers the check rather than
+   * blocking it. Mirrors the backend: credit builds its structured address from
+   * the DigiLocker eAadhaar KYC, and crime falls back to the same address
+   * flattened to one line. Both re-fire automatically once DigiLocker completes
+   * (see SubjectVerificationService.run).
+   */
+  addressFromAadhaar?: boolean;
 }
 
 /**
@@ -60,17 +69,22 @@ export const CHECKS: CheckDef[] = [
     id: 'court',
     label: 'Crime / court record',
     requires: ['dob', 'permanentAddress'],
+    addressFromAadhaar: true,
   },
   {
     id: 'credit',
     label: 'Credit check',
     requires: ['pan', 'dob', 'permanentAddress'],
+    addressFromAadhaar: true,
   },
 ];
 
 export interface PerformableCheck {
   id: string;
   label: string;
+  /** Runs by itself once the candidate finishes DigiLocker, which supplies the
+   *  address instead of a typed one. */
+  afterAadhaar?: boolean;
 }
 
 export interface BlockedCheck {
@@ -80,11 +94,29 @@ export interface BlockedCheck {
 }
 
 /**
- * Turnaround for a check. Court-record (crime) and credit checks are pulled
- * from vendors that report within 24 hours; everything else is instant.
+ * Turnaround for a check.
+ *  • Aadhaar is completed by the candidate themselves in DigiLocker, so it
+ *    finishes whenever they do — never "instant" from the client's side.
+ *  • Court-record (crime) and credit come from vendors that report within 24h.
+ *  • Everything else returns straight away once consent is given.
  */
-export function checkEta(id: string): 'Instant' | '24h' {
-  return id === 'court' || id === 'credit' ? '24h' : 'Instant';
+export type CheckEta =
+  | 'Instant on consent'
+  | 'Within 24 hours'
+  | 'Awaiting candidate'
+  | 'After Aadhaar KYC';
+
+export function checkEta(id: string): CheckEta {
+  if (id === 'aadhaar') return 'Awaiting candidate';
+  return id === 'court' || id === 'credit'
+    ? 'Within 24 hours'
+    : 'Instant on consent';
+}
+
+/** Turnaround for a check in the "we'll perform" list, accounting for ones
+ *  waiting on DigiLocker to supply the address. */
+export function performableEta(check: PerformableCheck): CheckEta {
+  return check.afterAadhaar ? 'After Aadhaar KYC' : checkEta(check.id);
 }
 
 export interface SplitChecks {
@@ -102,11 +134,36 @@ export function splitChecks(draft: CandidateDraft): SplitChecks {
     const missing = check.requires.filter((key) => !filled(key));
     if (missing.length === 0) {
       performable.push({ id: check.id, label: check.label });
+      continue;
+    }
+    // Blocked only by the permanent address, on a check the verified Aadhaar
+    // can address-fill, and the candidate gave an Aadhaar number: it isn't
+    // blocked at all — it fires on its own once DigiLocker completes.
+    const onlyNeedsAddress =
+      missing.length === 1 && missing[0] === 'permanentAddress';
+    if (check.addressFromAadhaar && onlyNeedsAddress && filled('aadhaar')) {
+      performable.push({ id: check.id, label: check.label, afterAadhaar: true });
     } else {
       blocked.push({ id: check.id, label: check.label, missing });
     }
   }
+  // Lead with the checks that return the moment consent is given; the ones
+  // that wait on a vendor or the candidate follow. Sort is stable, so each
+  // group keeps its catalog order.
+  performable.sort((a, b) => etaRank(performableEta(a)) - etaRank(performableEta(b)));
   return { performable, blocked };
+}
+
+/** Display order for the "checks we'll perform" list: soonest first. */
+const ETA_ORDER: CheckEta[] = [
+  'Instant on consent',
+  'Within 24 hours',
+  'After Aadhaar KYC',
+  'Awaiting candidate',
+];
+
+function etaRank(eta: CheckEta): number {
+  return ETA_ORDER.indexOf(eta);
 }
 
 /** Human-readable list of the fields a blocked check still needs. */

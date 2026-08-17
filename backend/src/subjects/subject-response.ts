@@ -1,4 +1,5 @@
 import { Subject } from '../../generated/prisma/client';
+import { computeSubjectProgress } from './subject-progress';
 
 /** Serialises a Subject for the API — never exposes passwordHash. */
 export function toSubjectResponse(doc: Subject) {
@@ -37,14 +38,24 @@ export function toSubjectResponse(doc: Subject) {
     digilockerClientId: doc.digilockerClientId,
     digilockerUrl: doc.digilockerUrl,
     crimeRequestId: doc.crimeRequestId,
+    // Needed by the report/UI to explain the credit check's real state:
+    // fatherName + a verified Aadhaar address are what the bureau requires,
+    // and creditRequestId means the case is already open with them.
+    creditRequestId: doc.creditRequestId,
+    fatherName: doc.fatherName,
     crimeResult: doc.crimeResult as Record<string, unknown> | null,
     consentResult: doc.consentResult as Record<string, unknown> | null,
     consentAcceptedAt: doc.consentAcceptedAt,
+    consentStatus: doc.consentStatus,
+    consentDecidedAt: doc.consentDecidedAt,
     verificationLog: (doc.verificationLog ?? []) as Array<{
       type: 'pan' | 'aadhaar' | 'crime';
       calledAt: string;
       result: Record<string, unknown>;
     }>,
+    // Real progress across all applicable checks (done/total) — used by the
+    // candidates table so it matches the report (e.g. 5/7, not 2/3).
+    progress: computeSubjectProgress(doc),
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };

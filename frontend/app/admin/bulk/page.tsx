@@ -208,12 +208,12 @@ export default function BulkInvitePage() {
 
         {/* Parse errors */}
         {parseErrors.length > 0 && (
-          <div style={{ background: '#fdf3f3', border: '1px solid #f5c6c6', borderRadius: 8, padding: '10px 14px', marginBottom: 16 }}>
-            <p style={{ margin: '0 0 4px', fontSize: 12.5, fontWeight: 600, color: '#dc2626' }}>
+          <div style={{ background: 'var(--color-failure-100)', border: '1px solid var(--color-failure-200)', borderRadius: 8, padding: '10px 14px', marginBottom: 16 }}>
+            <p style={{ margin: '0 0 4px', fontSize: 12.5, fontWeight: 600, color: 'var(--color-failure)' }}>
               {parseErrors.length} issue{parseErrors.length > 1 ? 's' : ''} found
             </p>
             {parseErrors.map((e, i) => (
-              <p key={i} style={{ margin: '2px 0', fontSize: 12, color: '#dc2626' }}>• {e}</p>
+              <p key={i} style={{ margin: '2px 0', fontSize: 12, color: 'var(--color-failure)' }}>• {e}</p>
             ))}
           </div>
         )}
@@ -292,24 +292,24 @@ export default function BulkInvitePage() {
             <div style={{ height: 6, background: 'var(--rule)', borderRadius: 999, overflow: 'hidden', marginBottom: 14 }}>
               <div style={{
                 height: '100%', width: `${pct}%`,
-                background: isDone && batch && batch.failed === 0 ? '#059669' : isDone ? '#d97706' : 'var(--ink)',
+                background: isDone && batch && batch.failed === 0 ? 'var(--color-success)' : isDone ? 'var(--color-warning-700)' : 'var(--ink)',
                 borderRadius: 999, transition: 'width 0.4s ease',
               }} />
             </div>
 
             {batch && (
               <div style={{ display: 'flex', gap: 20, fontSize: 13 }}>
-                <span style={{ color: '#059669' }}>✓ {batch.done} sent</span>
-                {batch.failed > 0 && <span style={{ color: '#dc2626' }}>✗ {batch.failed} failed</span>}
+                <span style={{ color: 'var(--color-success)' }}>✓ {batch.done} sent</span>
+                {batch.failed > 0 && <span style={{ color: 'var(--color-failure)' }}>✗ {batch.failed} failed</span>}
                 {!isDone && <span style={{ color: 'var(--ink-2)' }}>{batch.total - batch.done - batch.failed} queued</span>}
               </div>
             )}
 
             {batch && batch.failedRows.length > 0 && (
-              <div style={{ marginTop: 14, background: '#fdf3f3', border: '1px solid #f5c6c6', borderRadius: 8, padding: '10px 14px' }}>
-                <p style={{ margin: '0 0 6px', fontSize: 12.5, fontWeight: 600, color: '#dc2626' }}>Failed rows</p>
+              <div style={{ marginTop: 14, background: 'var(--color-failure-100)', border: '1px solid var(--color-failure-200)', borderRadius: 8, padding: '10px 14px' }}>
+                <p style={{ margin: '0 0 6px', fontSize: 12.5, fontWeight: 600, color: 'var(--color-failure)' }}>Failed rows</p>
                 {batch.failedRows.map((e, i) => (
-                  <p key={i} style={{ margin: '2px 0', fontSize: 12, color: '#dc2626' }}>
+                  <p key={i} style={{ margin: '2px 0', fontSize: 12, color: 'var(--color-failure)' }}>
                     Row {e.row + 1} ({e.email}): {e.reason}
                   </p>
                 ))}

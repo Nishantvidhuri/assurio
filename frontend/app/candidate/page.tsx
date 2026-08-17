@@ -27,6 +27,8 @@ import {
   digilockerInitialize,
   digilockerStatus,
   me,
+  signDocumentKeys,
+  uploadIdDocument,
   verifyPan,
   type AuthUser,
   type ConsentResult,
@@ -45,7 +47,57 @@ type DlState =
   | 'completed'
   | 'failed';
 
-/* ---------- Upload tile ---------- */
+/* ---------- Signed image ----------
+ * Renders a stored document image. Legacy base64 data-URLs and absolute URLs
+ * render directly; an S3 object key is presigned on demand (own docs only). */
+
+function SignedImage({
+  src,
+  alt,
+  className,
+}: {
+  src: string | null;
+  alt: string;
+  className?: string;
+}) {
+  const [resolved, setResolved] = useState<string | null>(
+    src && (src.startsWith('data:') || src.startsWith('http')) ? src : null,
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!src) {
+      setResolved(null);
+      return;
+    }
+    if (src.startsWith('data:') || src.startsWith('http')) {
+      setResolved(src);
+      return;
+    }
+    const token = getToken();
+    if (!token) return;
+    setResolved(null);
+    signDocumentKeys(token, [src])
+      .then((urls) => {
+        if (!cancelled) setResolved(urls[src] ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setResolved(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [src]);
+
+  if (!resolved) return null;
+  return <img src={resolved} alt={alt} className={className} />;
+}
+
+/* ---------- Upload tile ----------
+ * Uploads the file durably (presigned direct-to-S3 + background virus scan)
+ * and hands the parent the resulting S3 KEY via onChange — so a crash mid-flow
+ * can't lose it and the value round-trips through the server draft. Preview is
+ * resolved through SignedImage. */
 
 function UploadTile({
   label,
@@ -60,33 +112,60 @@ function UploadTile({
 }) {
   const ref = useRef<HTMLInputElement>(null);
   const [drag, setDrag] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [statusLabel, setStatusLabel] = useState('Uploading…');
+  const [error, setError] = useState('');
 
-  function handleFile(f: File) {
-    if (f.size > 10 * 1024 * 1024) return; // 10MB guard
-    const reader = new FileReader();
-    reader.onload = () => onChange(reader.result as string);
-    reader.readAsDataURL(f);
+  async function handleFile(f: File) {
+    setError('');
+    if (!['image/png', 'image/jpeg'].includes(f.type)) {
+      setError('Only PNG or JPG images are allowed.');
+      return;
+    }
+    if (f.size > 10 * 1024 * 1024) {
+      setError('File must be 10MB or smaller.');
+      return;
+    }
+    setUploading(true);
+    setStatusLabel('Uploading…');
+    try {
+      const uploaded = await uploadIdDocument(f, (s) =>
+        setStatusLabel(s === 'SCANNING' ? 'Scanning…' : 'Uploading…'),
+      );
+      onChange(uploaded.key);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Upload failed.');
+    } finally {
+      setUploading(false);
+    }
   }
 
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
-    if (f) handleFile(f);
+    if (f) void handleFile(f);
+    e.target.value = '';
   }
 
   function onDrop(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault();
     setDrag(false);
     const f = e.dataTransfer.files?.[0];
-    if (f) handleFile(f);
+    if (f) void handleFile(f);
   }
 
   return (
     <div className="vf-up">
       <div className="vf-up-label">{label}</div>
-      {value ? (
+      {uploading ? (
+        <div className="vf-up-card vf-up-drop">
+          <span className="vf-spinner" />
+          <div className="vf-up-headline">{statusLabel}</div>
+          <div className="vf-up-hint">Encrypted &amp; virus-scanned</div>
+        </div>
+      ) : value ? (
         <div className="vf-up-card vf-up-filled">
           <div className="vf-up-preview">
-            <img src={value} alt={label} />
+            <SignedImage src={value} alt={label} />
           </div>
           <div className="vf-up-meta">
             <div className="vf-up-state">
@@ -137,6 +216,7 @@ function UploadTile({
           <div className="vf-up-hint">{hint}</div>
         </div>
       )}
+      {error && <div className="vf-up-err">{error}</div>}
       <input
         ref={ref}
         type="file"
@@ -881,7 +961,7 @@ export default function CandidatePage() {
             )}
             {consent.mode === 'UPLOADED' && consent.signatureImage && (
               <div className="vf-sig-image">
-                <img src={consent.signatureImage} alt="Signature" />
+                <SignedImage src={consent.signatureImage} alt="Signature" />
               </div>
             )}
           </div>

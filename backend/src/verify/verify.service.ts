@@ -18,6 +18,12 @@ export interface AadhaarAddress {
   postOffice: string | null;
   state: string | null;
   vtc: string | null;
+  // Needed to build the credit bureau's structured address. `subdist` is the
+  // best source of a real city name on urban Aadhaar; street/landmark sharpen
+  // the street line.
+  subDistrict: string | null;
+  street: string | null;
+  landmark: string | null;
 }
 
 export interface AadhaarKyc {
@@ -528,6 +534,9 @@ export class VerifyService {
         postOffice: getAttr('Poa', 'po'),
         state: getAttr('Poa', 'state'),
         vtc: getAttr('Poa', 'vtc'),
+        subDistrict: getAttr('Poa', 'subdist'),
+        street: getAttr('Poa', 'street'),
+        landmark: getAttr('Poa', 'landmark'),
       };
 
       return {
@@ -583,12 +592,16 @@ export class VerifyService {
     state: string;
     pincode: string;
     country?: string;
+    phone?: string;
+    email?: string;
   }) {
     const candidate: Record<string, unknown> = {
       name: input.name,
       ...(input.fatherName ? { father_name: input.fatherName } : {}),
       ...(input.dob ? { dob: input.dob } : {}),
       pan: input.panNumber.toUpperCase(),
+      ...(input.phone ? { phone: input.phone } : {}),
+      ...(input.email ? { email: input.email } : {}),
       // Backwards-compat string kept alongside the canonical structured address.
       permanent_address: `${input.street}, ${input.city}, ${input.state} ${input.pincode}`,
       addresses: [

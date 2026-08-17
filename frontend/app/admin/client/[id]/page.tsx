@@ -46,6 +46,7 @@ const ADMIN_NAV: SidebarItem[] = [
   { href: '/admin/packages', label: 'Packages', icon: ICONS.packages },
   { href: '/admin/operations', label: 'Operations', icon: ICONS.operations },
   { href: '/admin/test-verification', label: 'Test Verification', icon: ICONS.testVerification },
+  { href: '/admin/whatsapp', label: 'WhatsApp', icon: ICONS.whatsapp },
 ];
 
 /**
@@ -57,7 +58,14 @@ function checkProgressStatus(
   done: number,
   total: number,
   status: string,
-): { label: string; variant: 'Success' | 'Warning' } {
+  consentStatus?: string,
+): { label: string; variant: 'Success' | 'Warning' | 'Failure' } {
+  // Consent decides everything — a refused or unanswered case never ran a
+  // check, so reporting progress against it would be misleading.
+  if (consentStatus === 'DECLINED') return { label: 'Refused', variant: 'Failure' };
+  if (consentStatus === 'EXPIRED') return { label: 'Expired', variant: 'Failure' };
+  if (consentStatus === 'PENDING')
+    return { label: 'Awaiting consent', variant: 'Warning' };
   if (total > 0) {
     if (done >= total) return { label: 'Completed', variant: 'Success' };
     return { label: `In progress · ${done}/${total}`, variant: 'Warning' };
@@ -363,6 +371,7 @@ export default function AdminClientPage() {
                             s.checksDone ?? 0,
                             s.checksTotal ?? 0,
                             s.status,
+                            s.consentStatus,
                           );
                           return (
                           <TableRow
@@ -389,7 +398,14 @@ export default function AdminClientPage() {
                                 s.crimeRisk ? (
                                   <span className={`badge ${riskClassBadge(s.crimeRisk)}`}>{s.crimeRisk}</span>
                                 ) : (
-                                  <span className="text-text-placeholder">not started</span>
+                                  <span className="text-text-placeholder">
+                                    {s.consentStatus === 'DECLINED' ||
+                                    s.consentStatus === 'EXPIRED'
+                                      ? 'Not run'
+                                      : s.consentStatus === 'PENDING'
+                                        ? 'Awaiting consent'
+                                        : 'Awaiting result'}
+                                  </span>
                                 )
                               }
                             />

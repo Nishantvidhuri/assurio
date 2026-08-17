@@ -8,7 +8,7 @@
  * Read-only — no verifier editing.
  */
 import { useState, type ReactNode } from 'react';
-import { Check, ChevronDown, Eye, Mail, RefreshCw, X } from 'lucide-react';
+import { Check, ChevronDown, Eye, Mail, RefreshCw, ShieldCheck, X } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
 import {
   Tag,
@@ -25,7 +25,8 @@ export type CheckStatus =
   | 'in-progress'
   | 'pending'
   | 'unavailable'
-  | 'failed';
+  | 'failed'
+  | 'manual';
 export type MatchVariant = 'match' | 'partial' | 'mismatch' | 'na';
 
 export interface ComparisonRow {
@@ -65,6 +66,9 @@ const STATUS_TAG: Record<
   unavailable: { variant: 'Default', label: 'Not provided' },
   // The vendor ran the check and returned an invalid / not-found result.
   failed: { variant: 'Failure', label: 'Failed' },
+  // An admin passed this by hand because the vendor API could not answer.
+  // Deliberately distinct from "Completed" — the source never confirmed it.
+  manual: { variant: 'Warning', label: 'Verified manually' },
 };
 
 const MATCH_TAG: Record<
@@ -83,7 +87,7 @@ function TatBadge({ label }: { label: string }) {
     <span
       className={cn(
         'inline-flex items-center whitespace-nowrap rounded-md border border-border-default px-2.5 py-0.5',
-        'bg-[radial-gradient(ellipse_at_bottom_right,#cddef4_0%,#e8edf8_42%,#f9fbff_78%)]',
+        'brand-tint-gradient',
         'text-[12px] leading-5 tracking-[0.25px] text-text-body',
       )}
     >
@@ -160,6 +164,8 @@ export function CheckCard({
   recalling = false,
   onResend,
   resending = false,
+  onManualPass,
+  passing = false,
   requirements,
   order,
 }: {
@@ -179,6 +185,10 @@ export function CheckCard({
    *  for candidate-driven checks like Aadhaar/DigiLocker instead of Recall). */
   onResend?: () => void;
   resending?: boolean;
+  /** Admin escape hatch: mark this check passed by hand when the vendor API
+   *  can't answer. Shown alongside Recall on failed / stuck checks. */
+  onManualPass?: () => void;
+  passing?: boolean;
   /** Inputs this check needs, with the candidate's entered value (if any). */
   requirements?: RequiredInput[];
   /** CSS flex order — used to push "Not provided" cards to the bottom. */
@@ -195,6 +205,7 @@ export function CheckCard({
     Boolean(idNumber) ||
     Boolean(onRecall) ||
     Boolean(onResend) ||
+    Boolean(onManualPass) ||
     reqs.length > 0 ||
     (documents?.length ?? 0) > 0 ||
     (comparison?.length ?? 0) > 0;
@@ -265,6 +276,19 @@ export function CheckCard({
                 {recalling ? 'Recalling…' : 'Recall API'}
               </button>
             ) : null}
+
+            {onManualPass && (
+              <button
+                type="button"
+                onClick={onManualPass}
+                disabled={passing}
+                title="Vendor API unavailable? Record this check as verified manually."
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border-warning bg-white px-3 py-1.5 text-body-sm font-medium text-warning transition-colors hover:bg-surface-warning disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <ShieldCheck size={14} />
+                {passing ? 'Marking…' : 'Mark as passed'}
+              </button>
+            )}
           </div>
 
           {/* Required inputs — what the candidate must provide for this check. */}

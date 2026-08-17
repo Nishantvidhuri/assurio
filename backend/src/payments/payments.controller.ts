@@ -18,6 +18,7 @@ import { Invoice } from '../../generated/prisma/client';
 import { S3Service } from '../common/s3.service';
 import { PdfService } from '../common/pdf.service';
 import { renderTaxInvoiceHtml } from './tax-invoice-html';
+import { InvoicePdfService } from './invoice-pdf.service';
 
 interface RequestWithUser extends Request {
   user?: { sub?: string; role?: string; email?: string };
@@ -85,6 +86,7 @@ export class PaymentsController {
     private readonly payments: PaymentsService,
     private readonly s3: S3Service,
     private readonly pdf: PdfService,
+    private readonly invoicePdf: InvoicePdfService,
   ) {}
 
   @UseGuards(JwtAuthGuard)
@@ -286,8 +288,14 @@ export class PaymentsController {
     );
   }
 
-  /** Recriauth-style Tax Invoice. Default: HTML preview (open in a new tab).
-   *  Pass ?download=1 to get a real server-generated PDF attachment. */
+  /**
+   * Tax Invoice — serves the PDF generated and stored on S3 at payment time:
+   * inline for preview, as an attachment with ?download=1.
+   *
+   * Falls back to rendering on the fly only when the stored object isn't there
+   * yet (job still in flight, or S3 unconfigured in dev) and re-queues it, so a
+   * receipt is never unavailable to the client.
+   */
   @Get('invoice/:id/print')
   async invoicePrint(
     @Param('id') id: string,
@@ -299,27 +307,46 @@ export class PaymentsController {
       res.status(404).type('text/plain').send('Invoice not found');
       return;
     }
+    const asDownload =
+      req.query?.download === '1' || req.query?.print === '1';
+
+    const sendPdf = (buffer: Buffer) => {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader(
+        'Content-Disposition',
+        `${asDownload ? 'attachment' : 'inline'}; filename="${inv.invoiceNumber}.pdf"`,
+      );
+      res.send(buffer);
+    };
+
+    // Stored receipt — the normal path once the payment-time job has run.
+    if (inv.pdfS3Key && this.s3.isConfigured) {
+      try {
+        sendPdf(await this.s3.getObjectBuffer(inv.pdfS3Key));
+        return;
+      } catch (err) {
+        this.logger.warn(
+          `Stored invoice PDF unreadable (${inv.pdfS3Key}) — re-rendering: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
+    }
+
+    // Fallback: render now and make sure the stored copy gets created.
+    this.invoicePdf.enqueue(inv.id);
     // Billed To = the client (account holder), not the candidate stored in the
     // invoice's customer* fields (which becomes the line item).
     const buyer = await this.payments.billingClient(inv.userId);
     const html = renderTaxInvoiceHtml(inv, buyer ?? undefined);
-
-    if (req.query?.download === '1' || req.query?.print === '1') {
-      // 600px-wide document, height trimmed to content — matches Recriauth's
-      // fixed-size invoice PDF (no A4 side margins or bottom gap).
-      const buffer = await this.pdf.htmlToPdf(html, {
+    // 600px-wide document, height trimmed to content — matches Recriauth's
+    // fixed-size invoice PDF (no A4 side margins or bottom gap).
+    sendPdf(
+      await this.pdf.htmlToPdf(html, {
         printBackground: true,
         pageWidthPx: 600,
         fitHeight: true,
-      });
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader(
-        'Content-Disposition',
-        `attachment; filename="${inv.invoiceNumber}.pdf"`,
-      );
-      res.send(buffer);
-      return;
-    }
-    res.type('text/html').send(html);
+      }),
+    );
   }
 }

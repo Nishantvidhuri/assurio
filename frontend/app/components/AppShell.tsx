@@ -25,6 +25,7 @@ import {
   type ProfileMenuItem,
 } from '@/shared/components/ui';
 import { cn } from '@/shared/lib/utils';
+import WalletPill from './WalletPill';
 import type { SidebarItem, SidebarUser } from './Sidebar';
 
 export interface Crumb {
@@ -132,7 +133,7 @@ export default function AppShell({
   const home = nav[0]?.href ?? '/';
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#F4F7FC] pt-[env(safe-area-inset-top)]">
+    <div className="flex h-screen overflow-hidden bg-surface-shell pt-[env(safe-area-inset-top)]">
       {/* ── Sidebar — desktop rail (lg and up) ─────────────────── */}
       <RdsSidebar
         className="hidden lg:flex"
@@ -185,6 +186,9 @@ export default function AppShell({
           showSearch={false}
           userName={user.name}
           profileMenuItems={profileMenuItems}
+          // Client accounts spend from the wallet, so the balance rides along
+          // in the top bar on every page (admins have no wallet).
+          creditsSlot={user.role === 'admin' ? undefined : <WalletPill />}
           breadcrumbs={
             <Breadcrumbs>
               {(breadcrumbs ?? [{ label: activeItem?.label ?? 'Dashboard' }]).map(

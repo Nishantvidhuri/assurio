@@ -17,47 +17,9 @@ import { AuthService } from './auth.service';
 import { CsrfGuard } from './csrf.guard';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { LoginDto, SignupDto } from './dto';
+import { setAuthCookies, clearAuthCookies, setCsrfCookie } from './cookies';
 
-const IS_PROD = process.env.NODE_ENV === 'production';
-const COOKIE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-// When the frontend runs on a different site than the API (e.g. two ngrok
-// tunnels, or a separate prod domain), the browser only sends the auth cookie
-// if it's SameSite=None; Secure. Auto-detected from an https APP_URL; force
-// with COOKIE_SAMESITE_NONE=true.
-const CROSS_SITE_COOKIES =
-  process.env.COOKIE_SAMESITE_NONE === 'true' ||
-  (process.env.APP_URL || '').startsWith('https://');
-const COOKIE_SAME_SITE: 'none' | 'lax' = CROSS_SITE_COOKIES ? 'none' : 'lax';
-const COOKIE_SECURE = IS_PROD || CROSS_SITE_COOKIES;
-
-function setAuthCookies(res: Response, token: string) {
-  const csrfToken = randomBytes(24).toString('hex');
-
-  res.cookie('as_access', token, {
-    httpOnly: true,
-    secure: COOKIE_SECURE,
-    sameSite: COOKIE_SAME_SITE,
-    maxAge: COOKIE_TTL_MS,
-    path: '/',
-  });
-
-  res.cookie('as_csrf', csrfToken, {
-    httpOnly: false, // JS-readable — intentional for double-submit pattern
-    secure: COOKIE_SECURE,
-    sameSite: COOKIE_SAME_SITE,
-    maxAge: COOKIE_TTL_MS,
-    path: '/',
-  });
-
-  return csrfToken;
-}
-
-function clearAuthCookies(res: Response) {
-  const opts = { path: '/', sameSite: COOKIE_SAME_SITE, secure: COOKIE_SECURE };
-  res.clearCookie('as_access', opts);
-  res.clearCookie('as_csrf', opts);
-}
 
 // ─── Rate-limit policy for auth endpoints ─────────────────────────────────
 // ThrottlerGuard is applied at the controller level so every route is covered.
@@ -77,15 +39,7 @@ export class AuthController {
   @Get('csrf')
   @Throttle({ 'auth-loose': { limit: 30, ttl: 60_000 } })
   csrf(@Res({ passthrough: true }) res: Response) {
-    const csrfToken = randomBytes(24).toString('hex');
-    res.cookie('as_csrf', csrfToken, {
-      httpOnly: false,
-      secure: COOKIE_SECURE,
-      sameSite: COOKIE_SAME_SITE,
-      maxAge: COOKIE_TTL_MS,
-      path: '/',
-    });
-    return { csrfToken };
+    return { csrfToken: setCsrfCookie(res) };
   }
 
   @Post('signup')

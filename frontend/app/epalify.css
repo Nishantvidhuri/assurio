@@ -3,23 +3,23 @@
    =================================================================== */
 
 .ep {
-  /* RDS (Recriauth) theme — navy primary, #174ab5 link blue, F4F7FC frame */
-  --ink: #0e1321;        /* RDS text-heading */
-  --navy: #0e204a;       /* RDS surface-btn-primary — dark sections */
+  /* RDS (Recriauth) theme — navy primary, var(--color-brand-600) link blue, F4F7FC frame */
+  --ink: var(--color-neutral-900);        /* RDS text-heading */
+  --navy: var(--color-ink-400);       /* RDS surface-btn-primary — dark sections */
   --navy-deep: #08132c;  /* RDS accent-800 — footer */
-  --blue: #174ab5;       /* RDS text-link / accent */
-  --blue-deep: #103581;  /* RDS primary-800 */
-  --blue-soft: #e6edff;  /* RDS active-pill tint */
-  --bg: #f4f7fc;         /* RDS app frame */
-  --alt: #eef2f9;
+  --blue: var(--color-brand-600);       /* RDS text-link / accent */
+  --blue-deep: var(--color-brand-800);  /* RDS primary-800 */
+  --blue-soft: var(--color-brand-200);  /* RDS active-pill tint */
+  --bg: var(--color-surface-shell);         /* RDS app frame */
+  --alt: var(--color-neutral-300);
   --card: #ffffff;
-  --card-2: #f9fbff;     /* RDS neutral-200 */
-  --line: #e2e8f0;       /* RDS border-hover */
-  --muted: #374150;      /* RDS text-body */
-  --muted-2: #828d9d;    /* RDS text-subheading */
-  --green: #059669;
-  --red: #dc2626;
-  --amber: #d97706;
+  --card-2: var(--color-brand-100);     /* RDS neutral-200 */
+  --line: var(--color-neutral-500);       /* RDS border-hover */
+  --muted: var(--color-neutral-800);      /* RDS text-body */
+  --muted-2: var(--color-neutral-700);    /* RDS text-subheading */
+  --green: var(--color-success);
+  --red: var(--color-failure);
+  --amber: var(--color-warning-700);
 
   --mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
 
@@ -138,7 +138,7 @@
 }
 
 .ep-btn-primary:hover {
-  background: #0d2964; /* RDS surface-btn-primary-hover */
+  background: var(--color-brand-900); /* RDS surface-btn-primary-hover */
   transform: translateY(-1px);
   box-shadow: 0 10px 24px rgba(13, 41, 100, 0.26);
 }
@@ -150,7 +150,7 @@
 }
 
 .ep-btn-ghost:hover {
-  border-color: #c5cfde;
+  border-color: var(--color-neutral-500);
   background: var(--alt);
 }
 
@@ -657,19 +657,19 @@
 .ep-status-clear {
   color: #0b7a52;
   background: #e7f6ef;
-  border-color: #a7f3d0;
+  border-color: var(--color-success-200);
 }
 
 .ep-status-review {
   color: #9a6a12;
-  background: #e8edf8;
-  border-color: #c9d7f2;
+  background: var(--color-brand-200);
+  border-color: var(--color-brand-200);
 }
 
 .ep-status-attention {
-  color: #dc2626;
-  background: #fee2e2;
-  border-color: #fecaca;
+  color: var(--color-failure);
+  background: var(--color-failure-100);
+  border-color: var(--color-failure-200);
 }
 
 .ep-status-scan {
@@ -1017,8 +1017,8 @@
   font-size: 13.5px;
   font-weight: 500;
   color: var(--ink);
-  background: #e8edf8;
-  border: 1px solid #c9d7f2;
+  background: var(--color-brand-200);
+  border: 1px solid var(--color-brand-200);
   border-radius: 10px;
   padding: 11px 13px;
 }
@@ -1227,7 +1227,7 @@
 
 .ep-admin-stat-label {
   font-size: 11px;
-  color: #8c9bb6;
+  color: var(--color-neutral-600);
   margin-top: 3px;
 }
 
@@ -1268,7 +1268,7 @@
 .ep-admin-role {
   display: block;
   font-size: 12px;
-  color: #8c9bb6;
+  color: var(--color-neutral-600);
 }
 
 /* ------------------------------ Testimonials ---------------------------- */
@@ -1354,7 +1354,7 @@
 }
 
 .ep-faq-item.is-open {
-  border-color: #c5cfde;
+  border-color: var(--color-neutral-500);
 }
 
 .ep-faq-q {
@@ -1424,7 +1424,7 @@
 /* -------------------------------- Footer -------------------------------- */
 .ep-footer {
   background: #07101f;
-  color: #8c9bb6;
+  color: var(--color-neutral-600);
   padding: 64px 0 30px;
 }
 
@@ -1469,7 +1469,7 @@
 
 .ep-footer-col a {
   font-size: 13.5px;
-  color: #8c9bb6;
+  color: var(--color-neutral-600);
   text-decoration: none;
   transition: color 0.15s ease;
 }
@@ -1651,7 +1651,7 @@
   border-color: var(--paper);
 }
 .ep .ep-btn-light:hover {
-  background: #f9fbff;
+  background: var(--color-brand-100);
 }
 .ep .ep-btn-outline-light {
   color: var(--paper);
@@ -1966,8 +1966,8 @@
   gap: 6px;
   padding: 6px 12px;
   border-radius: 999px;
-  background: #d1fae5;
-  color: #059669;
+  background: var(--color-success-100);
+  color: var(--color-success);
   font-family: var(--mono);
   font-size: 11px;
   font-weight: 600;
@@ -1980,7 +1980,7 @@
 .ep-report-badge .ep-chip-icon {
   width: 14px;
   height: 14px;
-  color: #059669;
+  color: var(--color-success);
 }
 
 @keyframes ep-badge-pop {

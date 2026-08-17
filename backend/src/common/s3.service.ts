@@ -4,6 +4,7 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
+  HeadObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
@@ -84,5 +85,90 @@ export class S3Service {
   async presignedUrl(key: string, expiresIn = 604800): Promise<string> {
     const command = new GetObjectCommand({ Bucket: this.bucket, Key: key });
     return getSignedUrl(this.client, command, { expiresIn });
+  }
+
+  /**
+   * Presign a PUT URL so the client can upload bytes directly to S3 without the
+   * API ever buffering the file. Returns the URL plus the exact headers the
+   * client MUST echo on the PUT for the signature to validate (Content-Type,
+   * and any x-amz-meta-* the caller supplies). Default TTL: 15 minutes.
+   */
+  async createPresignedPutUrl(
+    key: string,
+    contentType: string,
+    expiresIn = 900,
+    metadata?: Record<string, string>,
+  ): Promise<{ uploadUrl: string; requiredHeaders: Record<string, string> }> {
+    // Only sign Content-Type (+ any metadata). Extra signed headers like
+    // ContentDisposition would force the browser to echo them on the PUT or the
+    // signature fails — inline viewing is instead handled at GET time.
+    const command = new PutObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+      ContentType: contentType,
+      ...(metadata ? { Metadata: metadata } : {}),
+    });
+    const uploadUrl = await getSignedUrl(this.client, command, { expiresIn });
+
+    // The signature covers these headers, so the browser PUT has to send them
+    // verbatim. Metadata is signed as x-amz-meta-<key>.
+    const requiredHeaders: Record<string, string> = {
+      'Content-Type': contentType,
+    };
+    if (metadata) {
+      for (const [k, v] of Object.entries(metadata)) {
+        requiredHeaders[`x-amz-meta-${k}`] = v;
+      }
+    }
+    return { uploadUrl, requiredHeaders };
+  }
+
+  /**
+   * HEAD an object to confirm it exists and read its size + etag. Used by the
+   * finalize job to verify the client's direct PUT actually landed and matches
+   * the declared size. Throws (NotFound / etc.) when the object is absent —
+   * callers treat that as "PUT hasn't completed yet" and retry.
+   */
+  async headObject(
+    key: string,
+  ): Promise<{ size: number; etag: string | null; contentType: string | null }> {
+    const res = await this.client.send(
+      new HeadObjectCommand({ Bucket: this.bucket, Key: key }),
+    );
+    return {
+      size: res.ContentLength ?? 0,
+      etag: res.ETag ? res.ETag.replace(/"/g, '') : null,
+      contentType: res.ContentType ?? null,
+    };
+  }
+
+  /**
+   * Resolve a stored image reference to something a browser / PDF renderer can
+   * load. Backward-compatible: legacy base64 data-URLs and absolute http(s)
+   * URLs pass through unchanged; an S3 object key is presigned (GET). Returns
+   * null on empty input or a signing failure so callers can render a fallback.
+   */
+  async resolveViewableUrl(
+    value: string | null | undefined,
+  ): Promise<string | null> {
+    if (!value) return null;
+    if (value.startsWith('data:') || value.startsWith('http')) return value;
+    return this.presignedUrl(value).catch(() => null);
+  }
+
+  /** Download a stored object into a Buffer — used by the virus-scan job. */
+  async getObjectBuffer(key: string): Promise<Buffer> {
+    const res = await this.client.send(
+      new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+    );
+    if (!res.Body) {
+      throw new Error(`S3 object ${key} has no body`);
+    }
+    // Node stream → Buffer. The AWS SDK v3 Body is a Readable in Node.
+    const chunks: Buffer[] = [];
+    for await (const chunk of res.Body as AsyncIterable<Uint8Array>) {
+      chunks.push(Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks);
   }
 }

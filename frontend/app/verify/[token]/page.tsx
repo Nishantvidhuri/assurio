@@ -23,6 +23,7 @@ import {
 import {
   verifyLinkInfo,
   verifyLinkConsent,
+  verifyLinkDecline,
   verifyLinkUpdate,
   verifyLinkDigilockerInit,
   verifyLinkDigilockerStatus,
@@ -30,7 +31,7 @@ import {
   type VerifyLinkInfo,
 } from '../../lib/api';
 
-type Step = 'consent' | 'form' | 'aadhaar' | 'done';
+type Step = 'consent' | 'form' | 'aadhaar' | 'done' | 'declined';
 type DlState = 'idle' | 'initializing' | 'awaiting' | 'fetching' | 'failed';
 
 export default function VerifyPage() {
@@ -44,6 +45,8 @@ export default function VerifyPage() {
   // consent
   const [agreed, setAgreed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [declineOpen, setDeclineOpen] = useState(false);
+  const [declineError, setDeclineError] = useState<string | null>(null);
 
   // form
   const [name, setName] = useState('');
@@ -69,13 +72,15 @@ export default function VerifyPage() {
         setEmail(res.email);
         setAadhaar(res.aadhaarNumber);
         setStep(
-          res.aadhaarVerified
-            ? 'done'
-            : res.digilockerStarted
-              ? 'aadhaar'
-              : res.termsAccepted
-                ? 'form'
-                : 'consent',
+          res.consentStatus === 'DECLINED' || res.consentStatus === 'EXPIRED'
+            ? 'declined'
+            : res.aadhaarVerified
+              ? 'done'
+              : res.digilockerStarted
+                ? 'aadhaar'
+                : res.termsAccepted
+                  ? 'form'
+                  : 'consent',
         );
         if (res.termsAccepted) setAgreed(true);
       })
@@ -134,6 +139,22 @@ export default function VerifyPage() {
       setStep('form');
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Could not save your consent.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function declineConsent() {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      await verifyLinkDecline(token);
+      setDeclineOpen(false);
+      setStep('declined');
+    } catch (err) {
+      setDeclineError(
+        err instanceof Error ? err.message : 'Could not record your decision.',
+      );
     } finally {
       setSubmitting(false);
     }
@@ -227,6 +248,25 @@ export default function VerifyPage() {
     );
   }
 
+  // Declined is terminal — there is no flow left to show, so drop the stepper
+  // and the form header rather than leaving three empty steps on screen.
+  if (step === 'declined') {
+    return (
+      <Shell centered>
+        <div className="flex flex-col items-center gap-3 text-center">
+          <AlertTriangle className="size-10 text-warning" />
+          <h1 className="text-xl font-semibold text-text-heading">
+            Verification declined
+          </h1>
+          <p className="max-w-md text-body-md text-text-body">
+            Thanks for letting us know. This request is now closed and none of
+            your details were checked. You can safely close this page.
+          </p>
+        </div>
+      </Shell>
+    );
+  }
+
   return (
     <Shell>
       {/* Page header */}
@@ -280,14 +320,61 @@ export default function VerifyPage() {
 
       {step === 'consent' && (
         <div className="flex flex-col gap-5">
-          <div>
-            <h1 className="text-xl font-semibold text-text-heading">
-              {info.clientName} has started your background verification
-            </h1>
-            <p className="mt-1 text-body-md text-text-body">
-              Please review and agree to the Terms &amp; Conditions to continue.
-            </p>
+          {/* Compact consent callout — request summary + the action buttons. */}
+          <div className="rounded-xl border border-border-focused bg-surface-info p-4">
+            <div className="flex items-start gap-3">
+              <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-primary-200 text-primary">
+                <ShieldCheck size={16} />
+              </span>
+              <div className="min-w-0">
+                <h1 className="text-base font-semibold text-text-heading">
+                  {info.clientName} has started your background verification
+                </h1>
+                <p className="mt-0.5 text-body-sm text-text-subheading">
+                  Review the Terms &amp; Conditions below, then give your consent
+                  to continue. You can decline any time — nothing about you is
+                  verified or stored.
+                </p>
+              </div>
+            </div>
+            <div className="mt-4">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  setDeclineError(null);
+                  setDeclineOpen(true);
+                }}
+                disabled={submitting}
+                className="w-full rounded-lg"
+              >
+                I refuse to start
+              </Button>
+            </div>
           </div>
+          {/* Exactly what the candidate is consenting to — server-derived from
+              the details the client provided. Nothing runs until they agree. */}
+          {info.checks && info.checks.length > 0 && (
+            <div className="rounded-xl border border-border-default bg-neutral-100 p-4">
+              <h2 className="text-body-md font-semibold text-text-heading">
+                What will be verified
+              </h2>
+              <p className="mt-0.5 text-body-sm text-text-subheading">
+                These checks start only after you tap Agree &amp; continue —
+                nothing has been checked yet.
+              </p>
+              <ul className="mt-3 grid gap-2 sm:grid-cols-2">
+                {info.checks.map((c) => (
+                  <li
+                    key={c.key}
+                    className="flex items-center gap-2 text-body-md text-text-body"
+                  >
+                    <CheckCircle2 size={15} className="shrink-0 text-success" />
+                    {c.label}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <TermsBox
             agreed={agreed}
             onAgreedChange={setAgreed}
@@ -304,6 +391,7 @@ export default function VerifyPage() {
             onClick={() => void acceptTerms()}
             disabled={!agreed || submitting}
             isLoading={submitting}
+            className="h-12! w-full rounded-lg text-body-lg!"
           >
             Agree &amp; continue
           </Button>
@@ -462,13 +550,74 @@ export default function VerifyPage() {
           </div>
         </section>
       </div>
+
+      {/* Decline confirmation. Plain fixed overlay + RDS Buttons — the same
+          pattern the invoice panels use, since the RDS DialogBox's enter
+          transition doesn't fire in this app (leaves the panel off-screen). */}
+      {declineOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(11,26,59,0.45)] p-4"
+          role="presentation"
+          onClick={() => !submitting && setDeclineOpen(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="decline-title"
+            className="w-full max-w-[460px] rounded-xl border border-border-default bg-white p-6 shadow-[0px_8px_32px_rgba(11,26,59,0.18)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span className="mb-3 flex size-10 items-center justify-center rounded-full bg-surface-warning text-warning">
+              <AlertTriangle size={20} />
+            </span>
+            <h2
+              id="decline-title"
+              className="text-lg font-semibold text-text-heading"
+            >
+              Decline this verification?
+            </h2>
+            <p className="mt-2 text-body-md text-text-body">
+              The request will be closed and {info.clientName} will be notified.
+              Nothing about you will be verified or stored. This cannot be
+              undone.
+            </p>
+            {declineError && (
+              <p className="mt-3 text-body-sm text-text-error">{declineError}</p>
+            )}
+            <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <Button
+                variant="secondary"
+                onClick={() => setDeclineOpen(false)}
+                disabled={submitting}
+              >
+                Go back
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => void declineConsent()}
+                isLoading={submitting}
+                disabled={submitting}
+              >
+                Yes, decline
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </Shell>
   );
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
+function Shell({
+  children,
+  centered = false,
+}: {
+  children: React.ReactNode;
+  /** Vertically centre the content — for terminal screens with no flow left. */
+  centered?: boolean;
+}) {
   return (
-    <div className="min-h-screen bg-white">
+    <div className="flex min-h-screen flex-col bg-white">
       <header className="border-b border-border-default bg-white">
         <div className="mx-auto flex max-w-[1040px] items-center gap-2.5 px-6 py-4">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -476,7 +625,15 @@ function Shell({ children }: { children: React.ReactNode }) {
           <span className="text-lg font-semibold text-text-heading">Assurio</span>
         </div>
       </header>
-      <main className="mx-auto max-w-[1040px] px-6 py-8">{children}</main>
+      <main
+        className={
+          centered
+            ? 'mx-auto flex w-full max-w-[1040px] flex-1 items-center justify-center px-6 py-8'
+            : 'mx-auto max-w-[1040px] px-6 py-8'
+        }
+      >
+        {children}
+      </main>
       <p className="pb-8 text-center text-body-sm text-text-placeholder">
         Secured by Assurio · Consent-first background checks
       </p>

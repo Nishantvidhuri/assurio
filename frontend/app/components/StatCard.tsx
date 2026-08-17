@@ -22,20 +22,23 @@ export default function StatCard({
   return (
     <div
       className={cn(
-        'rounded-lg border border-border-default bg-white px-4 py-3',
+        'rounded-lg border border-border-default bg-white px-3 py-2.5 sm:px-4 sm:py-3',
         className,
       )}
     >
       <div className="text-body-sm text-text-placeholder">{label}</div>
       <div className="mt-1 flex items-baseline gap-2">
-        <span className="text-2xl font-semibold text-text-heading">{value}</span>
+        {/* Values shrink on phones so three cards fit across without wrapping. */}
+        <span className="text-base font-semibold text-text-heading sm:text-2xl">
+          {value}
+        </span>
         {chip && (
           <span
             className={cn(
               'rounded-full px-1.5 py-[1px] text-body-sm font-medium',
-              chipTone === 'success' && 'bg-[#edfff4] text-icon-success',
-              chipTone === 'failure' && 'bg-[#fff0f0] text-failure',
-              chipTone === 'warning' && 'bg-[#fff9ec] text-[#ffb522]',
+              chipTone === 'success' && 'bg-success-100 text-icon-success',
+              chipTone === 'failure' && 'bg-failure-100 text-failure',
+              chipTone === 'warning' && 'bg-warning-100 text-warning',
               chipTone === 'neutral' && 'bg-neutral-400 text-text-body',
             )}
           >

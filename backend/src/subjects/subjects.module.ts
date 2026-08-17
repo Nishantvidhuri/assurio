@@ -11,9 +11,19 @@ import { SubjectsService } from './subjects.service';
 import { SubjectVerificationService } from './subject-verification.service';
 import { EmailService } from './email.service';
 import { UsersService } from '../users/users.service';
+import { ReportModule } from './report.module';
+import { WalletModule } from '../wallet/wallet.module';
+import { PackagesModule } from '../packages/packages.module';
 
 @Module({
-  imports: [AuthModule, DraftModule, VerifyModule],
+  imports: [
+    AuthModule,
+    DraftModule,
+    VerifyModule,
+    ReportModule,
+    WalletModule,
+    PackagesModule,
+  ],
   controllers: [
     SubjectsController,
     InviteController,

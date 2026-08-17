@@ -3,14 +3,18 @@ import {
   Body,
   Controller,
   Get,
+  Logger,
   Param,
   Patch,
   Post,
 } from '@nestjs/common';
 import { SubjectsService } from './subjects.service';
+import { SubjectVerificationService } from './subject-verification.service';
 import { VerifyService } from '../verify/verify.service';
 import { UsersService } from '../users/users.service';
 import { EmailService } from './email.service';
+import { ConsentSettlementService } from '../wallet/consent-settlement.service';
+import { WhatsAppService } from '../common/whatsapp.service';
 
 /**
  * Public, token-based candidate verification flow — no login required. Reached
@@ -21,11 +25,16 @@ import { EmailService } from './email.service';
  */
 @Controller('verify-link')
 export class VerifyLinkController {
+  private readonly logger = new Logger(VerifyLinkController.name);
+
   constructor(
     private readonly svc: SubjectsService,
     private readonly verify: VerifyService,
     private readonly users: UsersService,
     private readonly email: EmailService,
+    private readonly settlement: ConsentSettlementService,
+    private readonly subjectVerification: SubjectVerificationService,
+    private readonly whatsapp: WhatsAppService,
   ) {}
 
   /**
@@ -57,11 +66,21 @@ export class VerifyLinkController {
     return { url, emailSent };
   }
 
-  private async require(token: string) {
+  private async require(token: string, opts: { allowClosed?: boolean } = {}) {
     const doc = await this.svc.findByInviteToken(token);
     if (!doc) {
       throw new BadRequestException(
         'This verification link is invalid or has expired.',
+      );
+    }
+    // Once consent is declined or the request expired, the wallet hold has
+    // been refunded — every step that could trigger spend must go dead.
+    if (
+      !opts.allowClosed &&
+      (doc.consentStatus === 'DECLINED' || doc.consentStatus === 'EXPIRED')
+    ) {
+      throw new BadRequestException(
+        'This verification was declined or has expired and is now closed.',
       );
     }
     return doc;
@@ -78,12 +97,17 @@ export class VerifyLinkController {
   /** Who the link is for + the current progress of the flow. */
   @Get(':token')
   async info(@Param('token') token: string) {
-    const doc = await this.require(token);
+    // allowClosed: the page must still render the declined/expired end state.
+    const doc = await this.require(token, { allowClosed: true });
     const client = await this.users.findById(doc.userId);
     const consent = (doc.consentResult ?? {}) as Record<string, unknown>;
     const aadhaarVerified = this.aadhaarOk(doc.aadhaarResult);
     return {
       candidateName: doc.name,
+      consentStatus: doc.consentStatus,
+      // What will be verified once consent is granted — shown on the consent
+      // step so the candidate knows exactly what they are agreeing to.
+      checks: this.subjectVerification.plannedChecks(doc),
       clientName: client?.name ?? 'Your employer',
       email: doc.email ?? '',
       phone: doc.phone ?? '',
@@ -99,10 +123,21 @@ export class VerifyLinkController {
     };
   }
 
-  /** Candidate ticks the Terms & Conditions. */
+  /**
+   * Candidate ticks the Terms & Conditions. Winning the PENDING → GRANTED
+   * transition is what starts the paid checks — exactly once, ever: repeats
+   * return 'already' and do NOT re-trigger vendor calls, and a link whose
+   * consent was declined/expired is rejected before reaching here.
+   */
   @Post(':token/consent')
   async consent(@Param('token') token: string) {
     const doc = await this.require(token);
+    const outcome = await this.settlement.grantConsent(doc.id);
+    if (outcome === 'closed' || outcome === 'missing') {
+      throw new BadRequestException(
+        'This verification was declined or has expired and is now closed.',
+      );
+    }
     const prev = (doc.consentResult ?? {}) as Record<string, unknown>;
     await this.svc.patchOwn(doc.id, {
       consentResult: {
@@ -112,7 +147,109 @@ export class VerifyLinkController {
         acceptedAt: new Date().toISOString(),
       },
     });
+    if (outcome === 'granted') {
+      // Consent settled → the hold is now consumed; run the paid checks.
+      this.subjectVerification.runForSubject(doc.id);
+      // Only the winning transition notifies, so a double-click can't send twice.
+      void this.notifyConsent(doc.id, 'accepted');
+    }
     return { ok: true };
+  }
+
+  /** WhatsApp the client that their wallet hold came back. */
+  private async notifyRefund(
+    subjectId: string,
+    refundedPaise: number,
+  ): Promise<void> {
+    try {
+      const doc = await this.svc.findById(subjectId);
+      if (!doc) return;
+      const client = await this.users.findById(doc.userId);
+      if (!client?.phone) return;
+      await this.whatsapp.sendRefundProcessed(
+        client.phone,
+        client.name,
+        doc.name,
+        Math.round(refundedPaise / 100),
+      );
+    } catch (e) {
+      this.logger.warn(
+        `WhatsApp refund notify failed for ${subjectId}: ${
+          e instanceof Error ? e.message : e
+        }`,
+      );
+    }
+  }
+
+  /**
+   * WhatsApp on a settled consent decision: confirmation to the candidate and
+   * notification to the client. Fire-and-forget — never breaks the response.
+   */
+  private async notifyConsent(
+    subjectId: string,
+    outcome: 'accepted' | 'declined',
+  ): Promise<void> {
+    try {
+      const doc = await this.svc.findById(subjectId);
+      if (!doc) return;
+      const client = await this.users.findById(doc.userId);
+      const clientName = client?.name ?? 'Your employer';
+
+      if (doc.phone) {
+        await (outcome === 'accepted'
+          ? this.whatsapp.sendVerificationAcceptedToCandidate(
+              doc.phone,
+              doc.name,
+              clientName,
+            )
+          : this.whatsapp.sendVerificationDeclinedToCandidate(
+              doc.phone,
+              doc.name,
+              clientName,
+            ));
+      }
+      if (client?.phone) {
+        await (outcome === 'accepted'
+          ? this.whatsapp.sendConsentAcceptedToClient(
+              client.phone,
+              clientName,
+              doc.name,
+            )
+          : this.whatsapp.sendConsentDeclinedToClient(
+              client.phone,
+              clientName,
+              doc.name,
+            ));
+      }
+    } catch (e) {
+      this.logger.warn(
+        `WhatsApp consent notify failed for ${subjectId}: ${
+          e instanceof Error ? e.message : e
+        }`,
+      );
+    }
+  }
+
+  /**
+   * Candidate declines. Atomically closes the case and returns the client's
+   * wallet hold — the conditional transition + unique refund key make this
+   * exactly-once even if clicked twice or raced against the expiry sweep.
+   */
+  @Post(':token/decline')
+  async decline(@Param('token') token: string) {
+    const doc = await this.require(token, { allowClosed: true });
+    if (doc.consentStatus === 'GRANTED') {
+      throw new BadRequestException(
+        'Consent was already given — this verification is in progress.',
+      );
+    }
+    const res = await this.settlement.decline(doc.id);
+    // decline() is exactly-once, so this can't double-send on a repeat click.
+    if (res.refundedPaise > 0 || doc.consentStatus === 'PENDING') {
+      void this.notifyConsent(doc.id, 'declined');
+      if (res.refundedPaise > 0) void this.notifyRefund(doc.id, res.refundedPaise);
+    }
+    return { ok: true, declined: true, refunded: res.refundedPaise > 0 };
   }
 
   /** Candidate confirms their details (name, mobile, email, Aadhaar number). */
@@ -193,6 +330,13 @@ export class VerifyLinkController {
         photo: null,
       } as unknown as Record<string, unknown>,
     });
+
+    // Aadhaar just landed, which is the only source of the complete structured
+    // address the credit bureau demands. Re-run the engine so any check that
+    // was deferred for want of that address (credit) now fires. Idempotent:
+    // checks with a stored result are skipped.
+    this.subjectVerification.runForSubject(doc.id);
+
     return { ok: true, aadhaar: result };
   }
 }

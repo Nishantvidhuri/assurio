@@ -1,21 +1,18 @@
 import { Global, Module } from '@nestjs/common';
-import { JwtModule } from '@nestjs/jwt';
+import { AuthModule } from '../auth/auth.module';
 import { WhatsAppService } from './whatsapp.service';
 import { WhatsAppController } from './whatsapp.controller';
-import { PdfService } from './pdf.service';
-import { S3Service } from './s3.service';
 
-/** Global so any module can inject WhatsAppService / PdfService / S3Service without importing this module. */
+/**
+ * OpenWA (self-hosted WhatsApp) integration. Global so any module can inject
+ * WhatsAppService without importing this one. AuthModule supplies JwtAuthGuard
+ * for the controller. PdfService/S3Service come from the global CommonModule.
+ */
 @Global()
 @Module({
-  imports: [
-    JwtModule.register({
-      secret: process.env.JWT_SECRET || 'dev-secret-change-me',
-      signOptions: { expiresIn: '7d' },
-    }),
-  ],
+  imports: [AuthModule],
   controllers: [WhatsAppController],
-  providers: [WhatsAppService, PdfService, S3Service],
-  exports: [WhatsAppService, PdfService, S3Service],
+  providers: [WhatsAppService],
+  exports: [WhatsAppService],
 })
 export class WhatsAppModule {}

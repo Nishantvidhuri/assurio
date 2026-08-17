@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -7,8 +8,27 @@ import { randomBytes } from 'crypto';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../common/prisma.service';
 import { EventsService } from '../common/events.service';
-import { Subject } from '../../generated/prisma/client';
+import { Prisma, Subject } from '../../generated/prisma/client';
 import { PdfService } from '../common/pdf.service';
+import { ReportGenerationService } from './report-generation.service';
+import { WalletService } from '../wallet/wallet.service';
+import { PackagesService } from '../packages/packages.service';
+import {
+  chargeKey,
+  toPaise,
+  topupKey,
+  WALLET_LEDGER_EPOCH,
+} from '../wallet/wallet.constants';
+
+/**
+ * How the new subject is paid for. Both variants end with a single
+ * VERIFICATION_CHARGE debit keyed `charge:subject:<id>` — the refundable hold
+ * that ConsentSettlementService mirrors if the candidate never consents.
+ * Absent ⇒ legacy unpaid create (bulk/demo): no hold, so nothing to refund.
+ */
+export type SubjectPaymentInput =
+  | { method: 'wallet'; discountCode?: string }
+  | { method: 'razorpay'; razorpayPaymentId: string };
 
 export type SubjectPatch = Partial<{
   name: string;
@@ -61,6 +81,9 @@ export class SubjectsService {
     private readonly prisma: PrismaService,
     private readonly pdf: PdfService,
     private readonly events: EventsService,
+    private readonly reportGen: ReportGenerationService,
+    private readonly wallet: WalletService,
+    private readonly packages: PackagesService,
   ) {}
 
   list(userId: string): Promise<Subject[]> {
@@ -91,27 +114,144 @@ export class SubjectsService {
     },
   ): Promise<Subject> {
     return this.prisma.subject.create({
-      data: {
-        userId,
-        name: data.name.trim(),
-        role: (data.role || '').trim(),
-        email: data.email.toLowerCase().trim(),
-        phone: (data.phone || '').trim(),
-        panNumber: (data.panNumber || '').trim().toUpperCase() || undefined,
-        aadhaarNumber: (data.aadhaarNumber || '').replace(/\s/g, '').trim() || undefined,
-        dob: (data.dob || '').trim() || undefined,
-        fatherName: (data.fatherName || '').trim() || undefined,
-        permanentAddress: (data.permanentAddress || '').trim() || undefined,
-        pincode: (data.pincode || '').trim() || undefined,
-        drivingLicense: (data.drivingLicense || '').trim().toUpperCase() || undefined,
-        voterId: (data.voterId || '').trim().toUpperCase() || undefined,
-        passportFileNo: (data.passportFileNo || '').trim().toUpperCase() || undefined,
-        uan: (data.uan || '').replace(/\s/g, '').trim() || undefined,
-        consentAcceptedAt: data.consentAcceptedAt,
-        inviteToken: randomBytes(24).toString('hex'),
-        status: 'invited',
-      },
+      data: this.buildCreateData(userId, data),
     });
+  }
+
+  private buildCreateData(
+    userId: string,
+    data: Parameters<SubjectsService['create']>[1],
+  ): Prisma.SubjectUncheckedCreateInput {
+    const email = data.email.toLowerCase().trim();
+    return {
+      userId,
+      name: data.name.trim(),
+      role: (data.role || '').trim(),
+      email,
+      phone: (data.phone || '').trim(),
+      panNumber: (data.panNumber || '').trim().toUpperCase() || undefined,
+      aadhaarNumber: (data.aadhaarNumber || '').replace(/\s/g, '').trim() || undefined,
+      dob: (data.dob || '').trim() || undefined,
+      fatherName: (data.fatherName || '').trim() || undefined,
+      permanentAddress: (data.permanentAddress || '').trim() || undefined,
+      pincode: (data.pincode || '').trim() || undefined,
+      drivingLicense: (data.drivingLicense || '').trim().toUpperCase() || undefined,
+      voterId: (data.voterId || '').trim().toUpperCase() || undefined,
+      passportFileNo: (data.passportFileNo || '').trim().toUpperCase() || undefined,
+      uan: (data.uan || '').replace(/\s/g, '').trim() || undefined,
+      consentAcceptedAt: data.consentAcceptedAt,
+      inviteToken: randomBytes(24).toString('hex'),
+      status: 'invited',
+      // With a candidate email we can ask the candidate themselves — the paid
+      // checks wait for their answer and the charge stays refundable. Without
+      // one, the client's attested consent is all we will ever have, so the
+      // subject starts GRANTED and checks run immediately (legacy behaviour).
+      consentStatus: email ? 'PENDING' : 'GRANTED',
+      consentDecidedAt: email ? undefined : new Date(),
+    };
+  }
+
+  /**
+   * Create a subject and take its payment in ONE database transaction, so the
+   * charge and the subject it pays for exist together or not at all — a crash
+   * can never leave the client charged without a subject, or a subject running
+   * checks for free.
+   *
+   * razorpay: the verified payment is first credited to the wallet (keyed by
+   * paymentId — replaying the same payment can never credit twice) and then
+   * immediately debited as this subject's hold. Every rupee therefore flows
+   * through the ledger, which is what makes the consent refund provably exact.
+   *
+   * wallet: the price is computed server-side from the default package (+
+   * validated discount code) — the client never dictates the amount.
+   */
+  async createWithPayment(
+    userId: string,
+    data: Parameters<SubjectsService['create']>[1],
+    payment: SubjectPaymentInput,
+  ): Promise<Subject> {
+    const base = this.buildCreateData(userId, data);
+
+    if (payment.method === 'razorpay') {
+      const paymentId = (payment.razorpayPaymentId || '').trim();
+      if (!paymentId) throw new BadRequestException('Missing payment reference');
+      const invoice = await this.prisma.invoice.findUnique({
+        where: { razorpayPaymentId: paymentId },
+      });
+      if (!invoice || invoice.userId !== userId || invoice.status !== 'paid') {
+        throw new BadRequestException(
+          'Payment not found or not verified for this account',
+        );
+      }
+      if (invoice.createdAt < WALLET_LEDGER_EPOCH) {
+        throw new BadRequestException(
+          'This payment predates the wallet ledger and cannot fund a new check',
+        );
+      }
+      const amountPaise = toPaise(invoice.total);
+      return this.prisma.$transaction(async (tx) => {
+        await this.wallet.apply(tx, {
+          userId,
+          type: 'CREDIT',
+          reason: 'TOPUP',
+          amountPaise,
+          idempotencyKey: topupKey(paymentId),
+          invoiceId: invoice.id,
+          razorpayPaymentId: paymentId,
+          note: 'Verification payment via Razorpay',
+        });
+        const doc = await tx.subject.create({ data: base });
+        await this.wallet.apply(tx, {
+          userId,
+          type: 'DEBIT',
+          reason: 'VERIFICATION_CHARGE',
+          amountPaise,
+          idempotencyKey: chargeKey(doc.id),
+          subjectId: doc.id,
+          invoiceId: invoice.id,
+          note: `Verification hold — ${doc.name}`,
+        });
+        if (!invoice.subjectId) {
+          await tx.invoice.update({
+            where: { id: invoice.id },
+            data: { subjectId: doc.id },
+          });
+        }
+        return doc;
+      });
+    }
+
+    // Wallet-funded: price is authoritative on the server.
+    const amountPaise = await this.walletPricePaise(payment.discountCode);
+    return this.prisma.$transaction(async (tx) => {
+      const doc = await tx.subject.create({ data: base });
+      await this.wallet.apply(tx, {
+        userId,
+        type: 'DEBIT',
+        reason: 'VERIFICATION_CHARGE',
+        amountPaise,
+        idempotencyKey: chargeKey(doc.id),
+        subjectId: doc.id,
+        note: `Verification hold — ${doc.name}`,
+      });
+      return doc;
+    });
+  }
+
+  /** Default package price minus a validated discount code, in paise. */
+  private async walletPricePaise(discountCode?: string): Promise<number> {
+    const pkg = await this.packages.defaultPackage();
+    if (!pkg) throw new BadRequestException('No verification package configured');
+    let paise = toPaise(pkg.priceInr);
+    if (discountCode) {
+      const d = await this.packages.validateDiscount(discountCode);
+      if (!d.valid) throw new BadRequestException('Invalid discount code');
+      paise = Math.round((paise * (100 - d.percentOff)) / 100);
+    }
+    if (paise <= 0) {
+      throw new BadRequestException('Computed price is not payable');
+    }
+    return paise;
   }
 
   async findOwned(userId: string, id: string): Promise<Subject> {
@@ -206,6 +346,7 @@ export class SubjectsService {
     await this.findOwned(userId, id);
     const updated = await this.prisma.subject.update({ where: { id }, data: patch as Record<string, unknown> });
     this.events.emit(this.events.subjectChannel(id), updated);
+    this.reportGen.scheduleRegen(id);
     return updated;
   }
 
@@ -221,6 +362,7 @@ export class SubjectsService {
     }
     const updated = await this.prisma.subject.update({ where: { id }, data });
     this.events.emit(this.events.subjectChannel(id), updated);
+    this.reportGen.scheduleRegen(id);
     return updated;
   }
 
@@ -236,6 +378,7 @@ export class SubjectsService {
     }
     const updated = await this.prisma.subject.update({ where: { id }, data });
     this.events.emit(this.events.subjectChannel(id), updated);
+    this.reportGen.scheduleRegen(id);
     return updated;
   }
 

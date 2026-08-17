@@ -330,7 +330,7 @@ const TopBar = forwardRef<HTMLElement, TopBarProps>(
         ref={ref}
         className={cn(
           "relative flex h-[52px] items-center justify-between w-full",
-          "bg-[#F4F7FC] px-5 py-2",
+          "bg-surface-shell px-5 py-2",
           className,
         )}
         {...props}
