@@ -92,7 +92,7 @@ OPENWA_URL=http://127.0.0.1:2785/api
 OPENWA_API_KEY=<from step 3>
 ```
 
-And `frontend/.env.local`:
+And `frontend/.env`:
 
 ```ini
 NEXT_PUBLIC_API_URL=https://your-domain.com/api

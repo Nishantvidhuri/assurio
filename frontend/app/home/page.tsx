@@ -353,13 +353,6 @@ export default function HomePage() {
                     onSort={() => toggleSort('role')}
                   />
                   <TableHeaderCell
-                    label="Crime"
-                    className="cd-col-hide"
-                    sortable
-                    sortOrder={getSortOrder('crime')}
-                    onSort={() => toggleSort('crime')}
-                  />
-                  <TableHeaderCell
                     label="Date initiated"
                     className="cd-col-hide"
                     sortable
@@ -698,20 +691,15 @@ function SubjectRow({
 }) {
   const [expanded, setExpanded] = useState(false);
   const panOk = Boolean(s.panResult);
-  const aadhaarOk = Boolean(s.aadhaarResult);
   const crimeRisk = getCrimeRisk(s);
   const crimePending = Boolean(s.crimeRequestId) && !s.crimeResult;
+  const aadhaarOk = Boolean(s.aadhaarResult);
   // A downloadable report exists once any check has produced a result.
   const hasReport = Boolean(s.panResult || s.aadhaarResult || s.crimeResult);
   const initial = (s.name || '?').charAt(0).toUpperCase();
   // Progress across ALL applicable checks + consent outcome — same rule the
   // mobile card uses, so the list and the report always agree (e.g. 5/7).
   const { label: statusLabel, variant: statusVariant } = subjectStatusChip(s);
-  const crimeChip: { label: string; variant: StatusVariant } = crimeRisk
-    ? { label: crimeRisk, variant: crimeVariant(crimeRisk) }
-    : crimePending
-      ? { label: 'Pending', variant: 'Warning' }
-      : { label: 'Not started', variant: 'Default' };
 
   return (
     <TableRow
@@ -790,12 +778,6 @@ function SubjectRow({
         }
       />
       <TableCell className="cd-col-hide" value={s.role || '—'} />
-      <TableCell
-        className="cd-col-hide"
-        type="status"
-        statusLabel={crimeChip.label}
-        statusVariant={crimeChip.variant}
-      />
       <TableCell className="cd-col-hide" value={fmtDate(s.createdAt)} />
       <TableCell
         className="cd-col-hide"
