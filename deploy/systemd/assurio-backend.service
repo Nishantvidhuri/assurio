@@ -1,0 +1,20 @@
+[Unit]
+Description=Assurio API (NestJS)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/bg_check/backend
+# `nest start` compiles then runs; dist is built ahead of time by deploy.sh.
+ExecStart=/usr/bin/node dist/src/main
+EnvironmentFile=/home/ubuntu/bg_check/backend/.env
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=assurio-backend
+
+[Install]
+WantedBy=multi-user.target

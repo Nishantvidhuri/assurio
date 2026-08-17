@@ -49,10 +49,24 @@ export class WhatsAppController {
   async chats(@Req() req: RequestWithUser, @Query('limit') limit?: string) {
     if (req.user?.role !== 'admin') throw new ForbiddenException('Admin only');
     // Always candidate/client-only — enforced in the service, no opt-out.
-    const chats = await this.whatsapp.getChats(
-      limit ? Math.min(Math.max(Number(limit) || 100, 1), 200) : 100,
+    const [chats, contacts] = await Promise.all([
+      this.whatsapp.getChats(
+        limit ? Math.min(Math.max(Number(limit) || 100, 1), 200) : 100,
+      ),
+      // Every candidate/client/draft we hold a number for, so contacts with no
+      // conversation yet still appear in the list and can be opened.
+      this.whatsapp.knownPlatformContacts(),
+    ]);
+    // WhatsApp doesn't always create a chat entry for a thread we've only sent
+    // into, so fold those in — otherwise a candidate we messaged shows as
+    // "no conversation yet" right under the message we sent them.
+    const outboundOnly = chats
+      ? await this.whatsapp.findOutboundOnlyThreads(contacts, chats)
+      : [];
+    const merged = [...(chats ?? []), ...outboundOnly].sort(
+      (a, b) => (b.timestamp || 0) - (a.timestamp || 0),
     );
-    return { configured: chats !== null, chats: chats ?? [] };
+    return { configured: chats !== null, chats: merged, contacts };
   }
 
   /** Conversation (sent + received) with a number — powers the chat view. */

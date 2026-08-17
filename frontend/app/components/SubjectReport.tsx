@@ -41,6 +41,10 @@ import {
 } from '../lib/api';
 import { getToken } from '../lib/session';
 import {
+  CREDIT_CHECK_ENABLED,
+  PASSPORT_CHECK_ENABLED,
+} from '../lib/feature-flags';
+import {
   CheckCard,
   type CheckDocument,
   type CheckStatus,
@@ -188,7 +192,16 @@ function severityClass(severity?: string): string {
 
 /* ---------- entered-vs-verified comparison ---------- */
 
-type RecallType = 'pan' | 'aadhaar' | 'voter' | 'passport' | 'dl' | 'employment';
+type RecallType =
+  | 'pan'
+  | 'aadhaar'
+  | 'voter'
+  | 'passport'
+  | 'dl'
+  | 'employment'
+  // Async vendor-polled — recall re-submits and restarts polling.
+  | 'crime'
+  | 'credit';
 
 type MatchState = 'match' | 'partial' | 'mismatch' | 'na';
 
@@ -454,6 +467,13 @@ export default function SubjectReport({
       ? String((r as { __checkError: unknown }).__checkError)
       : null;
 
+  // A vendor failure still awaiting an operator decision. Clients see the check
+  // as in progress; only admins see that it failed. Stamped __resolvedAt once
+  // released, at which point everyone sees "Unable to verify".
+  const unresolved = (r: unknown): boolean =>
+    Boolean(errOf(r)) &&
+    !(r && typeof r === 'object' && '__resolvedAt' in (r as object));
+
   // An admin passed this check by hand because the vendor could not answer.
   // Surfaced as its own status so the report never implies the source
   // confirmed it.
@@ -479,6 +499,11 @@ export default function SubjectReport({
   const voterErr = errOf(subject.voterResult);
   const passportErr = errOf(subject.passportResult);
   const employmentErr = errOf(subject.employmentResult);
+  // Crime and credit were missing this: a stored { __checkError } was being
+  // treated as a successful result, so a FAILED criminal-records lookup
+  // rendered as "Completed — 0 cases found".
+  const crimeErr = errOf(subject.crimeResult);
+  const creditErr = errOf(subject.creditResult);
 
   // Admin manual overrides, per check.
   const panManual = manualOf(subject.panResult);
@@ -492,7 +517,7 @@ export default function SubjectReport({
 
   const pan = (panErr || panManual ? null : subject.panResult) as PanData | null;
   const aadhaar = (aadhaarErr || aadhaarManual ? null : subject.aadhaarResult) as AadhaarKyc | null;
-  const crime = (crimeManual ? null : subject.crimeResult) as { data?: CrimeReport } | null;
+  const crime = (crimeErr || crimeManual ? null : subject.crimeResult) as { data?: CrimeReport } | null;
   const crimeReport: CrimeReport = crime?.data ?? {};
   const crimePending = Boolean(subject.crimeRequestId) && !crime;
   const dlStarted = Boolean(subject.digilockerClientId);
@@ -507,7 +532,7 @@ export default function SubjectReport({
   const voter = (voterErr || voterManual ? null : subject.voterResult ?? null) as Record<string, unknown> | null;
   const passport = (passportErr || passportManual ? null : subject.passportResult ?? null) as Record<string, unknown> | null;
   const employment = (employmentErr || employmentManual ? null : subject.employmentResult ?? null) as Record<string, unknown> | null;
-  const credit = (creditManual ? null : subject.creditResult ?? null) as Record<string, unknown> | null;
+  const credit = (creditErr || creditManual ? null : subject.creditResult ?? null) as Record<string, unknown> | null;
 
 
   const [docPreview, setDocPreview] = useState<PreviewFile | null>(null);
@@ -517,6 +542,7 @@ export default function SubjectReport({
   const [manualTarget, setManualTarget] = useState<{
     type: ManualPassType;
     label: string;
+    mode: 'passed' | 'unable';
   } | null>(null);
   const [manualReason, setManualReason] = useState('');
   const [manualError, setManualError] = useState('');
@@ -592,6 +618,7 @@ export default function SubjectReport({
         subject.id,
         manualTarget.type,
         manualReason.trim(),
+        manualTarget.mode,
       );
       onSubjectUpdate?.(updated as unknown as SubjectReportData);
       setManualTarget(null);
@@ -880,34 +907,38 @@ export default function SubjectReport({
   const panStatus = panManual
     ? 'manual'
     : panErr
-      ? 'failed'
+      ? (!admin && unresolved(subject.panResult) ? 'pending' : 'failed')
       : checkStatus(Boolean(pan), panPending, panReqs);
   const dlStatus = dlManual
     ? 'manual'
     : dlErr
-      ? 'failed'
+      ? (!admin && unresolved(subject.dlResult) ? 'pending' : 'failed')
       : checkStatus(Boolean(drivingLicence), false, dlReqs);
   const voterStatus = voterManual
     ? 'manual'
     : voterErr
-      ? 'failed'
+      ? (!admin && unresolved(subject.voterResult) ? 'pending' : 'failed')
       : checkStatus(Boolean(voter), false, voterReqs);
   const passportStatus = passportManual
     ? 'manual'
     : passportErr
-      ? 'failed'
+      ? (!admin && unresolved(subject.passportResult) ? 'pending' : 'failed')
       : checkStatus(Boolean(passport), false, passportReqs);
   const employmentStatus = employmentManual
     ? 'manual'
     : employmentErr
-      ? 'failed'
+      ? (!admin && unresolved(subject.employmentResult) ? 'pending' : 'failed')
       : checkStatus(Boolean(employment), false, employmentReqs);
   const crimeStatusVal = crimeManual
     ? 'manual'
-    : checkStatus(Boolean(crime), crimePending, crimeReqs);
+    : crimeErr
+      ? (!admin && unresolved(subject.crimeResult) ? 'pending' : 'failed')
+      : checkStatus(Boolean(crime), crimePending, crimeReqs);
   const creditStatus = creditManual
     ? 'manual'
-    : checkStatus(
+    : creditErr
+      ? (!admin && unresolved(subject.creditResult) ? 'pending' : 'failed')
+      : checkStatus(
         Boolean(credit),
         Boolean(subject.creditRequestId),
         creditReqs,
@@ -923,10 +954,12 @@ export default function SubjectReport({
     panStatus,
     dlStatus,
     voterStatus,
-    passportStatus,
+    ...(PASSPORT_CHECK_ENABLED ? [passportStatus] : []),
     employmentStatus,
     crimeStatusVal,
-    creditStatus,
+    // Credit is switched off for now — excluded from the ratio as well as the
+    // card list, so a stored result can't hold the report open.
+    ...(CREDIT_CHECK_ENABLED ? [creditStatus] : []),
   ];
   const applicableCount = cardStatuses.filter(
     (s) => s !== 'unavailable',
@@ -970,7 +1003,18 @@ export default function SubjectReport({
       ? () => {
           setManualReason('');
           setManualError('');
-          setManualTarget({ type, label });
+          setManualTarget({ type, label, mode: 'passed' });
+        }
+      : undefined;
+
+  // Release a failed check to the client as "Unable to verify" — admin only,
+  // and only while the failure is still unresolved.
+  const release = (type: ManualPassType, label: string, result: unknown) =>
+    admin && unresolved(result)
+      ? () => {
+          setManualReason('');
+          setManualError('');
+          setManualTarget({ type, label, mode: 'unable' });
         }
       : undefined;
 
@@ -1225,6 +1269,7 @@ export default function SubjectReport({
       {/* 1 · Aadhaar */}
       {show(aadhaarStatus) && (
       <CheckCard
+        admin={admin}
         title="Aadhaar (DigiLocker)"
         status={aadhaarStatus}
         order={aadhaarStatus === 'unavailable' ? 1 : 0}
@@ -1237,10 +1282,11 @@ export default function SubjectReport({
         resending={sendingLink}
         onManualPass={manualPass('aadhaar', 'Aadhaar (DigiLocker)', aadhaarStatus)}
         passing={passing === 'aadhaar'}
+        onRelease={release('aadhaar', 'Aadhaar (DigiLocker)', subject.aadhaarResult)}
         requirements={aadhaarReqs}
       >
         {aadhaarErr ? (
-          <ErrorTile message={aadhaarErr} />
+          <ErrorTile message={aadhaarErr} admin={admin} unresolved={unresolved(subject.aadhaarResult)} />
         ) : aadhaar ? (
           <AadhaarReadout a={aadhaar} />
         ) : (
@@ -1259,6 +1305,7 @@ export default function SubjectReport({
       {/* 2 · PAN */}
       {show(panStatus) && (
       <CheckCard
+        admin={admin}
         title="PAN Card"
         status={panStatus}
         order={panStatus === 'unavailable' ? 1 : 0}
@@ -1271,12 +1318,13 @@ export default function SubjectReport({
         recalling={recalling === 'pan'}
         onManualPass={manualPass('pan', 'PAN', panStatus)}
         passing={passing === 'pan'}
+        onRelease={release('pan', 'PAN', subject.panResult)}
         requirements={panReqs}
       >
         {panManual ? (
           <ManualTile info={panManual} />
         ) : panErr ? (
-          <ErrorTile message={panErr} />
+          <ErrorTile message={panErr} admin={admin} unresolved={unresolved(subject.panResult)} />
         ) : pan ? (
           <PanReadout pan={pan} />
         ) : panPending ? (
@@ -1296,6 +1344,7 @@ export default function SubjectReport({
       {/* 3 · Driving licence */}
       {show(dlStatus) && (
       <CheckCard
+        admin={admin}
         title="Driving licence"
         status={dlStatus}
         order={dlStatus === 'unavailable' ? 1 : 0}
@@ -1304,13 +1353,14 @@ export default function SubjectReport({
         recalling={recalling === 'dl'}
         onManualPass={manualPass('dl', 'Driving Licence', dlStatus)}
         passing={passing === 'dl'}
+        onRelease={release('dl', 'Driving Licence', subject.dlResult)}
         requirements={dlReqs}
         comparison={dlCompare}
       >
         {dlManual ? (
           <ManualTile info={dlManual} />
         ) : dlErr ? (
-          <ErrorTile message={dlErr} />
+          <ErrorTile message={dlErr} admin={admin} unresolved={unresolved(subject.dlResult)} />
         ) : drivingLicence ? (
           <GenericReadout result={drivingLicence} />
         ) : (
@@ -1329,6 +1379,7 @@ export default function SubjectReport({
       {/* 4 · Voter ID */}
       {show(voterStatus) && (
       <CheckCard
+        admin={admin}
         title="Voter ID"
         status={voterStatus}
         order={voterStatus === 'unavailable' ? 1 : 0}
@@ -1337,13 +1388,14 @@ export default function SubjectReport({
         recalling={recalling === 'voter'}
         onManualPass={manualPass('voter', 'Voter ID', voterStatus)}
         passing={passing === 'voter'}
+        onRelease={release('voter', 'Voter ID', subject.voterResult)}
         requirements={voterReqs}
         comparison={voterCompare}
       >
         {voterManual ? (
           <ManualTile info={voterManual} />
         ) : voterErr ? (
-          <ErrorTile message={voterErr} />
+          <ErrorTile message={voterErr} admin={admin} unresolved={unresolved(subject.voterResult)} />
         ) : voter ? (
           <GenericReadout result={voter} />
         ) : (
@@ -1360,8 +1412,9 @@ export default function SubjectReport({
       )}
 
       {/* 5 · Passport */}
-      {show(passportStatus) && (
+      {PASSPORT_CHECK_ENABLED && show(passportStatus) && (
       <CheckCard
+        admin={admin}
         title="Passport"
         status={passportStatus}
         order={passportStatus === 'unavailable' ? 1 : 0}
@@ -1370,13 +1423,14 @@ export default function SubjectReport({
         recalling={recalling === 'passport'}
         onManualPass={manualPass('passport', 'Passport', passportStatus)}
         passing={passing === 'passport'}
+        onRelease={release('passport', 'Passport', subject.passportResult)}
         requirements={passportReqs}
         comparison={passportCompare}
       >
         {passportManual ? (
           <ManualTile info={passportManual} />
         ) : passportErr ? (
-          <ErrorTile message={passportErr} />
+          <ErrorTile message={passportErr} admin={admin} unresolved={unresolved(subject.passportResult)} />
         ) : passport ? (
           <GenericReadout result={passport} />
         ) : (
@@ -1395,6 +1449,7 @@ export default function SubjectReport({
       {/* 6 · Employment (UAN) */}
       {show(employmentStatus) && (
       <CheckCard
+        admin={admin}
         title="Employment history"
         status={employmentStatus}
         order={employmentStatus === 'unavailable' ? 1 : 0}
@@ -1403,13 +1458,14 @@ export default function SubjectReport({
         recalling={recalling === 'employment'}
         onManualPass={manualPass('employment', 'Employment', employmentStatus)}
         passing={passing === 'employment'}
+        onRelease={release('employment', 'Employment', subject.employmentResult)}
         requirements={employmentReqs}
         comparison={employmentCompare}
       >
         {employmentManual ? (
           <ManualTile info={employmentManual} />
         ) : employmentErr ? (
-          <ErrorTile message={employmentErr} />
+          <ErrorTile message={employmentErr} admin={admin} unresolved={unresolved(subject.employmentResult)} />
         ) : employment ? (
           <GenericReadout result={employment} />
         ) : (
@@ -1428,17 +1484,25 @@ export default function SubjectReport({
       {/* 7 · Criminal */}
       {show(crimeStatusVal) && (
       <CheckCard
+        admin={admin}
         title="Criminal records"
         status={crimeStatusVal}
         order={crimeStatusVal === 'unavailable' ? 1 : 0}
         tat={crime ? tat : undefined}
+        onRecall={recall('crime')}
+        recalling={recalling === 'crime'}
         onManualPass={manualPass('crime', 'Criminal records', crimeStatusVal)}
         passing={passing === 'crime'}
+        onRelease={release('crime', 'Criminal records', subject.crimeResult)}
         requirements={crimeReqs}
         documents={crimeDocs}
         onPreview={setDocPreview}
       >
-        {crime ? (
+        {crimeManual ? (
+          <ManualTile info={crimeManual} />
+        ) : crimeErr ? (
+          <ErrorTile message={crimeErr} admin={admin} unresolved={unresolved(subject.crimeResult)} />
+        ) : crime ? (
           <CrimeReadout
             name={subject.name}
             report={crimeReport}
@@ -1460,19 +1524,27 @@ export default function SubjectReport({
       )}
 
       {/* 7 · Credit score */}
-      {show(creditStatus) && (
+      {CREDIT_CHECK_ENABLED && show(creditStatus) && (
       <CheckCard
+        admin={admin}
         title="Credit score"
         status={creditStatus}
         order={creditStatus === 'unavailable' ? 1 : 0}
         tat={credit ? tat : undefined}
+        onRecall={recall('credit')}
+        recalling={recalling === 'credit'}
         onManualPass={manualPass('credit', 'Credit score', creditStatus)}
         passing={passing === 'credit'}
+        onRelease={release('credit', 'Credit score', subject.creditResult)}
         requirements={creditReqs}
         documents={creditDocs}
         onPreview={setDocPreview}
       >
-        {credit ? (
+        {creditManual ? (
+          <ManualTile info={creditManual} />
+        ) : creditErr ? (
+          <ErrorTile message={creditErr} admin={admin} unresolved={unresolved(subject.creditResult)} />
+        ) : credit ? (
           creditReportUrl ? (
             <VendorReportTile
               label="Credit bureau report"
@@ -1514,6 +1586,7 @@ export default function SubjectReport({
 
       {manualTarget && (
         <ManualPassModal
+          mode={manualTarget.mode}
           label={manualTarget.label}
           reason={manualReason}
           onReasonChange={setManualReason}
@@ -1566,6 +1639,7 @@ function VendorReportTile({
 }
 
 function ManualPassModal({
+  mode,
   label,
   reason,
   onReasonChange,
@@ -1574,6 +1648,7 @@ function ManualPassModal({
   onCancel,
   onConfirm,
 }: {
+  mode: 'passed' | 'unable';
   label: string;
   reason: string;
   onReasonChange: (v: string) => void;
@@ -1614,19 +1689,34 @@ function ManualPassModal({
           </span>
           <div className="min-w-0">
             <h2 className="text-body-lg font-semibold text-text-heading">
-              Mark &ldquo;{label}&rdquo; as passed manually
+              {mode === 'unable'
+                ? `Mark “${label}” as unable to verify`
+                : `Mark “${label}” as passed manually`}
             </h2>
             <p className="mt-0.5 text-body-sm text-text-subheading">
-              Use this only when the verification source cannot return a result.
+              {mode === 'unable'
+                ? 'Releases this failure to the client. Until you do, they see the check as in progress.'
+                : 'Use this only when the verification source cannot return a result.'}
             </p>
           </div>
         </div>
 
         <div className="space-y-4 px-5 py-4">
           <div className="rounded-lg border border-border-warning bg-surface-warning px-4 py-3 text-body-sm text-warning-900">
-            The report will show{' '}
-            <span className="font-semibold">Verified manually</span> against your
-            name — it will not claim the source confirmed this check.
+            {mode === 'unable' ? (
+              <>
+                The client&rsquo;s report will show{' '}
+                <span className="font-semibold">Unable to verify</span> — this
+                check ends unverified. They never see the underlying vendor
+                error.
+              </>
+            ) : (
+              <>
+                The report will show{' '}
+                <span className="font-semibold">Verified manually</span> against
+                your name — it will not claim the source confirmed this check.
+              </>
+            )}
           </div>
 
           <div>
@@ -1661,7 +1751,7 @@ function ManualPassModal({
             Cancel
           </Button>
           <Button onClick={onConfirm} disabled={busy} isLoading={busy}>
-            Mark as passed
+            {mode === 'unable' ? 'Mark unable to verify' : 'Mark as passed'}
           </Button>
         </div>
       </div>
@@ -1733,15 +1823,64 @@ function ManualTile({
   );
 }
 
-function ErrorTile({ message }: { message: string }) {
-  return (
-    <div className="flex items-start gap-3 rounded-lg border border-border-error bg-surface-error p-4">
-      <AlertTriangle className="mt-0.5 size-5 shrink-0 text-text-error" />
-      <div>
-        <div className="text-body-md font-medium text-text-error">
-          Verification failed
+/**
+ * What a CLIENT is told when a check couldn't be completed. Never the raw
+ * vendor text — that leaks third-party internals into a document employers
+ * read and forward. Distinguishes "the source didn't answer" from "the source
+ * answered, and found nothing matching", which mean different things to them.
+ */
+function clientErrorMessage(raw: string): string {
+  const t = raw.toLowerCase();
+  const systemish =
+    /invalid url|no scheme|timeout|timed out|econn|network|unavailable|internal server|http 5\d\d|could not reach|failed to fetch|502|503|504/.test(
+      t,
+    );
+  return systemish
+    ? 'The verification source was temporarily unavailable, so this check could not be completed. Our team has been notified.'
+    : 'No matching record was found for the details provided, so this check could not be completed.';
+}
+
+function ErrorTile({
+  message,
+  admin = false,
+  unresolved = false,
+}: {
+  message: string;
+  admin?: boolean;
+  /** Failure still awaiting an operator decision — clients must not see it. */
+  unresolved?: boolean;
+}) {
+  if (!admin && unresolved) {
+    return (
+      <div className="flex items-start gap-3 rounded-lg border border-border-default bg-primary-bg p-4">
+        <Clock className="mt-0.5 size-5 shrink-0 text-primary" />
+        <div>
+          <div className="text-body-md font-medium text-text-heading">
+            In progress
+          </div>
+          <div className="mt-0.5 text-body-sm text-text-subheading">
+            Verification is underway with the source. We will update this as
+            soon as the outcome is confirmed.
+          </div>
         </div>
-        <div className="mt-0.5 text-body-sm text-text-error">{message}</div>
+      </div>
+    );
+  }
+  return <ErrorTileInner message={admin ? message : clientErrorMessage(message)} admin={admin} />;
+}
+
+function ErrorTileInner({ message, admin }: { message: string; admin: boolean }) {
+  // Clients get a neutral amber "Unable to verify"; admins keep the red
+  // "Verification failed" with the vendor's own message for diagnosis.
+  const tone = admin
+    ? { box: 'border-border-error bg-surface-error', text: 'text-text-error', title: 'Verification failed' }
+    : { box: 'border-border-warning bg-surface-warning', text: 'text-warning-900', title: 'Unable to verify' };
+  return (
+    <div className={`flex items-start gap-3 rounded-lg border p-4 ${tone.box}`}>
+      <AlertTriangle className={`mt-0.5 size-5 shrink-0 ${tone.text}`} />
+      <div>
+        <div className={`text-body-md font-medium ${tone.text}`}>{tone.title}</div>
+        <div className={`mt-0.5 text-body-sm ${tone.text}`}>{message}</div>
       </div>
     </div>
   );

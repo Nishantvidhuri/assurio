@@ -367,6 +367,9 @@ export class SubjectsController {
       'passport',
       'dl',
       'employment',
+      // Async vendor-polled: recall clears the stored result and re-submits.
+      'crime',
+      'credit',
     ] as const;
     if (!(allowed as readonly string[]).includes(type)) {
       throw new BadRequestException('Unsupported check type');
@@ -394,7 +397,7 @@ export class SubjectsController {
     @Req() req: RequestWithUser,
     @Param('id') id: string,
     @Param('type') type: string,
-    @Body() body: { reason?: string },
+    @Body() body: { reason?: string; resolution?: 'passed' | 'unable' },
   ) {
     if (req.user?.role !== 'admin') {
       throw new ForbiddenException('Admin only');
@@ -408,6 +411,7 @@ export class SubjectsController {
       field,
       admin?.email || admin?.name || 'admin',
       (body?.reason || '').trim(),
+      body?.resolution === 'unable' ? 'unable' : 'passed',
     );
     return toSubjectResponse(doc);
   }

@@ -9,6 +9,10 @@
  * requires is filled.
  */
 import type { CandidateDraft } from './draft';
+import {
+  CREDIT_CHECK_ENABLED,
+  PASSPORT_CHECK_ENABLED,
+} from '../../lib/feature-flags';
 
 export type CheckFieldKey = keyof Omit<
   CandidateDraft,
@@ -54,7 +58,7 @@ export interface CheckDef {
  * we can perform" is derived from these, and the backend orchestrator runs each
  * check using the same rules — so what's shown is exactly what runs.
  */
-export const CHECKS: CheckDef[] = [
+const ALL_CHECKS: CheckDef[] = [
   { id: 'pan', label: 'PAN verification', requires: ['pan'] },
   { id: 'aadhaar', label: 'Aadhaar (DigiLocker)', requires: ['aadhaar'] },
   {
@@ -78,6 +82,13 @@ export const CHECKS: CheckDef[] = [
     addressFromAadhaar: true,
   },
 ];
+
+/** Credit and passport are switched off for now — see lib/feature-flags. */
+export const CHECKS: CheckDef[] = ALL_CHECKS.filter((c) => {
+  if (c.id === 'credit') return CREDIT_CHECK_ENABLED;
+  if (c.id === 'passport') return PASSPORT_CHECK_ENABLED;
+  return true;
+});
 
 export interface PerformableCheck {
   id: string;

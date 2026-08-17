@@ -371,9 +371,19 @@ export class VerifyService {
    * Surepass expects DOB as `YYYY-MM-DD`, but the candidate form stores it as
    * `DD-MM-YYYY` (or `DD/MM/YYYY`). Normalise so DL/passport payloads validate.
    */
+  /**
+   * Vendors parse dates with Python's `%Y-%m-%d`; our forms store DD-MM-YYYY.
+   * Sending the raw form value fails with
+   *   time data '09-06-2004' does not match format '%Y-%m-%d'
+   * so every dob we send must go through here. Accepts 1-2 digit day/month and
+   * passes an already-ISO value straight back.
+   */
   private toIsoDob(dob: string): string {
-    const m = dob.match(/^(\d{2})[-/](\d{2})[-/](\d{4})$/);
-    return m ? `${m[3]}-${m[2]}-${m[1]}` : dob;
+    const iso = dob.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (iso) return dob;
+    const m = dob.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+    if (!m) return dob;
+    return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
   }
 
   /* ── Surepass: Passport ── */
@@ -554,24 +564,71 @@ export class VerifyService {
 
   /* ── KonnectNxt: Crime check ── */
 
+  /**
+   * Submits a court/criminal-records check via the KonnectNxt **v2 BGV** flow —
+   * the same submit/download pair the credit check uses.
+   *
+   * The older single-shot `/verification/crime-check/` endpoint is deprecated
+   * upstream and currently 500s ("Invalid URL 'None/reports/v4'") because the
+   * reports service behind it is unconfigured; Recriauth abandoned it for this
+   * pipeline too. Returns the vendor envelope carrying cases_created[].case_id,
+   * which is then polled with crimeCheckReport.
+   */
   async crimeCheck(input: {
     name: string;
     fatherName?: string;
     dob?: string;
-    address?: string;
     panNumber?: string;
+    phone?: string;
+    email?: string;
+    street: string;
+    city?: string;
+    state?: string;
+    pincode?: string;
+    country?: string;
   }) {
-    const body: Record<string, string> = { name: input.name };
-    if (input.fatherName) body.father_name = input.fatherName;
-    if (input.dob) body.dob = input.dob;
-    if (input.address) body.address = input.address;
-    if (input.panNumber) body.pan_number = input.panNumber.toUpperCase();
-    return this.knPost(KONNECT_NXT.endpoints.crimeCheck, body);
+    const candidate: Record<string, unknown> = {
+      name: input.name,
+      ...(input.fatherName ? { father_name: input.fatherName } : {}),
+      // Normalise here, not just at the callers — the manual /verify endpoints
+      // hand us DD-MM-YYYY straight from the DTO.
+      ...(input.dob ? { dob: this.toIsoDob(input.dob) } : {}),
+      ...(input.panNumber ? { pan: input.panNumber.toUpperCase() } : {}),
+      ...(input.phone ? { phone: input.phone } : {}),
+      ...(input.email ? { email: input.email } : {}),
+      // Backwards-compat string kept alongside the canonical structured address.
+      permanent_address: [input.street, input.city, input.state, input.pincode]
+        .filter(Boolean)
+        .join(', '),
+      addresses: [
+        {
+          // Court records are searched against the PERMANENT address, unlike
+          // the credit bureau which keys on Current.
+          address_type: 'Permanent',
+          street: input.street,
+          city: input.city ?? '',
+          state: input.state ?? '',
+          country: input.country || 'India',
+          pincode: input.pincode ?? '',
+        },
+      ],
+    };
+    return this.knPost(
+      KONNECT_NXT.bgvEndpoints.submit,
+      { checks: ['criminal_check'], candidates: [candidate] },
+      this.konnectnxtBgvBase,
+    );
   }
 
-  async crimeCheckReport(requestId: string) {
+  /**
+   * Fetches the court-record report URL for a submitted case. `data` carries
+   * the signed PDF URL once the case completes, and is null/absent while the
+   * vendor is still processing — which is what the poller waits on.
+   */
+  async crimeCheckReport(caseId: string) {
     return this.knGet(
-      `${KONNECT_NXT.endpoints.crimeCheck}?request_id=${encodeURIComponent(requestId)}`,
+      `${KONNECT_NXT.bgvEndpoints.download}?case_id=${encodeURIComponent(caseId)}&type=pdf`,
+      this.konnectnxtBgvBase,
     );
   }
 
@@ -598,7 +655,7 @@ export class VerifyService {
     const candidate: Record<string, unknown> = {
       name: input.name,
       ...(input.fatherName ? { father_name: input.fatherName } : {}),
-      ...(input.dob ? { dob: input.dob } : {}),
+      ...(input.dob ? { dob: this.toIsoDob(input.dob) } : {}),
       pan: input.panNumber.toUpperCase(),
       ...(input.phone ? { phone: input.phone } : {}),
       ...(input.email ? { email: input.email } : {}),

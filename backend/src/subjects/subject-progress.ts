@@ -1,4 +1,9 @@
 import { Subject } from '../../generated/prisma/client';
+import { isTerminal } from './check-result';
+import {
+  CREDIT_CHECK_ENABLED,
+  PASSPORT_CHECK_ENABLED,
+} from '../common/feature-flags';
 import {
   aadhaarAddressOf,
   aadhaarKycOf,
@@ -24,11 +29,25 @@ import {
  * These rules mirror SubjectVerificationService.run() exactly; if a gate
  * changes there, change it here too or reports will hang.
  */
-export function computeSubjectProgress(d: Subject): {
-  done: number;
-  total: number;
-} {
+export interface CheckApplicability {
+  key: string;
+  label: string;
+  applicable: boolean;
+  done: boolean;
+}
+
+/**
+ * Per-check applicability + doneness. The ONE place that decides whether a
+ * check will run, so the consent page's promise, the progress ratio and the
+ * engine can never drift apart — they all read this.
+ */
+export function checkApplicability(d: Subject): CheckApplicability[] {
   const has = (v: unknown) => Boolean(v);
+  // A check is DONE only once its result is terminal. An unresolved vendor
+  // failure ({ __checkError } awaiting an operator decision) is deliberately
+  // NOT done: the client sees it as in progress and the verification must not
+  // complete or ship a report until the failure is passed or released.
+  const done = (v: unknown) => isTerminal(v);
 
   // While DigiLocker is still expected, treat what it supplies (address, DOB,
   // father's name via care-of) as "on the way" — the check is applicable and
@@ -59,30 +78,76 @@ export function computeSubjectProgress(d: Subject): {
       buildBgvAddress(aadhaarAddressOf(d.aadhaarResult), d.permanentAddress || ''),
     ) || aadhaarMayArrive;
 
-  // [applicable, done] per check.
-  const checks: Array<[boolean, boolean]> = [
-    [has(d.panNumber), has(d.panResult)], // PAN
-    [has(d.digilockerClientId || d.aadhaarNumber), has(d.aadhaarResult)], // Aadhaar
-    [has(d.drivingLicense) && has(d.dob), has(d.dlResult)], // Driving Licence
-    [has(d.voterId), has(d.voterResult)], // Voter ID
-    [has(d.passportFileNo) && has(d.dob), has(d.passportResult)], // Passport
-    [has(d.uan), has(d.employmentResult)], // Employment
-    [
-      has(d.name) && dobKnown && crimeAddressKnown && fatherKnown,
-      has(d.crimeResult),
-    ], // Criminal
-    [
-      has(d.panNumber) &&
+  return [
+    {
+      key: 'aadhaar',
+      label: 'Aadhaar (via DigiLocker)',
+      applicable: has(d.digilockerClientId || d.aadhaarNumber),
+      done: done(d.aadhaarResult),
+    },
+    {
+      key: 'pan',
+      label: 'PAN verification',
+      applicable: has(d.panNumber),
+      done: done(d.panResult),
+    },
+    {
+      key: 'dl',
+      label: 'Driving licence verification',
+      applicable: has(d.drivingLicense) && has(d.dob),
+      done: done(d.dlResult),
+    },
+    {
+      key: 'voter',
+      label: 'Voter ID verification',
+      applicable: has(d.voterId),
+      done: done(d.voterResult),
+    },
+    {
+      key: 'passport',
+      label: 'Passport verification',
+      applicable:
+        PASSPORT_CHECK_ENABLED && has(d.passportFileNo) && has(d.dob),
+      done: done(d.passportResult),
+    },
+    {
+      key: 'employment',
+      label: 'Employment history (UAN)',
+      applicable: has(d.uan),
+      done: done(d.employmentResult),
+    },
+    {
+      key: 'crime',
+      label: 'Court & criminal records',
+      // Needs an address and a father's name, not just a name and DOB — with
+      // neither a typed address nor an Aadhaar to supply one, it cannot run.
+      applicable:
+        has(d.name) && dobKnown && crimeAddressKnown && fatherKnown,
+      done: done(d.crimeResult),
+    },
+    {
+      key: 'credit',
+      label: 'Credit report',
+      applicable:
+        CREDIT_CHECK_ENABLED &&
+        has(d.panNumber) &&
         dobKnown &&
         creditAddressKnown &&
         fatherKnown &&
         phoneKnown,
-      has(d.creditResult),
-    ], // Credit
+      done: done(d.creditResult),
+    },
   ];
-  const applicable = checks.filter(([a]) => a);
+}
+
+/** Progress across every check that will actually run. */
+export function computeSubjectProgress(d: Subject): {
+  done: number;
+  total: number;
+} {
+  const applicable = checkApplicability(d).filter((c) => c.applicable);
   return {
     total: applicable.length,
-    done: applicable.filter(([, done]) => done).length,
+    done: applicable.filter((c) => c.done).length,
   };
 }

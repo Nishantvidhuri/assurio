@@ -15,6 +15,11 @@
 import { ASSURIO_LOGO_DATA_URI } from './assurio-logo';
 import { BRAND } from '../common/brand-colors';
 import { resolveFatherName } from './bgv-address';
+import { isUnresolvedFailure } from './check-result';
+import {
+  CREDIT_CHECK_ENABLED,
+  PASSPORT_CHECK_ENABLED,
+} from '../common/feature-flags';
 
 /* ---------- input shape (superset of client + admin subject) ---------- */
 
@@ -81,7 +86,7 @@ const STATUS_LABEL: Record<StatusKey, string> = {
   completed: 'Completed',
   manual: 'Verified manually',
   discrepancy: 'Completed',
-  insufficiency: 'Failed',
+  insufficiency: 'Unable to verify',
   'in-progress': 'In progress',
   'awaiting-consent': 'Awaiting consent',
   'not-started': 'Not started',
@@ -91,7 +96,7 @@ const STATUS_CLASS: Record<StatusKey, string> = {
   completed: 'completed', // green
   manual: 'manual', // amber — passed by an admin, not the source
   discrepancy: 'completed', // green
-  insufficiency: 'insufficiency', // red
+  insufficiency: 'insufficiency', // amber — could not be completed, not a finding
   'in-progress': 'pending', // blue
   'awaiting-consent': 'pending', // blue — waiting on the candidate
   'not-started': 'closed', // grey — consent declined/expired
@@ -185,6 +190,23 @@ function manualComment(m: {
     `verified manually by ${m.passedBy}${when ? ` on ${when}` : ''}.` +
     (m.reason ? ` Reason: ${m.reason}` : '')
   );
+}
+
+/**
+ * What the client's report says when a check couldn't be completed. The raw
+ * vendor message is deliberately never printed here — this PDF is delivered to
+ * employers, and third-party stack traces don't belong in it. Admins see the
+ * underlying error on the candidate screen instead.
+ */
+function unableToVerifyComment(raw: string): string {
+  const t = (raw || '').toLowerCase();
+  const systemish =
+    /invalid url|no scheme|timeout|timed out|econn|network|unavailable|internal server|http 5\d\d|could not reach|failed to fetch|502|503|504/.test(
+      t,
+    );
+  return systemish
+    ? 'The verification source was temporarily unavailable, so this check could not be completed.'
+    : 'No matching record was found for the details provided, so this check could not be completed.';
 }
 
 function norm(s?: string | null): string {
@@ -340,9 +362,16 @@ function idInstance(
   const dataRows: DataRow[] = [];
   let comment: string | null = null;
 
-  if (err) {
+  if (err && isUnresolvedFailure(input.result)) {
+    // The source failed and operations hasn't decided yet — the client sees the
+    // check as still running, never the failure.
+    status = 'in-progress';
+    comment =
+      input.pendingComment ??
+      'Verification is currently underway with the respective source. The final outcome is yet to be determined.';
+  } else if (err) {
     status = 'insufficiency';
-    comment = err;
+    comment = unableToVerifyComment(err);
   } else if (manual) {
     status = 'manual';
     comment = manualComment(manual);
@@ -396,8 +425,8 @@ function buildGroups(s: ReportSubject): CheckGroup[] {
   const voter = errOf(s.voterResult) || manualOf(s.voterResult) ? null : (s.voterResult as Dict | null);
   const passport = errOf(s.passportResult) || manualOf(s.passportResult) ? null : (s.passportResult as Dict | null);
   const employment = errOf(s.employmentResult) || manualOf(s.employmentResult) ? null : (s.employmentResult as Dict | null);
-  const crime = (manualOf(s.crimeResult) ? null : s.crimeResult) as { data?: Dict } | null;
-  const credit = (manualOf(s.creditResult) ? null : s.creditResult) as Dict | null;
+  const crime = (errOf(s.crimeResult) || manualOf(s.crimeResult) ? null : s.crimeResult) as { data?: Dict } | null;
+  const credit = (errOf(s.creditResult) || manualOf(s.creditResult) ? null : s.creditResult) as Dict | null;
 
   const dlData = unwrap(dl);
   const voterData = unwrap(voter);
@@ -495,21 +524,26 @@ function buildGroups(s: ReportSubject): CheckGroup[] {
       ],
       documents: [],
     }),
-    idInstance(5, 'Passport', {
-      result: s.passportResult,
-      hasInput: Boolean(s.passportFileNo),
-      pending: false,
-      rows: [
-        { label: 'File Number', provided: s.passportFileNo || '', found: pick(passportData, ['file_number', 'passport_file_number', 'file_no', 'passport_no']), kind: 'eq' },
-        { label: 'Name', provided: s.name || '', found: pick(passportData, ['name', 'full_name']), kind: 'name' },
-        { label: 'Date of Birth', provided: s.dob || '', found: pick(passportData, ['dob', 'date_of_birth']), kind: 'dob' },
-      ],
-      details: [
-        { label: 'Application Date', value: or(pick(passportData, ['application_date'])) },
-        { label: 'Status', value: or(pick(passportData, ['status'])) },
-      ],
-      documents: [],
-    }),
+    // Passport is switched off for now — omit the instance entirely.
+    ...(PASSPORT_CHECK_ENABLED
+      ? [
+        idInstance(5, 'Passport', {
+          result: s.passportResult,
+          hasInput: Boolean(s.passportFileNo),
+          pending: false,
+          rows: [
+            { label: 'File Number', provided: s.passportFileNo || '', found: pick(passportData, ['file_number', 'passport_file_number', 'file_no', 'passport_no']), kind: 'eq' },
+            { label: 'Name', provided: s.name || '', found: pick(passportData, ['name', 'full_name']), kind: 'name' },
+            { label: 'Date of Birth', provided: s.dob || '', found: pick(passportData, ['dob', 'date_of_birth']), kind: 'dob' },
+          ],
+          details: [
+            { label: 'Application Date', value: or(pick(passportData, ['application_date'])) },
+            { label: 'Status', value: or(pick(passportData, ['status'])) },
+          ],
+          documents: [],
+        }),
+        ]
+      : []),
   ];
 
   // ── Employment History ──
@@ -554,7 +588,9 @@ function buildGroups(s: ReportSubject): CheckGroup[] {
     : {
         number: 1,
         title: 'Employment History',
-        status: empErr
+        status: empErr && isUnresolvedFailure(s.employmentResult)
+          ? 'in-progress'
+          : empErr
           ? 'insufficiency'
           : empManual
             ? 'manual'
@@ -566,7 +602,7 @@ function buildGroups(s: ReportSubject): CheckGroup[] {
         details: [],
         documents: [],
         comment:
-          empErr ||
+          (empErr ? unableToVerifyComment(empErr) : null) ||
           (empManual ? manualComment(empManual) : null) ||
           (s.uan
             ? 'Verification is currently underway with the respective source.'
@@ -590,9 +626,13 @@ function buildGroups(s: ReportSubject): CheckGroup[] {
   const crimeInstance: Instance = { number: 1, title: 'Criminal Records', status: 'completed', dataRows: [], twoColRows: [], details: [], documents: [], comment: null };
   const crimeManual = manualOf(s.crimeResult);
   const crimeReportUrl = vendorReportUrl(s.crimeResult);
-  if (crimeErr) {
+  if (crimeErr && isUnresolvedFailure(s.crimeResult)) {
+    crimeInstance.status = 'in-progress';
+    crimeInstance.comment =
+      'Verification is currently underway with the respective source.';
+  } else if (crimeErr) {
     crimeInstance.status = 'insufficiency';
-    crimeInstance.comment = crimeErr;
+    crimeInstance.comment = unableToVerifyComment(crimeErr);
   } else if (crimeManual) {
     crimeInstance.status = 'manual';
     crimeInstance.comment = manualComment(crimeManual);
@@ -665,9 +705,13 @@ function buildGroups(s: ReportSubject): CheckGroup[] {
   const creditInstance: Instance = { number: 1, title: 'Credit History', status: 'completed', dataRows: [], twoColRows: [], details: [], documents: [], comment: null };
   const creditManual = manualOf(s.creditResult);
   const creditReportUrl = vendorReportUrl(s.creditResult);
-  if (creditErr) {
+  if (creditErr && isUnresolvedFailure(s.creditResult)) {
+    creditInstance.status = 'in-progress';
+    creditInstance.comment =
+      'Verification is currently underway with the respective source.';
+  } else if (creditErr) {
     creditInstance.status = 'insufficiency';
-    creditInstance.comment = creditErr;
+    creditInstance.comment = unableToVerifyComment(creditErr);
   } else if (creditManual) {
     creditInstance.status = 'manual';
     creditInstance.comment = manualComment(creditManual);
@@ -732,7 +776,11 @@ function buildGroups(s: ReportSubject): CheckGroup[] {
     { number: 1, name: 'Identity Verification', status: worstStatus(idInstances.map((i) => i.status)), instances: idInstances, multi: true },
     { number: 2, name: 'Employment History Verification', status: empInstance.status, instances: [empInstance], multi: false },
     { number: 3, name: 'Criminal Records Verification', status: crimeInstance.status, instances: [crimeInstance], multi: false },
-    { number: 4, name: 'Credit History Verification', status: creditInstance.status, instances: [creditInstance], multi: false },
+    // Credit is switched off for now — omit the section entirely rather than
+    // printing an empty "Not provided" block in the client's report.
+    ...(CREDIT_CHECK_ENABLED
+      ? [{ number: 4, name: 'Credit History Verification', status: creditInstance.status, instances: [creditInstance], multi: false }]
+      : []),
   ];
 }
 
@@ -960,7 +1008,7 @@ html, body { font-family: Manrope, Arial, Helvetica, sans-serif; font-size: 10px
 .status-closed { background: ${BRAND.border}; color: ${BRAND.textBody}; }
 .status-discrepancy { background: ${BRAND.warningTint}; color: ${BRAND.warning}; }
 .status-manual { background: ${BRAND.warningTint}; color: ${BRAND.warning}; }
-.status-insufficiency { background: ${BRAND.failureTint}; color: ${BRAND.failure}; }
+.status-insufficiency { background: ${BRAND.warningTint}; color: ${BRAND.warning}; }
 .status-not-conducted { background: ${BRAND.failureTint}; color: ${BRAND.failure}; }
 .status-pending { background: ${BRAND.primaryTint}; color: ${BRAND.primary}; }
 .instance-title { font-size: 12px; font-weight: 600; color: ${BRAND.textBody}; margin: 16px 0 8px; }
@@ -1062,7 +1110,7 @@ html, body { font-family: Manrope, Arial, Helvetica, sans-serif; font-size: 10px
         <thead><tr><th>Status</th><th>Definition</th></tr></thead>
         <tbody>
           <tr><td><span class="status-badge status-completed">Completed</span></td><td>The verification was conducted successfully and the details provided by the candidate match the records from the source.</td></tr>
-          <tr><td><span class="status-badge status-insufficiency">Failed</span></td><td>The details could not be verified — the information provided was invalid or not found, or the source could not confirm the records.</td></tr>
+          <tr><td><span class="status-badge status-insufficiency">Unable to verify</span></td><td>This check could not be completed — the verification source was unavailable, or it returned no record matching the details provided. It is not a finding against the candidate.</td></tr>
           <tr><td><span class="status-badge status-manual">Verified manually</span></td><td>The verification source could not return a result, so an authorised administrator confirmed this check outside the automated flow. The source did not confirm it.</td></tr>
           <tr><td><span class="status-badge status-pending">In progress</span></td><td>The verification is currently underway with the source and the final outcome is yet to be determined.</td></tr>
           ${

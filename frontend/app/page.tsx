@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -11,6 +12,11 @@ import Link from 'next/link';
 import Image from 'next/image';
 import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import Lenis from 'lenis';
+import HomeStory from './components/HomeStory';
+import StoryToggle from './components/StoryToggle';
+
+const STORY_PREF_KEY = 'assurio:home-3d-story';
 
 const useIsoLayout =
   typeof window !== 'undefined' ? useLayoutEffect : useEffect;
@@ -303,11 +309,55 @@ const FAQS = [
 export default function AssurioLanding() {
   const root = useRef<HTMLDivElement>(null);
   const [openFaq, setOpenFaq] = useState<number | null>(0);
+
+  /* ---- 3D story preference ----------------------------------------------
+     Starts on so the server and first client render agree. A saved choice, or
+     a reduced-motion preference, is applied right after mount — the story sits
+     below the fold, so there is no visible flash. */
+  const [story3d, setStory3d] = useState(true);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem(STORY_PREF_KEY);
+    if (saved !== null) {
+      setStory3d(saved === '1');
+      return;
+    }
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setStory3d(false);
+    }
+  }, []);
+
+  const toggleStory3d = useCallback((next: boolean) => {
+    setStory3d(next);
+    try {
+      window.localStorage.setItem(STORY_PREF_KEY, next ? '1' : '0');
+    } catch {
+      /* private browsing — the choice just won't persist */
+    }
+  }, []);
+
+  /* Adding or removing the story changes the height of everything below it,
+     so every ScrollTrigger downstream needs its start/end recomputed. */
+  useEffect(() => {
+    const id = window.setTimeout(() => ScrollTrigger.refresh(), 60);
+    return () => window.clearTimeout(id);
+  }, [story3d]);
   useIsoLayout(() => {
     const el = root.current;
     if (!el) return;
 
     gsap.registerPlugin(ScrollTrigger);
+
+    /* ---- Lenis smooth scroll (drives ScrollTrigger) ---- */
+    let lenis: Lenis | null = null;
+    let lenisRaf: ((time: number) => void) | null = null;
+    if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      lenis = new Lenis({ autoRaf: false, lerp: 0.11 });
+      lenis.on('scroll', ScrollTrigger.update);
+      lenisRaf = (time: number) => lenis!.raf(time * 1000);
+      gsap.ticker.add(lenisRaf);
+      gsap.ticker.lagSmoothing(0);
+    }
 
     const ctx = gsap.context(() => {
       /* ---- Hero intro timeline (the opening of the story) ---- */
@@ -407,7 +457,11 @@ export default function AssurioLanding() {
       }
     }, root);
 
-    return () => ctx.revert();
+    return () => {
+      ctx.revert();
+      if (lenisRaf) gsap.ticker.remove(lenisRaf);
+      lenis?.destroy();
+    };
   }, []);
 
   return (
@@ -513,6 +567,9 @@ export default function AssurioLanding() {
           </div>
         </div>
       </section>
+
+      {/* ========================= THE KNOCK (story) ==================== */}
+      {story3d && <HomeStory />}
 
       {/* =========================== TRUST BAR ========================== */}
       <section className="ep-trustbar">
@@ -986,6 +1043,8 @@ export default function AssurioLanding() {
           <span>Consent-first verification · Privacy focused</span>
         </div>
       </footer>
+
+      <StoryToggle on={story3d} onToggle={toggleStory3d} />
     </div>
   );
 }

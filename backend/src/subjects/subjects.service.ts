@@ -123,12 +123,13 @@ export class SubjectsService {
     data: Parameters<SubjectsService['create']>[1],
   ): Prisma.SubjectUncheckedCreateInput {
     const email = data.email.toLowerCase().trim();
+    const phone = (data.phone || '').trim();
     return {
       userId,
       name: data.name.trim(),
       role: (data.role || '').trim(),
       email,
-      phone: (data.phone || '').trim(),
+      phone,
       panNumber: (data.panNumber || '').trim().toUpperCase() || undefined,
       aadhaarNumber: (data.aadhaarNumber || '').replace(/\s/g, '').trim() || undefined,
       dob: (data.dob || '').trim() || undefined,
@@ -142,12 +143,16 @@ export class SubjectsService {
       consentAcceptedAt: data.consentAcceptedAt,
       inviteToken: randomBytes(24).toString('hex'),
       status: 'invited',
-      // With a candidate email we can ask the candidate themselves — the paid
-      // checks wait for their answer and the charge stays refundable. Without
-      // one, the client's attested consent is all we will ever have, so the
-      // subject starts GRANTED and checks run immediately (legacy behaviour).
-      consentStatus: email ? 'PENDING' : 'GRANTED',
-      consentDecidedAt: email ? undefined : new Date(),
+      // HARD RULE: every candidate starts PENDING. No creation path may
+      // auto-grant consent — the candidate themselves must agree before a
+      // single paid check runs, and the charge stays a refundable hold until
+      // they do. Every subject gets an inviteToken, so the consent link always
+      // exists even when we hold no email or phone (the client shares it).
+      //
+      // This previously keyed on email, so a phone-only (or contact-less)
+      // candidate had checks run against them without ever being asked.
+      consentStatus: 'PENDING',
+      consentDecidedAt: undefined,
     };
   }
 

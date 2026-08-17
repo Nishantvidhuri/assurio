@@ -240,6 +240,8 @@ export class WhatsAppService {
         mediaMimetype?: string;
         /** Durable presigned S3 URL when we kept our own copy of the media. */
         mediaUrl?: string;
+        /** Original filename, when we stored the media ourselves. */
+        mediaFilename?: string;
       }>
     | null
   > {
@@ -294,6 +296,7 @@ export class WhatsAppService {
             status: m.status ? String(m.status) : undefined,
             mediaMimetype: m.mediaMimetype ? String(m.mediaMimetype) : undefined,
             mediaUrl: undefined as string | undefined,
+            mediaFilename: undefined as string | undefined,
           };
         })
         .sort((a, b) => a.timestamp - b.timestamp);
@@ -309,17 +312,18 @@ export class WhatsAppService {
         try {
           const assets = await this.prisma.whatsAppMediaAsset.findMany({
             where: { waMessageId: { in: waIds } },
-            select: { waMessageId: true, s3Key: true },
+            select: { waMessageId: true, s3Key: true, filename: true },
           });
-          const byId = new Map(assets.map((a) => [a.waMessageId, a.s3Key]));
+          const byId = new Map(assets.map((a) => [a.waMessageId, a]));
           await Promise.all(
             mapped.map(async (m) => {
-              const s3Key = m.waMessageId
+              const asset = m.waMessageId
                 ? byId.get(normId(m.waMessageId))
                 : undefined;
-              if (s3Key) {
+              if (asset) {
+                m.mediaFilename = asset.filename ?? undefined;
                 m.mediaUrl = await this.s3
-                  .presignedUrl(s3Key)
+                  .presignedUrl(asset.s3Key)
                   .catch(() => undefined);
               }
             }),
@@ -458,6 +462,133 @@ export class WhatsAppService {
 
   /** Last-10-digit phone suffixes of every candidate + client — the numbers
    *  the platform sends WhatsApp to. Used to filter the chat list. */
+  /**
+   * Every candidate / client / draft we hold a number for, with a display name.
+   * The chat list is seeded from this so a contact we have never messaged still
+   * appears and can be opened — OpenWA only knows about conversations that
+   * already exist.
+   */
+  /**
+   * Contacts we've messaged that OpenWA doesn't list as a chat.
+   *
+   * WhatsApp doesn't always materialise a chat thread for an outbound-only
+   * conversation — send an invite to a number that never replies and
+   * GET /chats simply won't mention it, even though the message exists. Without
+   * this the person shows as "no conversation yet" directly under the message
+   * you sent them.
+   *
+   * One lookup per un-chatted contact, memoised for 60s so the 8-second poll
+   * doesn't hammer the gateway.
+   */
+  private threadProbe = new Map<
+    string,
+    { at: number; thread: { lastMessage: string; timestamp: number } | null }
+  >();
+
+  async findOutboundOnlyThreads(
+    contacts: Array<{ phone: string; name: string }>,
+    existing: Array<{ name: string; phone: string }>,
+  ): Promise<
+    Array<{
+      id: string;
+      phone: string;
+      name: string;
+      isGroup: boolean;
+      unreadCount: number;
+      timestamp: number;
+      lastMessage: string;
+    }>
+  > {
+    const chatDigits = existing.map((c) =>
+      `${c.name} ${c.phone}`.replace(/\D/g, ''),
+    );
+    const missing = contacts.filter(
+      (c) => !chatDigits.some((d) => d.includes(c.phone.slice(-10))),
+    );
+    if (missing.length === 0) return [];
+
+    const now = Date.now();
+    const out: Array<{
+      id: string;
+      phone: string;
+      name: string;
+      isGroup: boolean;
+      unreadCount: number;
+      timestamp: number;
+      lastMessage: string;
+    }> = [];
+
+    await Promise.all(
+      missing.map(async (c) => {
+        const cached = this.threadProbe.get(c.phone);
+        let thread = cached && now - cached.at < 60_000 ? cached.thread : undefined;
+        if (thread === undefined) {
+          const msgs = await this.getMessages(c.phone, 1).catch(() => null);
+          const last = msgs && msgs.length > 0 ? msgs[msgs.length - 1] : null;
+          thread = last
+            ? { lastMessage: last.body || '', timestamp: last.timestamp || 0 }
+            : null;
+          this.threadProbe.set(c.phone, { at: now, thread });
+        }
+        if (thread) {
+          out.push({
+            id: c.phone,
+            phone: c.phone,
+            name: c.name,
+            isGroup: false,
+            unreadCount: 0,
+            timestamp: thread.timestamp,
+            lastMessage: thread.lastMessage,
+          });
+        }
+      }),
+    );
+    return out;
+  }
+
+  async knownPlatformContacts(): Promise<
+    Array<{ phone: string; name: string; kind: 'candidate' | 'client' | 'draft' }>
+  > {
+    const [subjects, users, drafts] = await Promise.all([
+      this.prisma.subject.findMany({
+        select: { phone: true, name: true },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.user.findMany({ select: { phone: true, name: true } }),
+      this.prisma.candidateFormDraft.findMany({ select: { data: true } }),
+    ]);
+
+    const byPhone = new Map<
+      string,
+      { phone: string; name: string; kind: 'candidate' | 'client' | 'draft' }
+    >();
+    const add = (
+      raw: unknown,
+      name: string,
+      kind: 'candidate' | 'client' | 'draft',
+    ) => {
+      const digits = String(raw ?? '').replace(/\D/g, '');
+      if (digits.length < 10) return;
+      const key = digits.slice(-10);
+      // First writer wins. Clients are added first below: an account holder's
+      // number is definitively theirs, so if the same number is also on a
+      // candidate record (common in testing) it reads as the client.
+      if (!byPhone.has(key)) {
+        byPhone.set(key, { phone: key, name: name || `+91 ${key}`, kind });
+      }
+    };
+
+    for (const r of users) add(r.phone, r.name, 'client');
+    for (const r of subjects) add(r.phone, r.name, 'candidate');
+    for (const dr of drafts) {
+      const data = dr.data as { phone?: unknown; name?: unknown } | null;
+      if (data && typeof data === 'object') {
+        add(data.phone, String(data.name ?? ''), 'draft');
+      }
+    }
+    return [...byPhone.values()];
+  }
+
   private async knownPlatformPhones(): Promise<Set<string>> {
     // Candidates (committed), clients, AND in-progress candidate drafts — the
     // draft's phone lives inside its `data` JSON.

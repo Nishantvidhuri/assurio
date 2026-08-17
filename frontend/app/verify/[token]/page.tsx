@@ -160,10 +160,17 @@ export default function VerifyPage() {
     }
   }
 
+  // Aadhaar is only part of the flow when the client supplied one — the backend
+  // plans the check accordingly, so drive the whole step off that rather than
+  // asking every candidate for a number we will never use.
+  const aadhaarRequired = (info?.checks ?? []).some((c) => c.key === 'aadhaar');
+
   async function saveDetails() {
     if (submitting) return;
     if (!name.trim()) return alert('Please enter your name.');
-    if (!/^\d{12}$/.test(aadhaar.replace(/\s+/g, ''))) {
+    // Only demand an Aadhaar number when this verification actually includes
+    // the Aadhaar check — the field isn't even shown otherwise.
+    if (aadhaarRequired && !/^\d{12}$/.test(aadhaar.replace(/\s+/g, ''))) {
       return alert('Please enter a valid 12-digit Aadhaar number.');
     }
     setSubmitting(true);
@@ -172,11 +179,18 @@ export default function VerifyPage() {
         name: name.trim(),
         phone: phone.trim(),
         email: email.trim(),
-        aadhaarNumber: aadhaar.replace(/\s+/g, ''),
+        ...(aadhaarRequired
+          ? { aadhaarNumber: aadhaar.replace(/\s+/g, '') }
+          : {}),
       });
-      setStep('aadhaar');
-      // Generate the DigiLocker link now (on submit), not before — then hand off.
-      void startDigiLocker();
+      if (aadhaarRequired) {
+        setStep('aadhaar');
+        // Generate the DigiLocker link now (on submit), not before — then hand off.
+        void startDigiLocker();
+      } else {
+        // No Aadhaar in this verification: details were the last thing we needed.
+        setStep('done');
+      }
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Could not save your details.');
     } finally {
@@ -200,7 +214,9 @@ export default function VerifyPage() {
 
   /* ---------- render ---------- */
 
-  const order: Step[] = ['consent', 'form', 'aadhaar', 'done'];
+  const order: Step[] = aadhaarRequired
+    ? ['consent', 'form', 'aadhaar', 'done']
+    : ['consent', 'form', 'done'];
   const curIdx = order.indexOf(step);
 
   // Field validation for the details step.
@@ -209,7 +225,10 @@ export default function VerifyPage() {
   const emailValid = /.+@.+\..+/.test(email.trim());
   const phoneValid = phone.replace(/\D/g, '').length >= 10;
   const formValid =
-    name.trim().length > 1 && emailValid && phoneValid && aadhaarValid;
+    name.trim().length > 1 &&
+    emailValid &&
+    phoneValid &&
+    (!aadhaarRequired || aadhaarValid);
   const stepStatus = (i: number): StepperStatus =>
     step === 'done' || i < curIdx
       ? 'completed'
@@ -219,7 +238,9 @@ export default function VerifyPage() {
   const stepItems: StepperItem[] = [
     { id: 'consent', title: 'Consent', status: stepStatus(0) },
     { id: 'form', title: 'Your details', status: stepStatus(1) },
-    { id: 'aadhaar', title: 'Aadhaar', status: stepStatus(2) },
+    ...(aadhaarRequired
+      ? [{ id: 'aadhaar', title: 'Aadhaar', status: stepStatus(2) }]
+      : []),
   ];
   // Allow jumping back to an already-completed / current step only.
   const goToStep = (id: string) => {
@@ -435,6 +456,7 @@ export default function VerifyPage() {
               />
             </InputFieldWrapper>
 
+            {aadhaarRequired && (
             <InputFieldWrapper
               label="Aadhaar Number"
               required
@@ -455,6 +477,7 @@ export default function VerifyPage() {
                 }
               />
             </InputFieldWrapper>
+            )}
           </div>
 
           <Button

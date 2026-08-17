@@ -485,7 +485,15 @@ export async function uploadIdDocument(
 export function recheckSubject(
   _token: string,
   id: string,
-  type: 'pan' | 'aadhaar' | 'voter' | 'passport' | 'dl' | 'employment',
+  type:
+    | 'pan'
+    | 'aadhaar'
+    | 'voter'
+    | 'passport'
+    | 'dl'
+    | 'employment'
+    | 'crime'
+    | 'credit',
 ): Promise<Subject> {
   return request<Subject>(
     `/subjects/${encodeURIComponent(id)}/recheck/${type}`,
@@ -512,10 +520,13 @@ export function manualPassCheck(
   id: string,
   type: ManualPassType,
   reason?: string,
+  /** 'passed' records it verified by hand; 'unable' releases the vendor failure
+   *  to the client as "Unable to verify". */
+  resolution: 'passed' | 'unable' = 'passed',
 ): Promise<Subject> {
   return request<Subject>(
     `/subjects/${encodeURIComponent(id)}/manual-pass/${type}`,
-    { method: 'POST', body: JSON.stringify({ reason }) },
+    { method: 'POST', body: JSON.stringify({ reason, resolution }) },
   );
 }
 
@@ -1721,6 +1732,8 @@ export interface WaMessage {
   mediaMimetype?: string;
   /** Durable presigned S3 URL when the platform kept its own copy of the media. */
   mediaUrl?: string;
+  /** Original filename, when the platform stored the media itself. */
+  mediaFilename?: string;
   /** Client-only: object URL for an optimistically-sent local attachment. */
   localUrl?: string;
 }
@@ -1785,11 +1798,18 @@ export function sendWhatsAppScenarios(
   });
 }
 
-/** Conversations for the connected session. Always restricted server-side to
- *  the platform's candidates/clients — personal chats/groups never returned. */
+export interface WaContact {
+  phone: string;
+  name: string;
+  kind: 'candidate' | 'client' | 'draft';
+}
+
+/** Conversations for the connected session, plus every candidate/client/draft
+ *  number we hold — so contacts with no conversation yet still appear. Always
+ *  restricted server-side; personal chats/groups are never returned. */
 export function getWhatsAppChats(
   _token: string,
-): Promise<{ configured: boolean; chats: WaChat[] }> {
+): Promise<{ configured: boolean; chats: WaChat[]; contacts: WaContact[] }> {
   return request('/whatsapp/chats');
 }
 

@@ -4,14 +4,21 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Subject } from '../../generated/prisma/client';
+import { Prisma, Subject } from '../../generated/prisma/client';
 import { PrismaService } from '../common/prisma.service';
 import { VerifyService } from '../verify/verify.service';
 import { ReportGenerationService } from './report-generation.service';
 import { S3Service } from '../common/s3.service';
 import { WhatsAppService } from '../common/whatsapp.service';
 import { reportReadyText, type CrimeRisk } from '../common/whatsapp-templates';
-import { computeSubjectProgress } from './subject-progress';
+import {
+  checkApplicability,
+  computeSubjectProgress,
+} from './subject-progress';
+import {
+  CREDIT_CHECK_ENABLED,
+  PASSPORT_CHECK_ENABLED,
+} from '../common/feature-flags';
 import {
   aadhaarAddressOf,
   aadhaarKycOf,
@@ -88,29 +95,12 @@ export class SubjectVerificationService {
    * page's "what will be verified" list can never drift from the engine.
    */
   plannedChecks(s: Subject): Array<{ key: string; label: string }> {
-    const checks: Array<{ key: string; label: string }> = [
-      // Candidate-driven in this same flow — always part of the plan.
-      { key: 'aadhaar', label: 'Aadhaar (via DigiLocker)' },
-    ];
-    if (s.panNumber) checks.push({ key: 'pan', label: 'PAN verification' });
-    if (s.voterId) checks.push({ key: 'voter', label: 'Voter ID verification' });
-    if (s.passportFileNo && s.dob) {
-      checks.push({ key: 'passport', label: 'Passport verification' });
-    }
-    if (s.drivingLicense && s.dob) {
-      checks.push({ key: 'dl', label: 'Driving licence verification' });
-    }
-    if (s.uan) checks.push({ key: 'employment', label: 'Employment history (UAN)' });
-    // Credit and crime both need an address, but neither depends on the client
-    // typing one: Aadhaar is always part of the plan above, and its verified
-    // address feeds both once DigiLocker completes.
-    if (s.panNumber && s.dob) {
-      checks.push({ key: 'credit', label: 'Credit report' });
-    }
-    if (s.name && s.dob) {
-      checks.push({ key: 'crime', label: 'Court & criminal records' });
-    }
-    return checks;
+    // Derived from the one applicability source, so the consent page can never
+    // promise a check the engine won't run — e.g. court records with no address
+    // and no Aadhaar to supply one.
+    return checkApplicability(s)
+      .filter((c) => c.applicable)
+      .map((c) => ({ key: c.key, label: c.label }));
   }
 
   /** Kick off auto-checks for a freshly-created (paid) subject. Non-blocking. */
@@ -159,7 +149,7 @@ export class SubjectVerificationService {
     await this.runSync(
       s.id,
       'Passport',
-      Boolean(s.passportFileNo && s.dob) && !s.passportResult,
+      PASSPORT_CHECK_ENABLED && Boolean(s.passportFileNo && s.dob) && !s.passportResult,
       'passportResult',
       () => this.verify.passport(s.passportFileNo!.toUpperCase(), s.dob!),
     );
@@ -183,7 +173,7 @@ export class SubjectVerificationService {
     //    verified Aadhaar and defer entirely when it isn't there yet: no
     //    vendor credit spent, no failure recorded. It re-fires automatically
     //    once DigiLocker completes (see runForSubject on Aadhaar store). ──
-    if (s.panNumber && !s.creditRequestId && !s.creditResult) {
+    if (CREDIT_CHECK_ENABLED && s.panNumber && !s.creditRequestId && !s.creditResult) {
       const address = buildBgvAddress(
         aadhaarAddressOf(s.aadhaarResult),
         s.permanentAddress || '',
@@ -260,11 +250,18 @@ export class SubjectVerificationService {
     //    (flattened to a single line). Like credit, it then defers until
     //    DigiLocker completes and re-fires from runForSubject. ──
     if (s.name && !s.crimeRequestId && !s.crimeResult) {
-      const crimeAddress =
-        (s.permanentAddress || '').trim() ||
-        formatAddressLine(
-          buildBgvAddress(aadhaarAddressOf(s.aadhaarResult), '', 'Permanent'),
-        );
+      // Court records are searched on the PERMANENT address. Unlike the credit
+      // bureau, KonnectNxt does not demand every structured field here, so a
+      // partial address still submits — but we need the structured shape for
+      // the v2 BGV payload, so build it the same way and fall back to packing
+      // the typed address into `street`.
+      const crimeStructured =
+        buildBgvAddress(
+          aadhaarAddressOf(s.aadhaarResult),
+          s.permanentAddress || '',
+          'Permanent',
+        ) ?? null;
+      const crimeAddress = formatAddressLine(crimeStructured);
       const crimeDob = resolveDob(s);
       const crimeFatherName = resolveFatherName(s) ?? '';
       const crimeMissing = [
@@ -284,14 +281,19 @@ export class SubjectVerificationService {
           const resp = (await this.verify.crimeCheck({
             name: s.name,
             fatherName: crimeFatherName,
-            dob: crimeDob,
-            address: crimeAddress,
+            // The vendor wants ISO dates; our form stores DD-MM-YYYY.
+            dob: coerceToIsoDate(crimeDob) ?? crimeDob,
             panNumber: s.panNumber || undefined,
+            phone: normalizePhone(s.phone || '') || undefined,
+            email: s.email || undefined,
+            street: crimeStructured!.street,
+            city: crimeStructured!.city,
+            state: crimeStructured!.state,
+            pincode: crimeStructured!.pincode,
+            country: crimeStructured!.country,
           })) as Record<string, unknown>;
-          const requestId =
-            (resp?.request_id as string | undefined) ??
-            ((resp?.data as Record<string, unknown> | undefined)?.request_id as
-              string | undefined);
+          // v2 BGV returns cases_created[].case_id, same as credit.
+          const requestId = this.firstCaseId(resp);
           if (requestId) {
             await this.prisma.subject.update({
               where: { id: s.id },
@@ -312,45 +314,53 @@ export class SubjectVerificationService {
     // Catch init-only status changes (crime/credit request queued) so the PDF
     // reflects "pending" too; sync results already scheduled via storeResult.
     this.reportGen.scheduleRegen(subjectId);
+
+    // Re-evaluate completion at the end of every run, not only when a result
+    // lands. The condition can become true without any new result — a check
+    // being switched off (credit), an operator resolving a failure, or a check
+    // dropping out of scope once Aadhaar settles all reduce the applicable
+    // total. Without this the report could sit finished-but-unsent forever.
+    const fresh = await this.prisma.subject.findUnique({
+      where: { id: subjectId },
+    });
+    if (fresh) await this.completeIfDone(fresh);
   }
 
   /** Poll the crime report until it completes, then store it. Best-effort. */
-  private pollCrime(subjectId: string, requestId: string, attempt: number): void {
+  /**
+   * Polls the v2 BGV download endpoint until the court-record PDF is ready.
+   * Mirrors pollCredit: `data` carries the signed URL once the case completes
+   * and is absent while processing, so its presence is the completion signal.
+   * ~8s x 40 attempts ≈ 5 minutes; giving up leaves the check pending rather
+   * than recording a false failure, and Recall API re-runs it.
+   */
+  private pollCrime(subjectId: string, caseId: string, attempt: number): void {
     if (attempt > 40) {
-      this.logger.warn(`Crime poll gave up for ${subjectId} (${requestId})`);
+      this.logger.warn(`Crime poll gave up for ${subjectId} (${caseId})`);
       return;
     }
     setTimeout(() => {
       void (async () => {
         try {
           const report = (await this.verify.crimeCheckReport(
-            requestId,
+            caseId,
           )) as Record<string, unknown>;
-          const data =
-            (report?.data as Record<string, unknown> | undefined) ?? report;
-          const status =
-            (report?.status as string | undefined) ??
-            (data?.status as string | undefined);
-          const done =
-            status === 'completed' ||
-            status === 'done' ||
-            Boolean(data?.risk_assessment) ||
-            Boolean(data?.cases);
-          if (done) {
+          const data = report?.data;
+          if (data) {
             await this.prisma.subject.update({
               where: { id: subjectId },
-              data: { crimeResult: { data } as object },
+              data: { crimeResult: { data } } as Record<string, unknown>,
             });
             this.reportGen.scheduleRegen(subjectId);
             this.logger.log(`Crime report stored for ${subjectId}`);
           } else {
-            this.pollCrime(subjectId, requestId, attempt + 1);
+            this.pollCrime(subjectId, caseId, attempt + 1);
           }
         } catch {
-          this.pollCrime(subjectId, requestId, attempt + 1);
+          this.pollCrime(subjectId, caseId, attempt + 1);
         }
       })();
-    }, 5000);
+    }, 8000);
   }
 
   /** Run one synchronous check + store its result under `field`. Best-effort. */
@@ -367,22 +377,43 @@ export class SubjectVerificationService {
     call: () => Promise<unknown>,
   ): Promise<void> {
     if (!shouldRun) return;
-    try {
-      const result = await call();
-      await this.storeResult(subjectId, field, result);
-      this.logger.log(`${label} check done for ${subjectId}`);
-    } catch (e) {
-      // A genuine 4xx outcome (invalid / not found) is a real result — store
-      // the vendor's message so the UI shows it. Transient 5xx/network errors
-      // are left pending so a recall can retry.
-      if (e instanceof BadRequestException) {
-        await this.storeError(subjectId, field, extractError(e));
+
+    // These are synchronous vendor lookups: they must end in a stored result,
+    // never sit "In progress" indefinitely. A 4xx is a genuine outcome and is
+    // stored immediately. A 5xx / network blip is retried a few times — the
+    // vendor is often briefly unavailable — and if it still fails we store it
+    // so the check is terminal and lands in the operator queue rather than
+    // hanging invisibly forever.
+    const MAX_ATTEMPTS = 3;
+    const BACKOFF_MS = [2_000, 5_000];
+
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        const result = await call();
+        await this.storeResult(subjectId, field, result);
+        this.logger.log(`${label} check done for ${subjectId}`);
+        return;
+      } catch (e) {
+        const msg = extractError(e);
+
+        // Genuine outcome (invalid / not found) — retrying won't change it.
+        if (e instanceof BadRequestException) {
+          await this.storeError(subjectId, field, msg);
+          this.logger.warn(`${label} check failed for ${subjectId}: ${msg}`);
+          return;
+        }
+
+        const last = attempt === MAX_ATTEMPTS;
+        this.logger.warn(
+          `${label} check attempt ${attempt}/${MAX_ATTEMPTS} failed for ${subjectId}: ${msg}`,
+        );
+        if (last) {
+          // Out of retries: record it so the check ends and can be resolved.
+          await this.storeError(subjectId, field, msg);
+          return;
+        }
+        await new Promise((r) => setTimeout(r, BACKOFF_MS[attempt - 1]));
       }
-      this.logger.warn(
-        `${label} check failed for ${subjectId}: ${
-          e instanceof Error ? e.message : e
-        }`,
-      );
     }
   }
 
@@ -446,6 +477,14 @@ export class SubjectVerificationService {
       const raw = String(
         result.risk_level ?? result.riskLevel ?? result.risk ?? '',
       ).toUpperCase();
+      // The v2 BGV flow returns a report PDF, not a risk band. Only alert when
+      // the vendor actually stated one — never infer "low" from its absence.
+      if (raw !== 'HIGH' && raw !== 'MEDIUM' && raw !== 'LOW') {
+        this.logger.log(
+          `Crime result for ${s.id} carries no risk band — no risk alert sent`,
+        );
+        return;
+      }
       const risk: CrimeRisk =
         raw === 'HIGH' ? 'high' : raw === 'MEDIUM' ? 'medium' : 'low';
 
@@ -567,6 +606,7 @@ export class SubjectVerificationService {
     field: string,
     passedBy: string,
     reason: string,
+    resolution: 'passed' | 'unable' = 'passed',
   ): Promise<Subject> {
     const s = await this.prisma.subject.findUnique({ where: { id: subjectId } });
     if (!s) throw new NotFoundException('Candidate not found');
@@ -580,10 +620,23 @@ export class SubjectVerificationService {
         : null;
 
     this.logger.warn(
-      `Manual override: ${field} marked passed for ${subjectId} by ${passedBy}${
+      `Manual resolution (${resolution}): ${field} for ${subjectId} by ${passedBy}${
         reason ? ` — ${reason}` : ''
       }`,
     );
+
+    // 'unable' releases the vendor failure to the client as "Unable to verify"
+    // — the check ends unverified. Stamping __resolvedAt is what makes it
+    // terminal; until then the client only ever sees the check in progress.
+    if (resolution === 'unable') {
+      return this.storeResult(subjectId, field, {
+        __checkError: previousError ?? 'Verification could not be completed.',
+        __resolvedAt: new Date().toISOString(),
+        __resolvedBy: passedBy,
+        reason: reason || null,
+      });
+    }
+
     return this.storeResult(subjectId, field, {
       __manualOverride: true,
       passedBy,
@@ -602,7 +655,15 @@ export class SubjectVerificationService {
    */
   async recheck(
     subjectId: string,
-    type: 'pan' | 'aadhaar' | 'voter' | 'passport' | 'dl' | 'employment',
+    type:
+      | 'pan'
+      | 'aadhaar'
+      | 'voter'
+      | 'passport'
+      | 'dl'
+      | 'employment'
+      | 'crime'
+      | 'credit',
   ): Promise<Subject> {
     const s = await this.prisma.subject.findUnique({
       where: { id: subjectId },
@@ -616,6 +677,27 @@ export class SubjectVerificationService {
           ? 'Awaiting candidate consent — checks are locked until they agree.'
           : 'Consent was declined or expired — this verification is closed.',
       );
+    }
+
+    // Crime and credit are async: the vendor takes a submission and we poll for
+    // the report. "Recall" therefore means clear the stored result + case id and
+    // let the engine re-submit — it can't just re-run a synchronous call.
+    // NB: a re-submit bills the vendor again (~100 credits for criminal).
+    if (type === 'crime' || type === 'credit') {
+      await this.prisma.subject.update({
+        where: { id: subjectId },
+        data:
+          type === 'crime'
+            ? { crimeResult: Prisma.DbNull, crimeRequestId: null }
+            : { creditResult: Prisma.DbNull, creditRequestId: null },
+      });
+      this.logger.log(`Recall: re-submitting ${type} for ${subjectId}`);
+      await this.run(subjectId);
+      const updated = await this.prisma.subject.findUnique({
+        where: { id: subjectId },
+      });
+      if (!updated) throw new NotFoundException('Subject not found');
+      return updated;
     }
 
     // Guard the inputs (throws → the recall UI shows the reason), then build

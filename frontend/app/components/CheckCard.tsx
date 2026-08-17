@@ -7,8 +7,18 @@
  * "Field comparison" table (Field / Candidate said / Data found / Match).
  * Read-only — no verifier editing.
  */
-import { useState, type ReactNode } from 'react';
-import { Check, ChevronDown, Eye, Mail, RefreshCw, ShieldCheck, X } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  AlertTriangle,
+  Check,
+  ChevronDown,
+  Eye,
+  Mail,
+  MoreHorizontal,
+  RefreshCw,
+  ShieldCheck,
+  X,
+} from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
 import {
   Tag,
@@ -150,6 +160,100 @@ export function ComparisonTable({ rows }: { rows: ComparisonRow[] }) {
   );
 }
 
+interface CheckAction {
+  key: string;
+  icon: ReactNode;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  /** Why the item is disabled — shown as a native tooltip. */
+  hint?: string;
+  tone?: 'warning';
+}
+
+/**
+ * Kebab menu holding a check's admin actions (recall / resend / manual
+ * resolution). These are infrequent, destructive-ish operations, so they sit
+ * behind a menu instead of three buttons competing with the check's data.
+ */
+function CheckActionsMenu({
+  items,
+  busy,
+}: {
+  items: CheckAction[];
+  busy?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  if (items.length === 0) return null;
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="Check actions"
+        className={cn(
+          'flex size-8 items-center justify-center rounded-lg border border-border-default bg-white text-icon-default transition-colors hover:bg-neutral-100',
+          open && 'bg-neutral-100',
+        )}
+      >
+        {busy ? (
+          <RefreshCw size={15} className="animate-spin" />
+        ) : (
+          <MoreHorizontal size={16} />
+        )}
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 z-20 mt-1.5 min-w-[220px] overflow-hidden rounded-lg border border-border-default bg-white py-1 shadow-lg"
+        >
+          {items.map((it) => (
+            <button
+              key={it.key}
+              type="button"
+              role="menuitem"
+              title={it.hint}
+              disabled={it.disabled}
+              onClick={() => {
+                setOpen(false);
+                it.onClick();
+              }}
+              className={cn(
+                'flex w-full items-center gap-2.5 px-3.5 py-2 text-left text-body-sm transition-colors',
+                'hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50',
+                it.tone === 'warning' ? 'text-warning' : 'text-text-body',
+              )}
+            >
+              <span className="shrink-0">{it.icon}</span>
+              {it.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function CheckCard({
   title,
   status,
@@ -166,6 +270,8 @@ export function CheckCard({
   resending = false,
   onManualPass,
   passing = false,
+  onRelease,
+  admin = false,
   requirements,
   order,
 }: {
@@ -189,13 +295,21 @@ export function CheckCard({
    *  can't answer. Shown alongside Recall on failed / stuck checks. */
   onManualPass?: () => void;
   passing?: boolean;
+  /** Admin: release a failed check to the client as "Unable to verify". */
+  onRelease?: () => void;
+  /** Admin view. Clients never see the word "Failed" or raw vendor errors —
+   *  a check the source couldn't answer reads as "Unable to verify". */
+  admin?: boolean;
   /** Inputs this check needs, with the candidate's entered value (if any). */
   requirements?: RequiredInput[];
   /** CSS flex order — used to push "Not provided" cards to the bottom. */
   order?: number;
 }) {
   const [open, setOpen] = useState(defaultOpen);
-  const st = STATUS_TAG[status];
+  const st =
+    status === 'failed' && !admin
+      ? ({ variant: 'Warning', label: 'Unable to verify' } as const)
+      : STATUS_TAG[status];
   const reqs = requirements ?? [];
   // Recall can only run once every required input the candidate must provide
   // is present.
@@ -206,6 +320,7 @@ export function CheckCard({
     Boolean(onRecall) ||
     Boolean(onResend) ||
     Boolean(onManualPass) ||
+    Boolean(onRelease) ||
     reqs.length > 0 ||
     (documents?.length ?? 0) > 0 ||
     (comparison?.length ?? 0) > 0;
@@ -247,47 +362,44 @@ export function CheckCard({
               <FieldLabel>Status</FieldLabel>
               <Tag variant={st.variant} label={st.label} />
             </div>
-            {onResend ? (
-              <button
-                type="button"
-                onClick={onResend}
-                disabled={resending}
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border-default bg-white px-3 py-1.5 text-body-sm font-medium text-text-body transition-colors hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <Mail size={14} className={resending ? 'animate-pulse' : ''} />
-                {resending ? 'Sending…' : 'Resend email'}
-              </button>
-            ) : onRecall ? (
-              <button
-                type="button"
-                onClick={onRecall}
-                disabled={recalling || !canRecall}
-                title={
-                  canRecall
-                    ? undefined
-                    : 'Fill the required inputs before re-running this check'
-                }
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border-default bg-white px-3 py-1.5 text-body-sm font-medium text-text-body transition-colors hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <RefreshCw
-                  size={14}
-                  className={recalling ? 'animate-spin' : ''}
-                />
-                {recalling ? 'Recalling…' : 'Recall API'}
-              </button>
-            ) : null}
-
-            {onManualPass && (
-              <button
-                type="button"
-                onClick={onManualPass}
-                disabled={passing}
-                title="Vendor API unavailable? Record this check as verified manually."
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border-warning bg-white px-3 py-1.5 text-body-sm font-medium text-warning transition-colors hover:bg-surface-warning disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                <ShieldCheck size={14} />
-                {passing ? 'Marking…' : 'Mark as passed'}
-              </button>
+            {(onResend || onRecall || onManualPass || onRelease) && (
+              <CheckActionsMenu
+                busy={recalling || resending || passing}
+                items={[
+                  onResend && {
+                    key: 'resend',
+                    icon: <Mail size={15} />,
+                    label: resending ? 'Sending…' : 'Resend email',
+                    onClick: onResend,
+                    disabled: resending,
+                  },
+                  onRecall && {
+                    key: 'recall',
+                    icon: <RefreshCw size={15} />,
+                    label: recalling ? 'Recalling…' : 'Recall API',
+                    onClick: onRecall,
+                    disabled: recalling || !canRecall,
+                    hint: canRecall
+                      ? undefined
+                      : 'Fill the required inputs before re-running this check',
+                  },
+                  onManualPass && {
+                    key: 'pass',
+                    icon: <ShieldCheck size={15} />,
+                    label: passing ? 'Marking…' : 'Mark as passed',
+                    onClick: onManualPass,
+                    disabled: passing,
+                    tone: 'warning' as const,
+                  },
+                  onRelease && {
+                    key: 'release',
+                    icon: <AlertTriangle size={15} />,
+                    label: 'Mark unverified',
+                    onClick: onRelease,
+                    disabled: passing,
+                  },
+                ].filter(Boolean) as CheckAction[]}
+              />
             )}
           </div>
 

@@ -49,10 +49,36 @@ export class CrimeCheckDto {
   @Matches(/^\d{2}-\d{2}-\d{4}$/, { message: 'DOB must be in DD-MM-YYYY format' })
   dob?: string;
 
+  // Court records are searched on the PERMANENT address. The v2 BGV submit
+  // takes it structured; unlike the credit bureau, KonnectNxt tolerates partial
+  // fields here, so only street is mandatory.
+  @IsString()
+  @MinLength(1, { message: 'Street is required' })
+  street: string;
+
   @IsOptional()
   @IsString()
-  @MinLength(10, { message: 'Address must be at least 10 characters' })
-  address?: string;
+  city?: string;
+
+  @IsOptional()
+  @IsString()
+  state?: string;
+
+  @IsOptional()
+  @IsString()
+  pincode?: string;
+
+  @IsOptional()
+  @IsString()
+  country?: string;
+
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
+  email?: string;
 
   @IsOptional()
   @Matches(/^[A-Za-z]{5}[0-9]{4}[A-Za-z]$/, {

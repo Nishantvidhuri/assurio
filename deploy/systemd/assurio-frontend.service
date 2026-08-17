@@ -1,0 +1,20 @@
+[Unit]
+Description=Assurio Web (Next.js)
+After=network-online.target assurio-backend.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/bg_check/frontend
+ExecStart=/usr/bin/npm run start
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=assurio-frontend
+
+[Install]
+WantedBy=multi-user.target

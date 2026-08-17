@@ -4,6 +4,8 @@ import PageLoader from '@/app/components/PageLoader';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
+  ExternalLink,
+  FileText,
   MoreVertical,
   Paperclip,
   Phone,
@@ -23,6 +25,7 @@ import {
   fetchWhatsAppMediaUrl,
   type AuthUser,
   type WaChat,
+  type WaContact,
   type WaMessage,
 } from '../../lib/api';
 import { getToken } from '../../lib/session';
@@ -69,9 +72,19 @@ function fmtChatStamp(tsSeconds: number): string {
     : d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
 }
 
+/**
+ * Contacts are stored as the last 10 digits (national), chats may carry a full
+ * international number. Never treat the first two digits of a 10-digit number
+ * as a country code — that rendered 9650824873 as "+96 50824873".
+ */
 function prettyPhone(p: string): string {
   const digits = p.replace(/\D/g, '');
-  return digits ? `+${digits.replace(/^(\d{2})(\d+)/, '$1 $2')}` : p;
+  if (!digits) return p;
+  const national = digits.length > 10 ? digits.slice(-10) : digits;
+  const cc = digits.length > 10 ? digits.slice(0, digits.length - 10) : '91';
+  return national.length === 10
+    ? `+${cc} ${national.slice(0, 5)} ${national.slice(5)}`
+    : `+${digits}`;
 }
 
 function initialOf(chat: { name: string; phone: string }): string {
@@ -109,14 +122,32 @@ function renderBody(body: string) {
   });
 }
 
+/** Who this number belongs to on the platform. */
+function KindBadge({ kind }: { kind: WaContact['kind'] }) {
+  const tone =
+    kind === 'client'
+      ? 'bg-primary-200 text-primary'
+      : kind === 'candidate'
+        ? 'bg-surface-success text-success'
+        : 'bg-neutral-200 text-text-subheading';
+  return (
+    <span
+      className={`shrink-0 rounded-full px-1.5 py-0.5 text-caption capitalize ${tone}`}
+    >
+      {kind}
+    </span>
+  );
+}
+
 /** Session cache of fetched media object URLs, keyed by chatId|waMessageId. */
 const mediaCache = new Map<string, string>();
 
-/** Renders a real image bubble — local blob for just-sent images, else the
- *  authenticated media proxy. Falls back to a chip if the fetch fails. */
-function ChatImage({ msg }: { msg: WaMessage }) {
-  // Prefer the durable copy: the just-sent local blob, then our S3 URL, then
-  // fall back to fetching the bytes from OpenWA through the authenticated proxy.
+/**
+ * Resolves a message's media to a usable URL: the just-sent local blob, then
+ * our own durable S3 copy, then the bytes fetched from OpenWA through the
+ * authenticated proxy.
+ */
+function useMediaUrl(msg: WaMessage) {
   const direct = msg.localUrl ?? msg.mediaUrl ?? null;
   const key = `${msg.chatId ?? ''}|${msg.waMessageId ?? msg.id}`;
   const [url, setUrl] = useState<string | null>(
@@ -142,6 +173,13 @@ function ChatImage({ msg }: { msg: WaMessage }) {
       alive = false;
     };
   }, [key, direct, msg.chatId, msg.waMessageId, msg.id, url, failed]);
+
+  return { url, failed };
+}
+
+/** Renders a real image bubble, falling back to a chip if the fetch fails. */
+function ChatImage({ msg }: { msg: WaMessage }) {
+  const { url, failed } = useMediaUrl(msg);
 
   if (failed) {
     return (
@@ -169,10 +207,65 @@ function ChatImage({ msg }: { msg: WaMessage }) {
   );
 }
 
+/**
+ * PDF bubble: a real first-page preview (the browser's own PDF renderer in a
+ * non-interactive iframe) with a footer carrying the filename. The whole card
+ * opens the document in a new tab.
+ */
+function ChatPdf({ msg }: { msg: WaMessage }) {
+  const { url, failed } = useMediaUrl(msg);
+  const name = msg.mediaFilename || 'Document.pdf';
+
+  if (failed) {
+    return (
+      <div className="inline-flex items-center gap-1.5 rounded bg-neutral-100 px-2 py-1 text-caption text-text-subheading">
+        <Paperclip size={12} /> Document
+      </div>
+    );
+  }
+
+  return (
+    <a
+      href={url ?? undefined}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={url ? `Open ${name}` : 'Loading…'}
+      className="block w-56 overflow-hidden rounded-lg border border-border-default bg-white transition-shadow hover:shadow-md"
+    >
+      <div className="relative h-40 bg-neutral-100">
+        {url ? (
+          <>
+            <iframe
+              src={`${url}#toolbar=0&navpanes=0&view=FitH`}
+              title={name}
+              className="pointer-events-none h-full w-full"
+            />
+            {/* Swallow clicks so the whole card is one link target. */}
+            <span className="absolute inset-0" />
+          </>
+        ) : (
+          <span className="flex h-full items-center justify-center text-caption text-text-placeholder">
+            Loading preview…
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-2 border-t border-border-default px-2.5 py-2">
+        <FileText size={16} className="shrink-0 text-failure" />
+        <span className="min-w-0 flex-1 truncate text-caption text-text-heading">
+          {name}
+        </span>
+        <ExternalLink size={13} className="shrink-0 text-icon-default" />
+      </div>
+    </a>
+  );
+}
+
 export default function WhatsAppPage() {
   const router = useRouter();
   const [user, setUser] = useState<AuthUser | null>(null);
   const [chats, setChats] = useState<WaChat[]>([]);
+  const [contacts, setContacts] = useState<WaContact[]>([]);
+  const [loadingChats, setLoadingChats] = useState(true);
   const [configured, setConfigured] = useState(true);
   const [search, setSearch] = useState('');
   const [activePhone, setActivePhone] = useState('');
@@ -209,8 +302,11 @@ export default function WhatsAppPage() {
       const res = await getWhatsAppChats(token);
       setConfigured(res.configured);
       setChats(res.chats);
+      setContacts(res.contacts ?? []);
     } catch {
       setConfigured(false);
+    } finally {
+      setLoadingChats(false);
     }
   }, []);
 
@@ -305,12 +401,15 @@ export default function WhatsAppPage() {
         ...prev,
         {
           id: `local-${now}-${prev.length}`,
-          body: text || (file && !imageOut ? `📎 ${file.name}` : ''),
+          body: text,
           type: imageOut ? 'image' : file ? 'document' : 'chat',
           direction: 'outbound',
           timestamp: now,
-          localUrl: imageOut ? URL.createObjectURL(file) : undefined,
+          // Preview straight from the local file for both images and PDFs, so
+          // the bubble renders instantly rather than waiting on the round-trip.
+          localUrl: file ? URL.createObjectURL(file) : undefined,
           mediaMimetype: file ? file.type : undefined,
+          mediaFilename: file ? file.name : undefined,
         },
       ]);
       setDraft('');
@@ -328,14 +427,65 @@ export default function WhatsAppPage() {
     doLogout(router);
   }
 
+  /**
+   * Which candidate/client/draft a chat belongs to. Chats addressed by @lid
+   * carry a linked-device id rather than the number, so match on the display
+   * name too — that's where the real number shows up.
+   */
+  const contactFor = useCallback(
+    (chat: { name: string; phone: string }): WaContact | undefined => {
+      const digits = `${chat.name} ${chat.phone}`.replace(/\D/g, '');
+      return contacts.find((k) => digits.includes(k.phone.slice(-10)));
+    },
+    [contacts],
+  );
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return chats;
-    return chats.filter(
-      (c) =>
-        c.name.toLowerCase().includes(q) || c.phone.includes(q.replace(/\D/g, '')),
+    const digitQ = q.replace(/\D/g, '');
+    return chats.filter((c) => {
+      const who = contacts.find((k) =>
+        `${c.name} ${c.phone}`.replace(/\D/g, '').includes(k.phone.slice(-10)),
+      );
+      return (
+        c.name.toLowerCase().includes(q) ||
+        (who?.name.toLowerCase().includes(q) ?? false) ||
+        (digitQ.length > 0 && `${c.phone}${who?.phone ?? ''}`.includes(digitQ))
+      );
+    });
+  }, [chats, contacts, search]);
+
+  // Paginate the list rather than rendering every conversation at once.
+  const PAGE = 10;
+  const [visible, setVisible] = useState(PAGE);
+  useEffect(() => setVisible(PAGE), [search]);
+  const shownChats = filtered.slice(0, visible);
+  const moreCount = filtered.length - shownChats.length;
+
+  // Candidates/clients/drafts we hold a number for but have never messaged —
+  // OpenWA only knows about existing conversations, so without this they'd be
+  // invisible and unreachable from this page.
+  const contactsWithoutChat = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    // A chat addressed by @lid carries a linked-device id in `phone`, not the
+    // real number — the number only appears in its display name. Match on both,
+    // exactly as the server-side platform filter does, or contacts we HAVE
+    // messaged get mislabelled "no conversation yet".
+    const chatDigits = chats.map((c) =>
+      `${c.name} ${c.phone}`.replace(/\D/g, ''),
     );
-  }, [chats, search]);
+    const hasChat = (tenDigits: string) =>
+      chatDigits.some((d) => d.includes(tenDigits));
+    return contacts
+      .filter((c) => !hasChat(c.phone.slice(-10)))
+      .filter(
+        (c) =>
+          !q ||
+          c.name.toLowerCase().includes(q) ||
+          c.phone.includes(q.replace(/\D/g, '')),
+      );
+  }, [contacts, chats, search]);
 
   const searchDigits = search.replace(/\D/g, '');
   const showOpenNew =
@@ -421,18 +571,37 @@ export default function WhatsAppPage() {
               </button>
             )}
 
-            {configured && filtered.length === 0 && !showOpenNew ? (
+            {loadingChats ? (
+              // Skeleton rows rather than a flash of "No conversations yet".
+              <div className="space-y-1 px-3 py-2">
+                {[0, 1, 2, 3, 4].map((i) => (
+                  <div key={i} className="flex animate-pulse items-center gap-3 py-2.5">
+                    <div className="size-12 shrink-0 rounded-full bg-neutral-200" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-3 w-2/5 rounded bg-neutral-200" />
+                      <div className="h-3 w-3/5 rounded bg-neutral-100" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : configured &&
+              filtered.length === 0 &&
+              contactsWithoutChat.length === 0 &&
+              !showOpenNew ? (
               <div className="px-4 py-8 text-center text-body-sm text-text-subheading">
                 {chats.length === 0 ? 'No conversations yet.' : 'No matches.'}
               </div>
             ) : (
-              filtered.map((c) => {
+              shownChats.map((c) => {
                 const active = c.id === activePhone;
+                const who = contactFor(c);
                 return (
                   <button
                     key={c.id}
                     type="button"
-                    onClick={() => void openChat(c.id, c.name || prettyPhone(c.phone))}
+                    onClick={() =>
+                      void openChat(c.id, who?.name || c.name || prettyPhone(c.phone))
+                    }
                     className={`flex w-full items-center gap-3 px-3 py-3 text-left transition-colors ${
                       active ? 'bg-primary-bg' : 'hover:bg-neutral-100'
                     }`}
@@ -442,8 +611,11 @@ export default function WhatsAppPage() {
                     </span>
                     <div className="min-w-0 flex-1 border-b border-border-default pb-3">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="truncate text-body-md text-text-heading">
-                          {c.name || prettyPhone(c.phone)}
+                        <span className="flex min-w-0 items-center gap-1.5">
+                          <span className="truncate text-body-md text-text-heading">
+                            {who?.name || c.name || prettyPhone(c.phone)}
+                          </span>
+                          {who && <KindBadge kind={who.kind} />}
                         </span>
                         <span
                           className={`shrink-0 text-caption ${
@@ -468,6 +640,50 @@ export default function WhatsAppPage() {
                   </button>
                 );
               })
+            )}
+
+            {!loadingChats && moreCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setVisible((v) => v + PAGE)}
+                className="w-full px-4 py-3 text-center text-body-sm font-medium text-text-link hover:bg-neutral-100"
+              >
+                Load {Math.min(moreCount, PAGE)} more
+                <span className="text-text-placeholder"> ({moreCount} left)</span>
+              </button>
+            )}
+
+            {!loadingChats && contactsWithoutChat.length > 0 && (
+              <>
+                <div className="px-4 pb-1 pt-4 text-caption font-medium uppercase tracking-wide text-text-placeholder">
+                  No conversation yet
+                </div>
+                {contactsWithoutChat.map((c) => (
+                  <button
+                    key={`contact-${c.phone}`}
+                    type="button"
+                    onClick={() => void openChat(c.phone, c.name)}
+                    className={`flex w-full items-center gap-3 px-3 py-3 text-left transition-colors ${
+                      c.phone === activePhone ? 'bg-primary-bg' : 'hover:bg-neutral-100'
+                    }`}
+                  >
+                    <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-lg font-semibold text-text-subheading">
+                      {initialOf({ name: c.name, phone: c.phone })}
+                    </span>
+                    <div className="min-w-0 flex-1 border-b border-border-default pb-3">
+                      <div className="truncate text-body-md text-text-heading">
+                        {c.name}
+                      </div>
+                      <div className="mt-0.5 flex items-center gap-2">
+                        <span className="truncate text-body-sm text-text-subheading">
+                          {prettyPhone(c.phone)}
+                        </span>
+                        <KindBadge kind={c.kind} />
+                      </div>
+                    </div>
+                  </button>
+                ))}
+              </>
             )}
           </div>
         </aside>
@@ -548,15 +764,19 @@ export default function WhatsAppPage() {
                                   </div>
                                 );
                               }
-                              if (m.mediaMimetype || isPdfMsg) {
+                              if (isPdfMsg) {
+                                return (
+                                  <div className="mb-1">
+                                    <ChatPdf msg={m} />
+                                  </div>
+                                );
+                              }
+                              if (m.mediaMimetype) {
                                 const href = m.mediaUrl || m.localUrl;
-                                const label = isPdfMsg
-                                  ? 'Document'
-                                  : m.type || 'Attachment';
                                 const chip = (
                                   <span className="mb-1 inline-flex items-center gap-1.5 rounded bg-neutral-100 px-2 py-1 text-caption text-text-subheading">
                                     <Paperclip size={12} />
-                                    {label}
+                                    {m.type || 'Attachment'}
                                   </span>
                                 );
                                 return href ? (

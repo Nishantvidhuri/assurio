@@ -19,10 +19,13 @@ export const REPORT_JOB = 'regenerate';
  * PDFs rendered by an older template read as stale and get re-rendered on the
  * next view instead of silently serving outdated wording forever.
  */
-// v5: "Verified manually" status + legend, Date Completed now counts terminal
+// v8: credit + passport sections omitted while those checks are off.
+// v7: an unresolved vendor failure shows to the client as "In progress" until
+// an operator passes it or releases it. v6: failed checks read as "Unable to verify" with client-safe wording (no raw
+// vendor text). v5: "Verified manually" status + legend, Date Completed now counts terminal
 // outcomes (manual / failed), and vendor-supplied credit & court report PDFs are
 // attached as documents.
-export const REPORT_TEMPLATE_VERSION = 5;
+export const REPORT_TEMPLATE_VERSION = 8;
 
 /** True when a stored report predates the current template. */
 export function isReportStale(key: string | null | undefined): boolean {

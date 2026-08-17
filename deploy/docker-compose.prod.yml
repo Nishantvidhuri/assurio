@@ -1,0 +1,63 @@
+# Production infrastructure for Assurio (Postgres, Redis, ClamAV).
+#
+# Differs from backend/docker-compose.yml in one critical way: every port is
+# bound to 127.0.0.1, never 0.0.0.0. On a public EC2 host the dev file would
+# expose Postgres, Redis and ClamAV to the internet — Redis has no auth by
+# default and Postgres would be brute-forced within hours.
+#
+#   docker compose -f deploy/docker-compose.prod.yml up -d
+services:
+  postgres:
+    image: postgres:16
+    container_name: assurio-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-assurio}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set a strong password in deploy/.env}
+      POSTGRES_DB: ${POSTGRES_DB:-assurio}
+    ports:
+      - "127.0.0.1:5435:5432"
+    volumes:
+      - assurio_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-assurio}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: bgv-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - assurio_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Virus-scans ID uploads, fail-closed. First start downloads ~1 GB of
+  # signatures — give it a few minutes before the app will accept uploads.
+  clamav:
+    image: clamav/clamav-debian:latest
+    container_name: clamav
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3310:3310"
+    volumes:
+      - assurio_clamav_data:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "clamdscan", "--ping", "1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+volumes:
+  assurio_postgres_data:
+  assurio_redis_data:
+  assurio_clamav_data:

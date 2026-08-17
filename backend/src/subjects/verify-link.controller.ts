@@ -86,6 +86,25 @@ export class VerifyLinkController {
     return doc;
   }
 
+  /**
+   * Vendor-spending steps demand settled consent — never before it.
+   *
+   * DigiLocker initialize / status / download are billable Surepass calls, and
+   * `require()` deliberately allows PENDING so the consent screen itself can
+   * load. Without this gate a candidate (or anyone holding the link) could
+   * trigger paid calls before agreeing, which would make the money-back
+   * guarantee impossible to honour.
+   */
+  private assertConsentGranted(doc: { consentStatus: string }): void {
+    if (doc.consentStatus !== 'GRANTED') {
+      throw new BadRequestException(
+        doc.consentStatus === 'PENDING'
+          ? 'Please agree to the consent terms before starting Aadhaar verification.'
+          : 'This verification was declined or has expired and is now closed.',
+      );
+    }
+  }
+
   private aadhaarOk(result: unknown): boolean {
     return Boolean(
       result &&
@@ -277,6 +296,7 @@ export class VerifyLinkController {
   @Post(':token/digilocker/initialize')
   async dlInit(@Param('token') token: string) {
     const doc = await this.require(token);
+    this.assertConsentGranted(doc);
     const init = (await this.verify.digilockerInitialize()) as {
       client_id?: string;
       url?: string;
@@ -295,6 +315,7 @@ export class VerifyLinkController {
   @Get(':token/digilocker/status')
   async dlStatus(@Param('token') token: string) {
     const doc = await this.require(token);
+    this.assertConsentGranted(doc);
     if (!doc.digilockerClientId) {
       throw new BadRequestException('DigiLocker has not been started yet.');
     }
@@ -313,6 +334,7 @@ export class VerifyLinkController {
   @Post(':token/digilocker/aadhaar')
   async dlAadhaar(@Param('token') token: string) {
     const doc = await this.require(token);
+    this.assertConsentGranted(doc);
     if (!doc.digilockerClientId) {
       throw new BadRequestException('DigiLocker has not been started yet.');
     }
