@@ -321,8 +321,14 @@ function checkStatus(
 ): CheckStatus {
   if (done) return 'done';
   if (inProgress) return 'in-progress';
+  // An input the verified Aadhaar will supply counts as satisfied: the check IS
+  // in scope and will run on its own, so treating it as missing would hide the
+  // card from the client and drop it out of the "N/M checks done" ratio — while
+  // the engine still counts it. That mismatch is what showed 0/1 for a
+  // candidate who bought two checks.
   const ready =
-    reqs.length > 0 && reqs.every((r) => Boolean(r.value && r.value.trim()));
+    reqs.length > 0 &&
+    reqs.every((r) => Boolean(r.value && r.value.trim()) || r.pending);
   return ready ? 'pending' : 'unavailable';
 }
 
@@ -893,6 +899,13 @@ export default function SubjectReport({
     : aadhaarHasAddress(subject.aadhaarResult)
       ? aadhaarAddressLine(subject.aadhaarResult)
       : '';
+  // Mirrors subject-progress.ts `aadhaarMayArrive`: DigiLocker is still
+  // expected, so DOB / address / father's name it supplies are on the way
+  // rather than missing. Any stored aadhaarResult settles the question —
+  // including a failure, which is why this tests the result, not success.
+  const aadhaarMayArrive =
+    !subject.aadhaarResult &&
+    Boolean(subject.digilockerClientId || subject.aadhaarNumber);
   // Vendor-supplied report files (KonnectNxt returns these as hosted PDFs).
   const creditReportUrl = vendorReportUrl(subject.creditResult);
   const crimeReportUrl = vendorReportUrl(subject.crimeResult);
@@ -905,9 +918,13 @@ export default function SubjectReport({
 
   const crimeReqs: RequiredInput[] = [
     { label: 'Full name', value: subject.name },
-    { label: 'Date of birth', value: crimeDobValue },
-    { label: 'Address', value: crimeAddressValue },
-    { label: "Father's name", value: resolveFatherName(subject) },
+    { label: 'Date of birth', value: crimeDobValue, pending: aadhaarMayArrive },
+    { label: 'Address', value: crimeAddressValue, pending: aadhaarMayArrive },
+    {
+      label: "Father's name",
+      value: resolveFatherName(subject),
+      pending: aadhaarMayArrive,
+    },
   ];
   // The credit bureau needs PAN + DOB + father's name, and takes the address
   // from the candidate's verified Aadhaar (a typed address is rejected).

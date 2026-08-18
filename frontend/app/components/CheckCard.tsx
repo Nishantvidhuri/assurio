@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   Check,
   ChevronDown,
+  Clock,
   Eye,
   Mail,
   MoreHorizontal,
@@ -57,6 +58,13 @@ export interface RequiredInput {
   label: string;
   /** The candidate's entered value, or empty/undefined if not provided. */
   value?: string | null;
+  /**
+   * True when the value is still expected from a source in flight — the
+   * verified Aadhaar supplying DOB, address or father's name. Such an input
+   * counts as satisfied for scoping (the check WILL run), but renders as
+   * awaiting rather than provided, and still blocks Recall.
+   */
+  pending?: boolean;
 }
 
 const STATUS_TAG: Record<
@@ -410,6 +418,10 @@ export function CheckCard({
               <div className="flex flex-wrap gap-2">
                 {reqs.map((r) => {
                   const filled = Boolean(r.value && r.value.trim());
+                  // Neither provided nor missing: the verified Aadhaar will
+                  // supply it. Shown as awaiting so the card doesn't read as
+                  // blocked on the candidate when nothing is asked of them.
+                  const awaiting = !filled && Boolean(r.pending);
                   return (
                     <span
                       key={r.label}
@@ -417,17 +429,23 @@ export function CheckCard({
                         'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-body-sm',
                         filled
                           ? 'border-border-success bg-surface-success text-success'
-                          : 'border-border-default bg-neutral-100 text-text-subheading',
+                          : awaiting
+                            ? 'border-border-default bg-surface-info text-text-subheading'
+                            : 'border-border-default bg-neutral-100 text-text-subheading',
                       )}
                     >
                       {filled ? (
                         <Check size={13} className="shrink-0" />
+                      ) : awaiting ? (
+                        <Clock size={13} className="shrink-0" />
                       ) : (
                         <X size={13} className="shrink-0" />
                       )}
                       {r.label}
                       {filled && r.value ? (
                         <span className="font-medium">· {r.value}</span>
+                      ) : awaiting ? (
+                        <span className="opacity-70">· after Aadhaar KYC</span>
                       ) : (
                         <span className="opacity-70">· not provided</span>
                       )}
