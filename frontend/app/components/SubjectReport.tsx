@@ -359,11 +359,40 @@ function vendorReportUrl(result: unknown): string | null {
     o.data && typeof o.data === 'object'
       ? (o.data as Record<string, unknown>)
       : o;
-  for (const k of ['report_url','reportUrl','pdf_url','pdfUrl','report','pdf','url','file_url']) {
+  // download_link is what KonnectNxt crime-check names the signed PDF link.
+  for (const k of ['report_url','reportUrl','download_link','downloadLink','pdf_url','pdfUrl','report','pdf','url','file_url']) {
     if (isUrl(inner[k])) return (inner[k] as string).trim();
     if (isUrl(o[k])) return (o[k] as string).trim();
   }
   return null;
+}
+
+/**
+ * The Aadhaar address flattened to the single line the crime vendor is actually
+ * sent. Mirrors buildBgvAddress + formatAddressLine on the backend, including
+ * the city pick (subDistrict → district minus its admin suffix → vtc), so the
+ * report shows exactly what went to the source rather than a placeholder.
+ */
+function aadhaarAddressLine(result: unknown): string {
+  if (!result || typeof result !== 'object' || '__checkError' in result) {
+    return '';
+  }
+  const address = (result as { address?: Record<string, unknown> }).address;
+  if (!address || typeof address !== 'object') return '';
+  const val = (k: string): string => String(address[k] ?? '').trim();
+
+  const street = ['house', 'street', 'locality', 'landmark']
+    .map(val)
+    .filter(Boolean)
+    .join(', ');
+  const city =
+    val('subDistrict') ||
+    val('district').replace(/\s+(Nagar|District|Rural|Urban)$/i, '').trim() ||
+    val('vtc');
+
+  return [street, city, val('state'), val('pincode'), val('country') || 'India']
+    .filter(Boolean)
+    .join(', ');
 }
 
 function aadhaarHasAddress(result: unknown): boolean {
@@ -862,7 +891,7 @@ export default function SubjectReport({
   const crimeAddressValue = subject.permanentAddress?.trim()
     ? subject.permanentAddress
     : aadhaarHasAddress(subject.aadhaarResult)
-      ? 'From verified Aadhaar'
+      ? aadhaarAddressLine(subject.aadhaarResult)
       : '';
   // Vendor-supplied report files (KonnectNxt returns these as hosted PDFs).
   const creditReportUrl = vendorReportUrl(subject.creditResult);

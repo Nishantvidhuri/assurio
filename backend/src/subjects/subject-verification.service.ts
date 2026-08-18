@@ -250,11 +250,10 @@ export class SubjectVerificationService {
     //    (flattened to a single line). Like credit, it then defers until
     //    DigiLocker completes and re-fires from runForSubject. ──
     if (s.name && !s.crimeRequestId && !s.crimeResult) {
-      // Court records are searched on the PERMANENT address. Unlike the credit
-      // bureau, KonnectNxt does not demand every structured field here, so a
-      // partial address still submits — but we need the structured shape for
-      // the v2 BGV payload, so build it the same way and fall back to packing
-      // the typed address into `street`.
+      // Court records are searched on the PERMANENT address, which crime-check
+      // takes as one free-text line. Build it through the same structured
+      // helper the credit bureau uses so both read the identical address, then
+      // flatten — a partial address still submits here.
       const crimeStructured =
         buildBgvAddress(
           aadhaarAddressOf(s.aadhaarResult),
@@ -281,23 +280,22 @@ export class SubjectVerificationService {
           const resp = (await this.verify.crimeCheck({
             name: s.name,
             fatherName: crimeFatherName,
-            // The vendor wants ISO dates; our form stores DD-MM-YYYY.
-            dob: coerceToIsoDate(crimeDob) ?? crimeDob,
+            // crime-check takes DD-MM-YYYY; verify.service normalises whichever
+            // shape we hand it, so pass the stored value through untouched.
+            dob: crimeDob,
             panNumber: s.panNumber || undefined,
-            phone: normalizePhone(s.phone || '') || undefined,
-            email: s.email || undefined,
-            street: crimeStructured!.street,
-            city: crimeStructured!.city,
-            state: crimeStructured!.state,
-            pincode: crimeStructured!.pincode,
-            country: crimeStructured!.country,
+            address: crimeAddress,
           })) as Record<string, unknown>;
-          // v2 BGV returns cases_created[].case_id, same as credit.
-          const requestId = this.firstCaseId(resp);
+          // The initiate call never returns a verdict — only the id to poll.
+          const requestId = (resp?.data as Record<string, unknown> | undefined)
+            ?.request_id;
           if (requestId) {
             await this.prisma.subject.update({
               where: { id: s.id },
-              data: { crimeRequestId: String(requestId) },
+              data: {
+                crimeRequestId: String(requestId),
+                crimeRequestedAt: new Date(),
+              },
             });
             this.pollCrime(s.id, String(requestId), 0);
             this.logger.log(`Crime check initiated for ${s.id} (${requestId})`);
@@ -326,39 +324,106 @@ export class SubjectVerificationService {
     if (fresh) await this.completeIfDone(fresh);
   }
 
-  /** Poll the crime report until it completes, then store it. Best-effort. */
   /**
-   * Polls the v2 BGV download endpoint until the court-record PDF is ready.
-   * Mirrors pollCredit: `data` carries the signed URL once the case completes
-   * and is absent while processing, so its presence is the completion signal.
-   * ~8s x 40 attempts ≈ 5 minutes; giving up leaves the check pending rather
-   * than recording a false failure, and Recall API re-runs it.
+   * Polls one crime check by request_id and stores the result once the vendor
+   * marks it completed. Returns true when the check reached a terminal state
+   * (stored result or stored failure), false while it is still in progress.
+   *
+   * The vendor searches court records manually and documents a 24-48 hour
+   * turnaround, so completion is NOT expected within a request lifetime — this
+   * is called both by the short in-process poll (which catches the fast cases)
+   * and by the durable sweep in CrimePollProcessor, which is what actually
+   * finishes most checks. Both funnel through here so the storing rules can
+   * never diverge.
    */
-  private pollCrime(subjectId: string, caseId: string, attempt: number): void {
+  async pollCrimeOnce(
+    subjectId: string,
+    requestId: string,
+    opts: { failOnNotFound?: boolean } = {},
+  ): Promise<boolean> {
+    const report = (await this.verify.crimeCheckReport(requestId)) as
+      | Record<string, unknown>
+      | undefined;
+    const data = report?.data as Record<string, unknown> | undefined;
+    const status = String(data?.status ?? '').toLowerCase();
+
+    // The vendor returns 404 for two different things, and only one is fatal:
+    //   "Report not available. Please try again later." — still processing,
+    //      an ordinary pending state that must keep polling.
+    //   "Crime check request not found"                — the id is dead.
+    // Distinguish on the message, and default an unrecognised 404 to pending:
+    // over-polling a free endpoint is harmless, while wrongly failing a live
+    // check strands it as an insufficiency the client has to chase.
+    if (Number(report?.code) === 404) {
+      const notice = String(report?.message ?? '');
+      const deadRequest = /not found/i.test(notice);
+      if (!deadRequest || !opts.failOnNotFound) return false;
+      const msg = 'Crime check request not found at the source';
+      this.logger.warn(`Crime check failed for ${subjectId}: ${msg}`);
+      await this.storeResult(subjectId, 'crimeResult', { __checkError: msg });
+      return true;
+    }
+
+    // Anything that is not an explicit terminal state keeps the check pending.
+    // Guessing "done" from a missing status would publish an empty clean sheet
+    // as if the courts had been searched.
+    if (!data || status === 'in_progress' || status === 'initiated') {
+      return false;
+    }
+
+    if (status === 'completed') {
+      // storeResult (not a bare update) so completion + report delivery are
+      // evaluated the moment the last check lands.
+      await this.storeResult(subjectId, 'crimeResult', { data });
+      this.logger.log(`Crime report stored for ${subjectId} (${requestId})`);
+      return true;
+    }
+
+    // A stated non-completed terminal status (failed/cancelled/...) is a real
+    // outcome: record it as an unresolved failure so an operator sees it and
+    // the report cannot silently complete without the crime check.
+    const msg =
+      (typeof data.message === 'string' && data.message) ||
+      `Crime check ${status || 'did not complete'}`;
+    this.logger.warn(`Crime check failed for ${subjectId}: ${msg}`);
+    await this.storeResult(subjectId, 'crimeResult', { __checkError: msg });
+    return true;
+  }
+
+  /**
+   * Records a crime check as failed once it has outlived the vendor's search
+   * window. Stored as an unresolved failure, not a pass: the courts were never
+   * actually searched, so the client sees "in progress" while an operator
+   * decides whether to re-run it or release it.
+   */
+  async expireCrimeCheck(subjectId: string): Promise<void> {
+    const msg = 'Crime check did not complete within the expected time';
+    this.logger.warn(`Crime check expired for ${subjectId}`);
+    await this.storeResult(subjectId, 'crimeResult', { __checkError: msg });
+  }
+
+  /**
+   * Short in-process poll right after initiation — ~8s x 40 ≈ 5 minutes, which
+   * only catches checks the vendor happens to answer immediately. Giving up is
+   * expected and harmless: crimeRequestId stays set with no crimeResult, and
+   * the repeatable sweep picks it up for as long as it takes. Never records a
+   * failure on timeout.
+   */
+  private pollCrime(subjectId: string, requestId: string, attempt: number): void {
     if (attempt > 40) {
-      this.logger.warn(`Crime poll gave up for ${subjectId} (${caseId})`);
+      this.logger.log(
+        `Crime still pending for ${subjectId} (${requestId}) — handing off to the sweep`,
+      );
       return;
     }
     setTimeout(() => {
       void (async () => {
         try {
-          const report = (await this.verify.crimeCheckReport(
-            caseId,
-          )) as Record<string, unknown>;
-          const data = report?.data;
-          if (data) {
-            await this.prisma.subject.update({
-              where: { id: subjectId },
-              data: { crimeResult: { data } } as Record<string, unknown>,
-            });
-            this.reportGen.scheduleRegen(subjectId);
-            this.logger.log(`Crime report stored for ${subjectId}`);
-          } else {
-            this.pollCrime(subjectId, caseId, attempt + 1);
-          }
+          if (await this.pollCrimeOnce(subjectId, requestId)) return;
         } catch {
-          this.pollCrime(subjectId, caseId, attempt + 1);
+          // Transient vendor/network failure — keep waiting, don't fail the check.
         }
+        this.pollCrime(subjectId, requestId, attempt + 1);
       })();
     }, 8000);
   }
@@ -474,19 +539,27 @@ export class SubjectVerificationService {
     try {
       const result = s.crimeResult as Record<string, unknown> | null;
       if (!result || '__checkError' in result) return;
-      const raw = String(
-        result.risk_level ?? result.riskLevel ?? result.risk ?? '',
-      ).toUpperCase();
-      // The v2 BGV flow returns a report PDF, not a risk band. Only alert when
-      // the vendor actually stated one — never infer "low" from its absence.
-      if (raw !== 'HIGH' && raw !== 'MEDIUM' && raw !== 'LOW') {
+      const data = result.data as Record<string, unknown> | undefined;
+      const ra = data?.risk_assessment as Record<string, unknown> | undefined;
+      // crime-check states the band as risk_type: "Low Risk" / "Medium Risk" /
+      // "High Risk" / "Very High Risk". "Very High" is folded into high — the
+      // alert has no louder setting than that.
+      const raw = String(ra?.risk_type ?? '').toUpperCase();
+      const risk: CrimeRisk | null = /HIGH/.test(raw)
+        ? 'high'
+        : /MEDIUM/.test(raw)
+          ? 'medium'
+          : /LOW/.test(raw)
+            ? 'low'
+            : null;
+      // Only alert when the vendor actually stated a band — never infer "low"
+      // from its absence.
+      if (!risk) {
         this.logger.log(
           `Crime result for ${s.id} carries no risk band — no risk alert sent`,
         );
         return;
       }
-      const risk: CrimeRisk =
-        raw === 'HIGH' ? 'high' : raw === 'MEDIUM' ? 'medium' : 'low';
 
       const client = await this.prisma.user.findUnique({
         where: { id: s.userId },

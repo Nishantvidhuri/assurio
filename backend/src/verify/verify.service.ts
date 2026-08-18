@@ -386,6 +386,22 @@ export class VerifyService {
     return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
   }
 
+  /**
+   * KonnectNxt's crime-check endpoint documents `dob` as DD-MM-YYYY — the
+   * inverse of every Surepass endpoint, which wants ISO. Accepts either shape
+   * and normalises to the vendor's, so callers can keep passing whatever the
+   * form stored.
+   */
+  private toDdMmYyyyDob(dob: string): string {
+    const iso = dob.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (iso) {
+      return `${iso[3].padStart(2, '0')}-${iso[2].padStart(2, '0')}-${iso[1]}`;
+    }
+    const m = dob.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+    if (!m) return dob;
+    return `${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}-${m[3]}`;
+  }
+
   /* ── Surepass: Passport ── */
 
   async passport(fileNumber: string, dob: string) {
@@ -565,70 +581,58 @@ export class VerifyService {
   /* ── KonnectNxt: Crime check ── */
 
   /**
-   * Submits a court/criminal-records check via the KonnectNxt **v2 BGV** flow —
-   * the same submit/download pair the credit check uses.
+   * Initiates a court/criminal-records check. This does NOT return a verdict —
+   * KonnectNxt queues the search and answers with a `request_id`, which
+   * crimeCheckReport then polls until the vendor marks it completed. Court
+   * records are searched manually at source, so the vendor documents a typical
+   * turnaround of 24-48 hours.
    *
-   * The older single-shot `/verification/crime-check/` endpoint is deprecated
-   * upstream and currently 500s ("Invalid URL 'None/reports/v4'") because the
-   * reports service behind it is unconfigured; Recriauth abandoned it for this
-   * pipeline too. Returns the vendor envelope carrying cases_created[].case_id,
-   * which is then polled with crimeCheckReport.
+   *   POST {base}/api/v2/verification/crime-check/
+   *   → { data: { status: 'initiated', request_id, request_time } }
+   *
+   * Only `name` is mandatory; every other field narrows the search, so we send
+   * whatever the candidate supplied. The address is free text (the vendor caps
+   * it at 255 chars) rather than the structured shape the BGV bureau demands.
    */
   async crimeCheck(input: {
     name: string;
     fatherName?: string;
     dob?: string;
     panNumber?: string;
-    phone?: string;
-    email?: string;
-    street: string;
-    city?: string;
-    state?: string;
-    pincode?: string;
-    country?: string;
+    address?: string;
   }) {
-    const candidate: Record<string, unknown> = {
-      name: input.name,
-      ...(input.fatherName ? { father_name: input.fatherName } : {}),
-      // Normalise here, not just at the callers — the manual /verify endpoints
-      // hand us DD-MM-YYYY straight from the DTO.
-      ...(input.dob ? { dob: this.toIsoDob(input.dob) } : {}),
-      ...(input.panNumber ? { pan: input.panNumber.toUpperCase() } : {}),
-      ...(input.phone ? { phone: input.phone } : {}),
-      ...(input.email ? { email: input.email } : {}),
-      // Backwards-compat string kept alongside the canonical structured address.
-      permanent_address: [input.street, input.city, input.state, input.pincode]
-        .filter(Boolean)
-        .join(', '),
-      addresses: [
-        {
-          // Court records are searched against the PERMANENT address, unlike
-          // the credit bureau which keys on Current.
-          address_type: 'Permanent',
-          street: input.street,
-          city: input.city ?? '',
-          state: input.state ?? '',
-          country: input.country || 'India',
-          pincode: input.pincode ?? '',
-        },
-      ],
-    };
-    return this.knPost(
-      KONNECT_NXT.bgvEndpoints.submit,
-      { checks: ['criminal_check'], candidates: [candidate] },
-      this.konnectnxtBgvBase,
-    );
+    const address = (input.address || '').trim().slice(0, 255);
+    return this.knPost(KONNECT_NXT.endpoints.crimeCheck, {
+      name: input.name.trim().slice(0, 255),
+      ...(input.fatherName
+        ? { father_name: input.fatherName.trim().slice(0, 255) }
+        : {}),
+      // Crime-check wants DD-MM-YYYY, unlike every Surepass endpoint. Normalise
+      // here, not just at the callers — the manual /verify endpoints hand us
+      // whatever the DTO carried.
+      ...(input.dob ? { dob: this.toDdMmYyyyDob(input.dob) } : {}),
+      ...(input.panNumber ? { pan_number: input.panNumber.toUpperCase() } : {}),
+      // The vendor rejects addresses under 10 chars; omit rather than fail the
+      // whole submission over a stub like "Delhi".
+      ...(address.length >= 10 ? { address } : {}),
+    });
   }
 
   /**
-   * Fetches the court-record report URL for a submitted case. `data` carries
-   * the signed PDF URL once the case completes, and is null/absent while the
-   * vendor is still processing — which is what the poller waits on.
+   * Polls a crime check by the `request_id` from crimeCheck. Free — the vendor
+   * documents this call as consuming no credits, so polling costs nothing.
+   *
+   *   GET {base}/api/v2/verification/crime-check/?request_id=...
+   *   → 202 { data: { status: 'in_progress' } }        still searching
+   *   → 200 { data: { status: 'completed', risk_assessment: { risk_type,
+   *            risk_summary, number_of_cases }, cases: [], download_link } }
+   *
+   * knGet deliberately lets 202/404 through as success so the caller can branch
+   * on `data.status` rather than on the HTTP code.
    */
-  async crimeCheckReport(caseId: string) {
+  async crimeCheckReport(requestId: string) {
     return this.knGet(
-      `${KONNECT_NXT.bgvEndpoints.download}?case_id=${encodeURIComponent(caseId)}&type=pdf`,
-      this.konnectnxtBgvBase,
+      `${KONNECT_NXT.endpoints.crimeCheck}?request_id=${encodeURIComponent(requestId)}`,
     );
   }
 

@@ -1,4 +1,10 @@
-import { IsOptional, IsString, Matches, MinLength } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 
 export class PanCheckDto {
   @Matches(/^[A-Za-z]{5}[0-9]{4}[A-Za-z]$/, {
@@ -37,48 +43,30 @@ export class EmploymentHistoryDto {
 }
 
 export class CrimeCheckDto {
+  // Vendor bounds, enforced here so a rejection surfaces as a field error
+  // rather than a 400 from KonnectNxt.
   @IsString()
-  @MinLength(1, { message: 'Name is required' })
+  @MinLength(2, { message: 'Name must be at least 2 characters' })
+  @MaxLength(255, { message: 'Name must be at most 255 characters' })
   name: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(255, { message: "Father's name must be at most 255 characters" })
   fatherName?: string;
 
   @IsOptional()
   @Matches(/^\d{2}-\d{2}-\d{4}$/, { message: 'DOB must be in DD-MM-YYYY format' })
   dob?: string;
 
-  // Court records are searched on the PERMANENT address. The v2 BGV submit
-  // takes it structured; unlike the credit bureau, KonnectNxt tolerates partial
-  // fields here, so only street is mandatory.
-  @IsString()
-  @MinLength(1, { message: 'Street is required' })
-  street: string;
-
+  // Court records are searched on the PERMANENT address, which crime-check
+  // takes as one free-text line (not the structured shape the credit bureau
+  // demands). The vendor's own bounds are 10-255 characters.
   @IsOptional()
   @IsString()
-  city?: string;
-
-  @IsOptional()
-  @IsString()
-  state?: string;
-
-  @IsOptional()
-  @IsString()
-  pincode?: string;
-
-  @IsOptional()
-  @IsString()
-  country?: string;
-
-  @IsOptional()
-  @IsString()
-  phone?: string;
-
-  @IsOptional()
-  @IsString()
-  email?: string;
+  @MinLength(10, { message: 'Address must be at least 10 characters' })
+  @MaxLength(255, { message: 'Address must be at most 255 characters' })
+  address?: string;
 
   @IsOptional()
   @Matches(/^[A-Za-z]{5}[0-9]{4}[A-Za-z]$/, {

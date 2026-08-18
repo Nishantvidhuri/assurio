@@ -68,6 +68,10 @@ model Subject {
   digilockerClientId String?
   digilockerUrl     String?
   crimeRequestId    String?
+  // When the crime check was handed to KonnectNxt. The vendor searches court
+  // records manually (24-48h quoted), so the poll sweep needs to know how long
+  // a check has been outstanding to stop chasing one that will never land.
+  crimeRequestedAt  DateTime?
   creditRequestId   String?
   creditResult      Json?
   crimeResult       Json?

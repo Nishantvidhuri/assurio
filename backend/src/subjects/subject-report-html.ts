@@ -284,6 +284,9 @@ function vendorReportUrl(result: unknown): string | null {
     for (const k of [
       'report_url',
       'reportUrl',
+      // KonnectNxt crime-check names the signed PDF link download_link.
+      'download_link',
+      'downloadLink',
       'pdf_url',
       'pdfUrl',
       'report',
