@@ -92,6 +92,27 @@ function knUpstreamMessage(body: unknown, status: number): string {
   return `HTTP ${status}`;
 }
 
+/**
+ * Clean a free-text address before it goes to a vendor.
+ *
+ * DigiLocker hands back fragments that carry decorative characters — one real
+ * KYC produced a `house` of "· S-2 GANESH PURI" — and we were forwarding them
+ * verbatim, so the vendor received an address opening with a bullet. Keeps the
+ * characters a postal address legitimately uses, collapses the runs of
+ * whitespace and commas that removal leaves behind, and trims stray leading or
+ * trailing separators.
+ */
+export function sanitizeAddressLine(raw: string | null | undefined): string {
+  return (raw || '')
+    // \p{M} matters: without combining marks, Devanagari matras are stripped
+    // and "फ्लैट" degrades to "फ ल ट".
+    .replace(/[^\p{L}\p{M}\p{N}\s,.\-/#()&']/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(/\s*,\s*(,\s*)+/g, ', ')
+    .replace(/^[\s,.\-/]+|[\s,.\-/]+$/g, '')
+    .trim();
+}
+
 @Injectable()
 export class VerifyService {
   constructor(private readonly recorder: VendorCallRecorderService) {}
@@ -610,7 +631,13 @@ export class VerifyService {
     panNumber?: string;
     address?: string;
   }) {
-    const address = (input.address || '').trim().slice(0, 255);
+    const address = sanitizeAddressLine(input.address).slice(0, 255);
+    // Only send a PAN that IS one. Aadhaar/OCR-sourced fields have arrived as
+    // junk ("CMYK"), and the vendor validates against ^[A-Z]{5}[0-9]{4}[A-Z]$ —
+    // a malformed value poisons the whole submission for a field that is
+    // merely optional accuracy.
+    const pan = (input.panNumber || '').toUpperCase().trim();
+    const panValid = /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan);
     return this.knPost(KONNECT_NXT.endpoints.crimeCheck, {
       name: input.name.trim().slice(0, 255),
       ...(input.fatherName
@@ -620,7 +647,7 @@ export class VerifyService {
       // here, not just at the callers — the manual /verify endpoints hand us
       // whatever the DTO carried.
       ...(input.dob ? { dob: this.toDdMmYyyyDob(input.dob) } : {}),
-      ...(input.panNumber ? { pan_number: input.panNumber.toUpperCase() } : {}),
+      ...(panValid ? { pan_number: pan } : {}),
       // The vendor rejects addresses under 10 chars; omit rather than fail the
       // whole submission over a stub like "Delhi".
       ...(address.length >= 10 ? { address } : {}),
@@ -669,6 +696,11 @@ export class VerifyService {
     phone?: string;
     email?: string;
   }) {
+    // Same Aadhaar-sourced fragments as the crime check, so the same
+    // decorative characters can appear here.
+    const street = sanitizeAddressLine(input.street);
+    const city = sanitizeAddressLine(input.city);
+    const state = sanitizeAddressLine(input.state);
     const candidate: Record<string, unknown> = {
       name: input.name,
       ...(input.fatherName ? { father_name: input.fatherName } : {}),
@@ -677,13 +709,13 @@ export class VerifyService {
       ...(input.phone ? { phone: input.phone } : {}),
       ...(input.email ? { email: input.email } : {}),
       // Backwards-compat string kept alongside the canonical structured address.
-      permanent_address: `${input.street}, ${input.city}, ${input.state} ${input.pincode}`,
+      permanent_address: `${street}, ${city}, ${state} ${input.pincode}`,
       addresses: [
         {
           address_type: 'Current',
-          street: input.street,
-          city: input.city,
-          state: input.state,
+          street,
+          city,
+          state,
           country: input.country || 'India',
           pincode: input.pincode,
         },
