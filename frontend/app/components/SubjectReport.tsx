@@ -34,6 +34,8 @@ import {
   fetchPdfBlobUrl,
   recheckSubject,
   manualPassCheck,
+  submitCrimeCheck,
+  type CrimeSubmitPayload,
   type ManualPassType,
   subjectReportUrl,
   type AadhaarKyc,
@@ -53,7 +55,13 @@ import {
   type RequiredInput,
 } from './CheckCard';
 import FilePreviewModal, { type PreviewFile } from './FilePreviewModal';
-import { Button, Tag, Textarea } from '@/shared/components/ui';
+import {
+  Button,
+  Input,
+  InputFieldWrapper,
+  Tag,
+  Textarea,
+} from '@/shared/components/ui';
 
 /**
  * Minimal shape this report needs — satisfied by both the client `Subject` and
@@ -581,6 +589,10 @@ export default function SubjectReport({
   } | null>(null);
   const [manualReason, setManualReason] = useState('');
   const [manualError, setManualError] = useState('');
+  // Operator-entered crime submission (admin only).
+  const [crimeSubmitOpen, setCrimeSubmitOpen] = useState(false);
+  const [crimeSubmitting, setCrimeSubmitting] = useState(false);
+  const [crimeSubmitError, setCrimeSubmitError] = useState('');
   const [downloading, setDownloading] = useState(false);
   const [sendingLink, setSendingLink] = useState(false);
   // Mobile kebab menu holding the report actions (desktop shows them inline).
@@ -664,6 +676,29 @@ export default function SubjectReport({
       );
     } finally {
       setPassing(null);
+    }
+  }
+
+  async function confirmCrimeSubmit(payload: CrimeSubmitPayload) {
+    if (!subject.id) return;
+    setCrimeSubmitting(true);
+    setCrimeSubmitError('');
+    try {
+      const updated = await submitCrimeCheck(subject.id, {
+        name: payload.name.trim(),
+        fatherName: payload.fatherName?.trim() || undefined,
+        dob: payload.dob?.trim() || undefined,
+        address: payload.address?.trim() || undefined,
+        panNumber: payload.panNumber?.trim() || undefined,
+      });
+      onSubjectUpdate?.(updated as unknown as SubjectReportData);
+      setCrimeSubmitOpen(false);
+    } catch (err) {
+      setCrimeSubmitError(
+        err instanceof Error ? err.message : 'Could not submit this check.',
+      );
+    } finally {
+      setCrimeSubmitting(false);
     }
   }
 
@@ -1569,6 +1604,25 @@ export default function SubjectReport({
             }
           />
         )}
+        {/* Admin escape hatch: the automatic run skips crime when DOB, address
+            or father's name never arrived. This submits the operator's own
+            values instead of waiting for data that may never come. */}
+        {admin && !crime && !crimeManual && !crimePending && (
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setCrimeSubmitError('');
+                setCrimeSubmitOpen(true);
+              }}
+            >
+              Submit with these details
+            </Button>
+            <span className="text-body-sm text-text-placeholder">
+              Sends the details you enter straight to the court-record source.
+            </span>
+          </div>
+        )}
       </CheckCard>
       )}
 
@@ -1643,6 +1697,24 @@ export default function SubjectReport({
           busy={passing === manualTarget.type}
           onCancel={() => setManualTarget(null)}
           onConfirm={() => void confirmManualPass()}
+        />
+      )}
+
+      {crimeSubmitOpen && (
+        <CrimeSubmitModal
+          // Pre-filled from the record, including the Aadhaar-derived address,
+          // so the usual case is filling one gap rather than retyping the lot.
+          initial={{
+            name: subject.name ?? '',
+            fatherName: resolveFatherName(subject) ?? '',
+            dob: crimeDobValue ?? '',
+            address: crimeAddressValue ?? '',
+            panNumber: subject.panNumber ?? '',
+          }}
+          error={crimeSubmitError}
+          busy={crimeSubmitting}
+          onCancel={() => setCrimeSubmitOpen(false)}
+          onConfirm={(payload) => void confirmCrimeSubmit(payload)}
         />
       )}
 
@@ -1801,6 +1873,157 @@ function ManualPassModal({
           </Button>
           <Button onClick={onConfirm} disabled={busy} isLoading={busy}>
             {mode === 'unable' ? 'Mark unable to verify' : 'Mark as passed'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Admin-only: submit the crime check with fields typed by the operator.
+ *
+ * The automatic run skips crime entirely when DOB, address or father's name
+ * never arrived — correct, because it can't invent them. This is the way in
+ * when an operator has the details offline and wants the search run anyway.
+ * Pre-filled with whatever the record already holds so the common case is
+ * "fill the one missing field and submit".
+ */
+function CrimeSubmitModal({
+  initial,
+  error,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  initial: CrimeSubmitPayload;
+  error: string;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: (payload: CrimeSubmitPayload) => void;
+}) {
+  const [form, setForm] = useState<CrimeSubmitPayload>(initial);
+  const set = (k: keyof CrimeSubmitPayload, v: string) =>
+    setForm((f) => ({ ...f, [k]: v }));
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !busy) onCancel();
+    };
+    document.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [busy, onCancel]);
+
+  const address = (form.address ?? '').trim();
+  // Mirror the vendor's own bounds so a rejection surfaces before we spend a
+  // submission learning the same thing from them.
+  const addressBad = address.length > 0 && address.length < 10;
+  const nameOk = (form.name ?? '').trim().length >= 2;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget && !busy) onCancel();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Submit criminal records check"
+        className="w-full max-w-lg overflow-hidden rounded-xl border border-border-default bg-white shadow-lg"
+      >
+        <div className="flex items-start gap-3 border-b border-border-default px-5 py-4">
+          <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-surface-info text-primary">
+            <ShieldCheck size={18} />
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-body-lg font-semibold text-text-heading">
+              Submit criminal records check
+            </h2>
+            <p className="mt-0.5 text-body-sm text-text-subheading">
+              Sends these exact details to the court-record source.
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-4 px-5 py-4">
+          <div className="rounded-lg border border-border-warning bg-surface-warning px-4 py-3 text-body-sm text-warning-900">
+            This bills a fresh search. Results take 24&ndash;48 hours and land on
+            the report automatically.
+          </div>
+
+          <InputFieldWrapper label="Full name" required>
+            <Input
+              value={form.name ?? ''}
+              placeholder="e.g. Nishant Kumar Vidhuri"
+              onChange={(e) => set('name', e.target.value)}
+              disabled={busy}
+            />
+          </InputFieldWrapper>
+
+          <InputFieldWrapper label="Father's name">
+            <Input
+              value={form.fatherName ?? ''}
+              placeholder="e.g. Rakesh Kumar Vidhuri"
+              onChange={(e) => set('fatherName', e.target.value)}
+              disabled={busy}
+            />
+          </InputFieldWrapper>
+
+          <InputFieldWrapper label="Date of birth">
+            <Input
+              value={form.dob ?? ''}
+              placeholder="DD-MM-YYYY"
+              onChange={(e) => set('dob', e.target.value)}
+              disabled={busy}
+            />
+          </InputFieldWrapper>
+
+          <InputFieldWrapper
+            label="Address"
+            error={addressBad ? 'At least 10 characters' : undefined}
+          >
+            <Textarea
+              rows={2}
+              value={form.address ?? ''}
+              placeholder="House, locality, city, state, pincode"
+              onChange={(e) => set('address', e.target.value)}
+              disabled={busy}
+            />
+          </InputFieldWrapper>
+
+          <InputFieldWrapper label="PAN">
+            <Input
+              value={form.panNumber ?? ''}
+              placeholder="ABCDE1234F"
+              onChange={(e) => set('panNumber', e.target.value.toUpperCase())}
+              disabled={busy}
+            />
+          </InputFieldWrapper>
+
+          {error && (
+            <div className="rounded-lg border border-border-error bg-surface-error px-4 py-2.5 text-body-sm text-failure">
+              {error}
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-border-default bg-neutral-100 px-5 py-3">
+          <Button variant="secondary" onClick={onCancel} disabled={busy}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() => onConfirm(form)}
+            disabled={busy || !nameOk || addressBad}
+            isLoading={busy}
+          >
+            Submit check
           </Button>
         </div>
       </div>

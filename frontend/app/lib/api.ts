@@ -530,6 +530,33 @@ export function manualPassCheck(
   );
 }
 
+export interface CrimeSubmitPayload {
+  name: string;
+  fatherName?: string;
+  dob?: string;
+  address?: string;
+  panNumber?: string;
+}
+
+/**
+ * Admin override: submit the crime check with fields typed by the operator
+ * rather than the ones derived from the candidate record. Used when the
+ * automatic run skips the check because DOB / address / father's name never
+ * arrived, but the details are known offline.
+ *
+ * The result still lands on the candidate's report — this is a different way
+ * in, not a side channel.
+ */
+export function submitCrimeCheck(
+  id: string,
+  payload: CrimeSubmitPayload,
+): Promise<Subject> {
+  return request<Subject>(
+    `/subjects/${encodeURIComponent(id)}/crime-submit`,
+    { method: 'POST', body: JSON.stringify(payload) },
+  );
+}
+
 /** Immediately delete a previously-uploaded ID document from S3 by its key. */
 export async function deleteIdDocument(key: string): Promise<void> {
   await fetch(`${API_URL}/uploads/id-document`, {

@@ -36,6 +36,7 @@ import {
   SubjectsService,
 } from './subjects.service';
 import { SubjectVerificationService } from './subject-verification.service';
+import { CrimeSubmitDto } from './crime-submit.dto';
 import { ConsentSettlementService } from '../wallet/consent-settlement.service';
 import { UsersService } from '../users/users.service';
 import { PdfService } from '../common/pdf.service';
@@ -413,6 +414,33 @@ export class SubjectsController {
       (body?.reason || '').trim(),
       body?.resolution === 'unable' ? 'unable' : 'passed',
     );
+    return toSubjectResponse(doc);
+  }
+
+  /**
+   * Admin override: submit the crime check with fields typed by the operator
+   * instead of the ones derived from the candidate record.
+   *
+   * Admin-only because it bypasses the derivation gate in run() — the gate that
+   * stops a check being submitted (and billed) against incomplete data. An
+   * operator taking that decision has to be accountable for it.
+   */
+  @Post(':id/crime-submit')
+  async crimeSubmit(
+    @Req() req: RequestWithUser,
+    @Param('id') id: string,
+    @Body() body: CrimeSubmitDto,
+  ) {
+    if (req.user?.role !== 'admin') {
+      throw new ForbiddenException('Admin only');
+    }
+    const doc = await this.subjectVerification.submitCrimeManually(id, {
+      name: body.name,
+      fatherName: body.fatherName,
+      dob: body.dob,
+      address: body.address,
+      panNumber: body.panNumber,
+    });
     return toSubjectResponse(doc);
   }
 

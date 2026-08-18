@@ -747,6 +747,84 @@ export class SubjectVerificationService {
   }
 
   /**
+   * Submit the crime check with an operator-supplied payload, bypassing the
+   * derivation in run().
+   *
+   * run() builds the vendor body from the candidate's stored fields and skips
+   * entirely when DOB, address or father's name are absent — correct for the
+   * automatic path, useless when an admin has the details in hand (from an ID
+   * scan, a phone call, a KYC that never completed) and just wants the search
+   * run. This takes the fields as given and submits them.
+   *
+   * It still stores the request_id against the subject and starts the poll, so
+   * the result lands on the report exactly like an automatic submission — this
+   * is a different way in, not a side channel.
+   */
+  async submitCrimeManually(
+    subjectId: string,
+    payload: {
+      name: string;
+      fatherName?: string;
+      dob?: string;
+      address?: string;
+      panNumber?: string;
+    },
+  ): Promise<Subject> {
+    const s = await this.prisma.subject.findUnique({
+      where: { id: subjectId },
+    });
+    if (!s) throw new NotFoundException('Subject not found');
+
+    // Same money gate as every other path — an operator-entered payload is
+    // still vendor spend, and consent governs spend.
+    if (s.consentStatus !== 'GRANTED') {
+      throw new BadRequestException(
+        s.consentStatus === 'PENDING'
+          ? 'Awaiting candidate consent — checks are locked until they agree.'
+          : 'Consent was declined or expired — this verification is closed.',
+      );
+    }
+    if (s.crimeRequestId && !s.crimeResult) {
+      throw new BadRequestException(
+        'A crime check is already in progress for this candidate.',
+      );
+    }
+
+    try {
+      const resp = (await this.verify.crimeCheck(payload)) as Record<
+        string,
+        unknown
+      >;
+      const requestId = (resp?.data as Record<string, unknown> | undefined)
+        ?.request_id;
+      if (!requestId) {
+        throw new BadRequestException(
+          'The source accepted the request but returned no request id.',
+        );
+      }
+      const updated = await this.prisma.subject.update({
+        where: { id: subjectId },
+        data: {
+          crimeResult: Prisma.DbNull,
+          crimeRequestId: String(requestId),
+          crimeRequestedAt: new Date(),
+        },
+      });
+      this.pollCrime(subjectId, String(requestId), 0);
+      this.logger.log(
+        `Crime check submitted manually for ${subjectId} (${requestId})`,
+      );
+      this.events.emit(this.events.subjectChannel(subjectId), updated);
+      this.reportGen.scheduleRegen(subjectId);
+      return updated;
+    } catch (e) {
+      // Surfaced to the operator who pressed the button rather than stored as
+      // the candidate's failure — they can correct the payload and retry.
+      throw new BadRequestException(extractError(e));
+    }
+  }
+
+  /**
    * Force-re-run a single ID check for a subject and overwrite its result.
    * Used by the "Recall API" button. Crime and credit are excluded (they're
    * async/vendor-polled and candidate-address-gated). Aadhaar is re-fetched
@@ -787,7 +865,14 @@ export class SubjectVerificationService {
         where: { id: subjectId },
         data:
           type === 'crime'
-            ? { crimeResult: Prisma.DbNull, crimeRequestId: null }
+            ? // crimeRequestedAt must go too: the sweep ages a pending check
+              // off that stamp, so a stale one would expire the fresh
+              // submission on its first tick.
+              {
+                crimeResult: Prisma.DbNull,
+                crimeRequestId: null,
+                crimeRequestedAt: null,
+              }
             : { creditResult: Prisma.DbNull, creditRequestId: null },
       });
       this.logger.log(`Recall: re-submitting ${type} for ${subjectId}`);
