@@ -6,11 +6,26 @@ import { Subject } from '../../generated/prisma/client';
 import { eventsForSubject, summarizeEvents } from '../subjects/billing';
 import { S3Service } from '../common/s3.service';
 import { OutboxService } from '../outbox/outbox.service';
-import { computeSubjectProgress } from '../subjects/subject-progress';
+import {
+  checkApplicability,
+  computeSubjectProgress,
+} from '../subjects/subject-progress';
 
 function crimeRisk(result: unknown): string | null {
   const data = (result as { data?: { risk_assessment?: { risk_type?: string } } } | null)?.data;
   return data?.risk_assessment?.risk_type ?? null;
+}
+
+/**
+ * Scope + doneness of the crime check, read from the one applicability source
+ * the engine itself uses. The Crime column needs both so it can't promise an
+ * "Awaiting result" for a check that is never coming: not applicable (no
+ * address, DOB or father's name) means nothing to await, and done-without-a-
+ * risk-band means it settled as a failure or a manual pass.
+ */
+function crimeScope(d: Subject): { applicable: boolean; done: boolean } {
+  const crime = checkApplicability(d).find((c) => c.key === 'crime');
+  return { applicable: Boolean(crime?.applicable), done: Boolean(crime?.done) };
 }
 
 // Progress across the applicable checks — single source of truth shared with
@@ -130,6 +145,7 @@ export class AdminService {
     const ownerMap = new Map(users.map((u) => [u.id, { name: u.name, email: u.email }]));
     return docs.map((d) => {
       const owner = ownerMap.get(d.userId);
+      const crime = crimeScope(d);
       return {
         id: d.id,
         name: d.name,
@@ -143,6 +159,8 @@ export class AdminService {
         hasAadhaar: Boolean(d.aadhaarResult),
         hasPanImages: Boolean(d.panFront || d.panBack),
         crimeRisk: crimeRisk(d.crimeResult),
+        crimeApplicable: crime.applicable,
+        crimeSettled: crime.done,
         // Consent gates every check — the admin list needs it to avoid showing
         // "In progress" for a case that was refused or is still awaiting consent.
         consentStatus: d.consentStatus,
@@ -225,6 +243,7 @@ export class AdminService {
 
     const subjects = docs.map((d) => {
       const prog = subjectProgress(d);
+      const crime = crimeScope(d);
       return {
         id: d.id,
         name: d.name,
@@ -238,6 +257,8 @@ export class AdminService {
         hasAadhaar: Boolean(d.aadhaarResult),
         hasPanImages: Boolean(d.panFront || d.panBack),
         crimeRisk: crimeRisk(d.crimeResult),
+        crimeApplicable: crime.applicable,
+        crimeSettled: crime.done,
         consentStatus: d.consentStatus,
         checksDone: prog.done,
         checksTotal: prog.total,

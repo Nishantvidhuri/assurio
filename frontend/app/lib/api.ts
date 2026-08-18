@@ -604,6 +604,12 @@ export interface AdminSubjectRow {
   hasAadhaar: boolean;
   hasPanImages: boolean;
   crimeRisk: string | null;
+  /** False when the crime check can never run for this candidate (missing
+   *  address, DOB or father's name) — there is no result to await. */
+  crimeApplicable?: boolean;
+  /** True once the check reached a terminal state. Settled with no crimeRisk
+   *  means it failed or was passed manually, not that it is still running. */
+  crimeSettled?: boolean;
   consentStatus?: ConsentStatus;
   checksDone?: number;
   checksTotal?: number;

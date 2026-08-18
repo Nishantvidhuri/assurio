@@ -399,12 +399,21 @@ export default function AdminClientPage() {
                                   <span className={`badge ${riskClassBadge(s.crimeRisk)}`}>{s.crimeRisk}</span>
                                 ) : (
                                   <span className="text-text-placeholder">
-                                    {s.consentStatus === 'DECLINED' ||
-                                    s.consentStatus === 'EXPIRED'
-                                      ? 'Not run'
-                                      : s.consentStatus === 'PENDING'
-                                        ? 'Awaiting consent'
-                                        : 'Awaiting result'}
+                                    {/* Never promise a result for a check that
+                                        isn't in scope — a candidate with no
+                                        address, DOB or father's name has
+                                        nothing to await, and pairing it with a
+                                        "Completed" status reads as a stall. */}
+                                    {s.crimeApplicable === false
+                                      ? '—'
+                                      : s.crimeSettled
+                                        ? 'Unable to verify'
+                                        : s.consentStatus === 'DECLINED' ||
+                                            s.consentStatus === 'EXPIRED'
+                                          ? 'Not run'
+                                          : s.consentStatus === 'PENDING'
+                                            ? 'Awaiting consent'
+                                            : 'Awaiting result'}
                                   </span>
                                 )
                               }
