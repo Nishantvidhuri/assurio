@@ -366,6 +366,26 @@ export class SubjectVerificationService {
       return true;
     }
 
+    // 400 is the documented "Failed — verification failed or encountered an
+    // error" state, a terminal outcome rather than a transport error. It is
+    // also what a malformed call returns, so guard against recording OUR bug as
+    // the candidate's failure: we always send request_id, and if the vendor
+    // says otherwise that is ours to fix, not an insufficiency on the report.
+    if (Number(report?.code) === 400) {
+      const notice = String(report?.message ?? '');
+      if (/request_id/i.test(notice)) {
+        this.logger.error(
+          `Crime poll for ${subjectId} rejected as malformed: ${notice}`,
+        );
+        return false;
+      }
+      this.logger.warn(`Crime check failed for ${subjectId}: ${notice}`);
+      await this.storeResult(subjectId, 'crimeResult', {
+        __checkError: notice || 'Crime check failed at the source',
+      });
+      return true;
+    }
+
     // Anything that is not an explicit terminal state keeps the check pending.
     // Guessing "done" from a missing status would publish an empty clean sheet
     // as if the courts had been searched.

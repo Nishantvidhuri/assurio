@@ -296,7 +296,17 @@ export class VerifyService {
     }
   }
 
-  private async knGet<T>(path: string, baseUrl?: string): Promise<T> {
+  /**
+   * `passThrough` lists non-2xx statuses that are outcomes rather than errors,
+   * returned to the caller as a parsed body instead of thrown. Defaults to the
+   * report-GET pending pair; crime-check adds 400, which it uses for a genuine
+   * "verification failed" verdict.
+   */
+  private async knGet<T>(
+    path: string,
+    baseUrl?: string,
+    passThrough: number[] = [202, 404],
+  ): Promise<T> {
     const base = baseUrl ?? this.konnectnxtBase;
     const startedAt = Date.now();
     let status: number | undefined;
@@ -323,8 +333,7 @@ export class VerifyService {
       // 202 (processing) and 404 (report not ready yet) are expected,
       // non-error states for the report GET — the poller branches on
       // `data.status`. Everything else non-2xx is a real failure.
-      const isExpectedPending = res.status === 202 || res.status === 404;
-      if (!res.ok && !isExpectedPending) {
+      if (!res.ok && !passThrough.includes(res.status)) {
         const msg = knUpstreamMessage(json, res.status);
         errorMessage = msg;
         throw res.status >= 500
@@ -626,13 +635,17 @@ export class VerifyService {
    *   → 202 { data: { status: 'in_progress' } }        still searching
    *   → 200 { data: { status: 'completed', risk_assessment: { risk_type,
    *            risk_summary, number_of_cases }, cases: [], download_link } }
+   *   → 400 verification failed        → 404 report not available / unknown id
    *
-   * knGet deliberately lets 202/404 through as success so the caller can branch
-   * on `data.status` rather than on the HTTP code.
+   * 202/404/400 are passed through rather than thrown: all three are documented
+   * report states, so the caller branches on the body. Only 401 and 5xx — our
+   * misconfiguration or their outage — surface as exceptions to retry.
    */
   async crimeCheckReport(requestId: string) {
     return this.knGet(
       `${KONNECT_NXT.endpoints.crimeCheck}?request_id=${encodeURIComponent(requestId)}`,
+      undefined,
+      [202, 404, 400],
     );
   }
 
