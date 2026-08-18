@@ -10,6 +10,7 @@ import { VerifyService } from '../verify/verify.service';
 import { ReportGenerationService } from './report-generation.service';
 import { S3Service } from '../common/s3.service';
 import { WhatsAppService } from '../common/whatsapp.service';
+import { EventsService } from '../common/events.service';
 import { reportReadyText, type CrimeRisk } from '../common/whatsapp-templates';
 import {
   checkApplicability,
@@ -87,6 +88,7 @@ export class SubjectVerificationService {
     private readonly reportGen: ReportGenerationService,
     private readonly s3: S3Service,
     private readonly whatsapp: WhatsAppService,
+    private readonly events: EventsService,
   ) {}
 
   /**
@@ -523,6 +525,10 @@ export class SubjectVerificationService {
         verificationLog: [...log, ...entry],
       } as Record<string, unknown>,
     });
+    // Push the fresh subject to any open viewer. Without this a result stored
+    // outside a request — the crime sweep finishing a day later — never reached
+    // the page, which only ever saw the report-regen nudge.
+    this.events.emit(this.events.subjectChannel(subjectId), updated);
     this.reportGen.scheduleRegen(subjectId);
     // The criminal-records outcome is the one result the client wants to hear
     // about immediately, not only in the final report.

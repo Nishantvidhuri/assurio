@@ -72,7 +72,12 @@ export default function SubjectReportPage() {
     es.onmessage = (e: MessageEvent) => {
       try {
         const fresh = JSON.parse(e.data as string);
-        if (mountedRef.current) setSubject(fresh);
+        // The channel carries two shapes: a full subject, and the report-regen
+        // nudge `{ reportUpdatedAt }`. Only the former is a subject — assigning
+        // the nudge would blank the whole page.
+        if (mountedRef.current && fresh && typeof fresh === 'object' && fresh.id) {
+          setSubject(fresh);
+        }
       } catch {
         /* ignore malformed */
       }

@@ -108,20 +108,23 @@ export interface BlockedCheck {
  * Turnaround for a check.
  *  • Aadhaar is completed by the candidate themselves in DigiLocker, so it
  *    finishes whenever they do — never "instant" from the client's side.
- *  • Court-record (crime) and credit come from vendors that report within 24h.
+ *  • Court records are searched manually at source; the vendor documents a
+ *    24-48 hour turnaround, so we quote that rather than a flat 24h we cannot
+ *    hold to.
+ *  • Credit comes from a bureau that reports within 24h.
  *  • Everything else returns straight away once consent is given.
  */
 export type CheckEta =
   | 'Instant on consent'
   | 'Within 24 hours'
+  | 'Within 24-48 hours'
   | 'Awaiting candidate'
   | 'After Aadhaar KYC';
 
 export function checkEta(id: string): CheckEta {
   if (id === 'aadhaar') return 'Awaiting candidate';
-  return id === 'court' || id === 'credit'
-    ? 'Within 24 hours'
-    : 'Instant on consent';
+  if (id === 'court') return 'Within 24-48 hours';
+  return id === 'credit' ? 'Within 24 hours' : 'Instant on consent';
 }
 
 /** Turnaround for a check in the "we'll perform" list, accounting for ones
@@ -169,6 +172,7 @@ export function splitChecks(draft: CandidateDraft): SplitChecks {
 const ETA_ORDER: CheckEta[] = [
   'Instant on consent',
   'Within 24 hours',
+  'Within 24-48 hours',
   'After Aadhaar KYC',
   'Awaiting candidate',
 ];

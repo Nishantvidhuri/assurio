@@ -82,7 +82,12 @@ export default function AdminSubjectPage() {
     const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
     const es = new EventSource(`${API_URL}/subjects/${id}/events`, { withCredentials: true });
     es.onmessage = (e: MessageEvent) => {
-      try { setSubject(JSON.parse(e.data as string)); } catch { /* ignore */ }
+      try {
+        const fresh = JSON.parse(e.data as string);
+        // Full subject vs. the `{ reportUpdatedAt }` regen nudge — only the
+        // former may replace state, or the page blanks itself.
+        if (fresh && typeof fresh === 'object' && fresh.id) setSubject(fresh);
+      } catch { /* ignore */ }
     };
     return () => es.close();
   }, [params, user]);

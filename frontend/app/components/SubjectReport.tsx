@@ -1544,7 +1544,10 @@ export default function SubjectReport({
               crimeStatusVal === 'unavailable'
                 ? 'Needs date of birth and permanent address.'
                 : crimePending
-                  ? 'Aggregating courts and FIR records.'
+                  ? // Court records are searched manually at source, so this is
+                    // the one check that legitimately sits pending overnight.
+                    // Say so, or a same-day client reads it as stuck.
+                    'Submitted to the court-record source. Searches are performed manually and typically return within 24-48 hours.'
                   : 'Details submitted — awaiting the result.'
             }
           />

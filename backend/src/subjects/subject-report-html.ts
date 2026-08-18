@@ -682,7 +682,8 @@ function buildGroups(s: ReportSubject): CheckGroup[] {
     });
   } else if (crimePending || crimeHasInput) {
     crimeInstance.status = 'in-progress';
-    crimeInstance.comment = 'Court and FIR records are currently being aggregated across the searched jurisdictions.';
+    crimeInstance.comment =
+      'Court and FIR records are being searched across the relevant jurisdictions. Searches are conducted manually at source and typically return within 24-48 hours.';
   } else {
     crimeInstance.status = 'not-conducted';
     crimeInstance.comment = 'This check could not be initiated — name, date of birth and permanent address are required.';
