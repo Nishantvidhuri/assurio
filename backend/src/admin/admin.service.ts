@@ -486,6 +486,9 @@ export class AdminService {
       digilockerClientId: doc.digilockerClientId,
       crimeRequestId: doc.crimeRequestId,
       crimeResult: doc.crimeResult,
+      // Boolean only — the S3 key is internal, and the vendor's public URL is
+      // never exposed. The PDF is served from /subjects/:id/crime-report.
+      hasCrimeReport: Boolean(doc.crimeReportS3Key),
       verificationLog: (doc.verificationLog ?? []) as unknown[],
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,

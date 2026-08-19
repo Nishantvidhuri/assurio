@@ -73,6 +73,8 @@ export class Subject {
 
   @Prop({ type: Object, default: null })
   crimeResult: Record<string, unknown> | null;
+  /** True once our own copy of the court-record PDF exists. */
+  hasCrimeReport?: boolean;
 
   /** Candidate consent record — signature + acceptance metadata. */
   @Prop({ type: Object, default: null })

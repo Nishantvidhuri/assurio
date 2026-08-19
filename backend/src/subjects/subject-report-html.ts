@@ -44,6 +44,8 @@ export interface ReportSubject {
   panResult?: unknown;
   aadhaarResult?: unknown;
   crimeResult?: unknown;
+  /** Set once our own copy of the court-record PDF exists in S3. */
+  crimeReportS3Key?: string | null;
   dlResult?: unknown;
   voterResult?: unknown;
   passportResult?: unknown;
@@ -628,7 +630,12 @@ function buildGroups(s: ReportSubject): CheckGroup[] {
   const crimePending = Boolean(s.crimeRequestId) && !crime;
   const crimeInstance: Instance = { number: 1, title: 'Criminal Records', status: 'completed', dataRows: [], twoColRows: [], details: [], documents: [], comment: null };
   const crimeManual = manualOf(s.crimeResult);
-  const crimeReportUrl = vendorReportUrl(s.crimeResult);
+  // Our endpoint, never the vendor's Google Storage link — that URL is
+  // unauthenticated, outside our control to expire, and names our supplier.
+  // vendorReportUrl stays for checks whose result still embeds a URL.
+  const crimeReportUrl = s.crimeReportS3Key
+    ? `${(process.env.PUBLIC_APP_URL || process.env.APP_URL || '').replace(/\/+$/, '')}/api/subjects/${s.id}/crime-report`
+    : vendorReportUrl(s.crimeResult);
   if (crimeErr && isUnresolvedFailure(s.crimeResult)) {
     crimeInstance.status = 'in-progress';
     crimeInstance.comment =

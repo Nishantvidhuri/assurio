@@ -44,6 +44,9 @@ export function toSubjectResponse(doc: Subject) {
     creditRequestId: doc.creditRequestId,
     fatherName: doc.fatherName,
     crimeResult: doc.crimeResult as Record<string, unknown> | null,
+    // A boolean, never the key: the S3 path is internal and the vendor's own
+    // URL is never exposed. The document is fetched from /subjects/:id/crime-report.
+    hasCrimeReport: Boolean(doc.crimeReportS3Key),
     consentResult: doc.consentResult as Record<string, unknown> | null,
     consentAcceptedAt: doc.consentAcceptedAt,
     consentStatus: doc.consentStatus,

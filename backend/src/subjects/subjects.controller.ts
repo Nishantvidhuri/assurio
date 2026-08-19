@@ -7,6 +7,7 @@ import {
   Get,
   Logger,
   MessageEvent,
+  NotFoundException,
   Param,
   Patch,
   Post,
@@ -415,6 +416,42 @@ export class SubjectsController {
       body?.resolution === 'unable' ? 'unable' : 'passed',
     );
     return toSubjectResponse(doc);
+  }
+
+  /**
+   * The court-record PDF, served from our own bucket.
+   *
+   * The vendor hands us a public Google Cloud Storage link; we copy the file on
+   * completion and expose it only here, so the client never receives a URL that
+   * is unauthenticated, outside our control to expire, and stamped with our
+   * supplier's name. Same access rule as the full report: owners get their own
+   * candidates, admins get any, candidates get nothing.
+   */
+  @Get(':id/crime-report')
+  async crimeReport(
+    @Req() req: RequestWithUser,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    if (req.user?.role === 'candidate') {
+      throw new ForbiddenException('Account holder access required');
+    }
+    const doc =
+      req.user?.role === 'admin'
+        ? await this.svc.findById(id)
+        : await this.svc.findOwned(this.requireOwner(req), id);
+    if (!doc) throw new BadRequestException('Subject not found');
+    if (!doc.crimeReportS3Key || !this.s3.isConfigured) {
+      throw new NotFoundException('No court record report is available yet');
+    }
+
+    const buffer = await this.s3.getObjectBuffer(doc.crimeReportS3Key);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="court-record-report.pdf"`,
+    );
+    res.send(buffer);
   }
 
   /**

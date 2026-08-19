@@ -21,6 +21,8 @@ import {
 } from './dto';
 import { VerifyService } from './verify.service';
 
+// Every entry starts with a dot so `host.endsWith(suffix)` can only match a
+// subdomain — bare 'surepass.app' would also match 'evilsurepass.app'.
 const ALLOWED_PDF_HOST_SUFFIXES = [
   '.getupforchange.com',
   '.dcourts.gov.in',
@@ -29,6 +31,23 @@ const ALLOWED_PDF_HOST_SUFFIXES = [
   '.surepass.io',
   '.notbot.in',
 ];
+
+/**
+ * Hosts matched exactly, for sources that serve from an apex rather than a
+ * subdomain. KonnectNxt's BGV reports live in a Google Cloud Storage bucket,
+ * so the host is storage.googleapis.com itself — it cannot go in the suffix
+ * list above, where a bare entry would also match 'notstorage.googleapis.com'.
+ */
+const ALLOWED_PDF_HOSTS = ['storage.googleapis.com'];
+
+/**
+ * Path prefixes required per exact host. Allowing all of GCS would turn this
+ * proxy into a fetcher for any public bucket on the internet; the report
+ * objects all live under /konnectnxt/, so scope it there.
+ */
+const ALLOWED_PDF_HOST_PATHS: Record<string, string> = {
+  'storage.googleapis.com': '/konnectnxt/',
+};
 
 @Controller('verify')
 @UseGuards(JwtAuthGuard)
@@ -125,7 +144,11 @@ export class VerifyController {
     }
 
     const host = parsed.hostname.toLowerCase();
-    const allowed = ALLOWED_PDF_HOST_SUFFIXES.some((suf) => host.endsWith(suf));
+    const requiredPath = ALLOWED_PDF_HOST_PATHS[host];
+    const allowed =
+      ALLOWED_PDF_HOST_SUFFIXES.some((suf) => host.endsWith(suf)) ||
+      (ALLOWED_PDF_HOSTS.includes(host) &&
+        (!requiredPath || parsed.pathname.startsWith(requiredPath)));
     if (!allowed) {
       res.status(403).json({ message: `Domain ${host} is not allowed for preview` });
       return;

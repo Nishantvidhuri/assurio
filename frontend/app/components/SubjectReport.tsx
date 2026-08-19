@@ -32,6 +32,7 @@ import {
   adminSendVerificationLink,
   downloadSubjectReport,
   fetchPdfBlobUrl,
+  crimeReportPdfUrl,
   recheckSubject,
   manualPassCheck,
   submitCrimeCheck,
@@ -88,6 +89,8 @@ export interface SubjectReportData {
   panResult: unknown;
   aadhaarResult: unknown;
   crimeResult: unknown;
+  /** True once our own copy of the court-record PDF exists in S3. */
+  hasCrimeReport?: boolean;
   dlResult?: unknown;
   voterResult?: unknown;
   passportResult?: unknown;
@@ -943,7 +946,14 @@ export default function SubjectReport({
     Boolean(subject.digilockerClientId || subject.aadhaarNumber);
   // Vendor-supplied report files (KonnectNxt returns these as hosted PDFs).
   const creditReportUrl = vendorReportUrl(subject.creditResult);
-  const crimeReportUrl = vendorReportUrl(subject.crimeResult);
+  // Our own endpoint, never the vendor's Google Storage link — that URL is
+  // unauthenticated to anyone holding it, outside our control to expire, and
+  // names our supplier. vendorReportUrl remains the fallback for older results
+  // stored before the PDF was archived on our side.
+  const crimeReportUrl =
+    subject.hasCrimeReport && subject.id
+      ? crimeReportPdfUrl(subject.id)
+      : vendorReportUrl(subject.crimeResult);
   const creditDocs: CheckDocument[] = creditReportUrl
     ? [{ name: 'Credit bureau report (PDF)', url: creditReportUrl, contentType: 'application/pdf' }]
     : [];
@@ -1587,7 +1597,6 @@ export default function SubjectReport({
           <CrimeReadout
             name={subject.name}
             report={crimeReport}
-            reportUrl={crimeReportUrl}
           />
         ) : (
           <PendingTile
@@ -2294,13 +2303,9 @@ function AadhaarReadout({ a }: { a: AadhaarKyc }) {
 function CrimeReadout({
   name,
   report,
-  reportUrl,
 }: {
   name: string;
   report: CrimeReport;
-  /** Resolved PDF link. On the BGV pipeline the whole result IS the URL, so it
-   *  never appears as report.download_link — resolve it outside and pass it. */
-  reportUrl?: string | null;
 }) {
   const ra = report.risk_assessment ?? {};
   const cases = report.cases ?? [];
@@ -2313,7 +2318,6 @@ function CrimeReadout({
     typeof ra.risk_type === 'string' ||
     typeof ra.number_of_cases === 'number' ||
     Array.isArray(report.cases);
-  const pdfUrl = report.download_link || reportUrl || '';
 
   return (
     <div className="rp-readout">
@@ -2334,48 +2338,20 @@ function CrimeReadout({
         )}
       </div>
 
-      <div className="rp-crime-bar">
-        {hasVerdict ? (
+      {/* The case counter only means something when the vendor states one.
+          With no verdict there is nothing to count, and the report document is
+          already offered by the card's own documents section — a second set of
+          preview/download buttons here was duplicate furniture. */}
+      {hasVerdict && (
+        <div className="rp-crime-bar">
           <div className="rp-crime-stat">
             <div className="rp-crime-stat-n">{caseCount}</div>
             <div className="rp-crime-stat-l">
               {caseCount === 1 ? 'Case found' : 'Cases found'}
             </div>
           </div>
-        ) : (
-          <div className="rp-crime-stat">
-            <div className="rp-crime-stat-l">
-              Search complete — findings are in the report document
-            </div>
-          </div>
-        )}
-        {pdfUrl && (
-          <div className="rp-crime-actions">
-            <button
-              type="button"
-              className="rp-crime-pdf"
-              onClick={() =>
-                setPreview({
-                  url: pdfUrl,
-                  title: 'Crime check report',
-                })
-              }
-            >
-              <FileText size={13} />
-              Preview report
-            </button>
-            <a
-              className="rp-crime-pdf rp-crime-pdf-light"
-              href={pdfUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <Download size={13} />
-              Download
-            </a>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {ra.risk_summary && (
         <div className="rp-readout-block">

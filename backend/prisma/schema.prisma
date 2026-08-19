@@ -72,6 +72,11 @@ model Subject {
   // records manually (24-48h quoted), so the poll sweep needs to know how long
   // a check has been outstanding to stop chasing one that will never land.
   crimeRequestedAt  DateTime?
+  // Our own copy of the court-record PDF. The vendor serves it from a public
+  // Google Cloud Storage URL that we never expose: it identifies the supplier,
+  // it is unauthenticated to anyone holding the link, and it is theirs to
+  // expire. On completion the file is copied here and served through us.
+  crimeReportS3Key  String?
   creditRequestId   String?
   creditResult      Json?
   crimeResult       Json?

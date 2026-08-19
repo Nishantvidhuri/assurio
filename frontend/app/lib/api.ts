@@ -298,6 +298,8 @@ export interface Subject {
   digilockerUrl: string | null;
   crimeRequestId: string | null;
   crimeResult: Record<string, unknown> | null;
+  /** True once our own copy of the court-record PDF exists in S3. */
+  hasCrimeReport?: boolean;
   consentResult: ConsentResult | null;
   consentAcceptedAt?: string | null;
   consentStatus?: ConsentStatus;
@@ -832,6 +834,8 @@ export interface AdminSubjectDetail {
   digilockerClientId: string | null;
   crimeRequestId: string | null;
   crimeResult: Record<string, unknown> | null;
+  /** True once our own copy of the court-record PDF exists in S3. */
+  hasCrimeReport?: boolean;
   verificationLog: VerificationLogEntry[];
   createdAt?: string;
   updatedAt?: string;
@@ -1588,6 +1592,15 @@ export async function mockReportBlobUrl(
  */
 
 /** Direct URL to a candidate's report PDF — for opening in a new tab. */
+/**
+ * The court-record PDF, served from our own bucket through the API. The
+ * vendor's Google Storage link is never exposed to a browser: it needs no
+ * authentication, we cannot expire it, and it names our supplier.
+ */
+export function crimeReportPdfUrl(subjectId: string): string {
+  return `${API_URL}/subjects/${encodeURIComponent(subjectId)}/crime-report`;
+}
+
 export function subjectReportUrl(subjectId: string): string {
   return `${API_URL}/subjects/${encodeURIComponent(subjectId)}/report`;
 }

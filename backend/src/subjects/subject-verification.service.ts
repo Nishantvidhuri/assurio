@@ -36,6 +36,10 @@ function extractError(e: unknown): string {
   return e instanceof Error && e.message ? e.message : 'Verification failed';
 }
 
+/** Upper bound on the court-record PDF we copy from the vendor. Real reports
+ *  run to a few hundred KB; the largest seen so far is ~900 KB. */
+const MAX_CRIME_PDF_BYTES = 25 * 1024 * 1024;
+
 /** result field → billing type used in the subject's verificationLog. */
 const FIELD_TO_BILL_TYPE: Record<string, string> = {
   panResult: 'pan',
@@ -394,12 +398,70 @@ export class SubjectVerificationService {
     // result with nothing to show for it.
     if (!/^https?:\/\//i.test(url)) return false;
 
-    // Stored under `data` so vendorReportUrl finds it on both the report PDF
-    // and the UI. There is no structured verdict on this pipeline — only the
-    // document — and both readouts must say so rather than render "0 cases".
-    await this.storeResult(subjectId, 'crimeResult', { data: url });
+    // Take our own copy before recording the result. The vendor's URL is a
+    // public Google Cloud Storage object: unauthenticated to anyone holding
+    // the link, theirs to expire, and it names our supplier. It is never
+    // stored and never sent to a browser.
+    const s3Key = await this.archiveCrimeReport(subjectId, requestId, url);
+    if (!s3Key) return false; // Copy failed — retry on the next sweep.
+
+    await this.prisma.subject.update({
+      where: { id: subjectId },
+      data: { crimeReportS3Key: s3Key },
+    });
+    // Deliberately no URL in the result: the document is reached through our
+    // own authenticated endpoint. There is no structured verdict on this
+    // pipeline either, which the readouts already handle.
+    await this.storeResult(subjectId, 'crimeResult', {
+      data: { storedAt: new Date().toISOString() },
+    });
     this.logger.log(`Crime report stored for ${subjectId} (${requestId})`);
     return true;
+  }
+
+  /**
+   * Copies the vendor's court-record PDF into our own S3 bucket and returns
+   * the key, or null if it could not be fetched or stored — in which case the
+   * check stays pending and the next sweep retries, rather than completing
+   * with a report we don't hold.
+   */
+  private async archiveCrimeReport(
+    subjectId: string,
+    caseId: string,
+    url: string,
+  ): Promise<string | null> {
+    if (!this.s3.isConfigured) {
+      this.logger.error(
+        `S3 not configured — refusing to complete crime check for ${subjectId} without our own copy of the report`,
+      );
+      return null;
+    }
+    try {
+      const res = await fetch(url);
+      if (!res.ok) {
+        this.logger.warn(
+          `Crime PDF fetch for ${subjectId} returned HTTP ${res.status}`,
+        );
+        return null;
+      }
+      const bytes = Buffer.from(await res.arrayBuffer());
+      // Cap the copy: a vendor serving something unexpected must not be able
+      // to push an arbitrarily large object into our bucket.
+      if (bytes.byteLength === 0 || bytes.byteLength > MAX_CRIME_PDF_BYTES) {
+        this.logger.warn(
+          `Crime PDF for ${subjectId} was ${bytes.byteLength} bytes — outside the accepted range`,
+        );
+        return null;
+      }
+      const key = `crime-reports/${subjectId}/${caseId}.pdf`;
+      await this.s3.upload(key, bytes, 'application/pdf');
+      return key;
+    } catch (e) {
+      this.logger.warn(
+        `Crime PDF archive failed for ${subjectId}: ${e instanceof Error ? e.message : e}`,
+      );
+      return null;
+    }
   }
 
   /**
