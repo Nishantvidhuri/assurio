@@ -1587,7 +1587,6 @@ export default function SubjectReport({
           <CrimeReadout
             name={subject.name}
             report={crimeReport}
-            requestId={subject.crimeRequestId ?? null}
             reportUrl={crimeReportUrl}
           />
         ) : (
@@ -2295,12 +2294,10 @@ function AadhaarReadout({ a }: { a: AadhaarKyc }) {
 function CrimeReadout({
   name,
   report,
-  requestId,
   reportUrl,
 }: {
   name: string;
   report: CrimeReport;
-  requestId: string | null;
   /** Resolved PDF link. On the BGV pipeline the whole result IS the URL, so it
    *  never appears as report.download_link — resolve it outside and pass it. */
   reportUrl?: string | null;
@@ -2326,9 +2323,9 @@ function CrimeReadout({
         </div>
         <div className="rp-readout-meta">
           <div className="rp-readout-name">{name}</div>
-          <div className="rp-readout-sub">
-            {requestId ? `Request ${requestId}` : 'Crime check'}
-          </div>
+          {/* The vendor's case id is internal plumbing — it means nothing to a
+              client and identifies our supplier, so it stays out of the UI. */}
+          <div className="rp-readout-sub">Crime check</div>
         </div>
         {ra.risk_type && (
           <span className={`rp-risk-pill ${riskClass(ra.risk_type)}`}>
