@@ -1215,11 +1215,11 @@ export default function SubjectReport({
                     className="flex w-full items-center gap-2 px-3 py-2.5 text-body-md font-medium text-text-body transition-colors hover:bg-neutral-200"
                     onClick={() => {
                       setActionsOpen(false);
-                      window.open(
-                        subjectReportUrl(subject.id),
-                        '_blank',
-                        'noopener',
-                      );
+                      setDocPreview({
+                        url: subjectReportUrl(subject.id),
+                        name: 'Background Verification Report',
+                        contentType: 'application/pdf',
+                      });
                     }}
                   >
                     <FileText size={14} />
@@ -1256,7 +1256,14 @@ export default function SubjectReport({
             <button
               className="rp-refresh"
               onClick={() =>
-                window.open(subjectReportUrl(subject.id), '_blank', 'noopener')
+                // Opens in the page's own preview modal rather than a new tab —
+                // the report is read alongside the checks it summarises, and a
+                // popup blocker can't swallow it.
+                setDocPreview({
+                  url: subjectReportUrl(subject.id),
+                  name: 'Background Verification Report',
+                  contentType: 'application/pdf',
+                })
               }
               title="Preview the full report"
             >

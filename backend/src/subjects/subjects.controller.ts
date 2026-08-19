@@ -578,38 +578,41 @@ export class SubjectsController {
         : await this.svc.findOwned(this.requireOwner(req), id);
     if (!doc) throw new BadRequestException('Subject not found');
 
-    let buffer: Buffer;
-    if (
-      doc.reportPdfS3Key &&
-      !isReportStale(doc.reportPdfS3Key) &&
-      this.s3.isConfigured
-    ) {
-      // Serve the pre-generated PDF from S3 — kept fresh by the background
-      // report-generation job on every status update.
-      buffer = await this.s3.getObjectBuffer(doc.reportPdfS3Key);
-    } else {
-      // Missing, or rendered by an older template — render once now (so the
-      // viewer gets current wording immediately) and store a fresh copy.
-      const [payment, owner] = await Promise.all([
-        this.svc.paymentInfo(doc),
-        this.users.findById(doc.userId),
-      ]);
-      const subject = await this.resolveReportImages({
-        ...doc,
-        clientName: owner?.name ?? '',
-        amountPaid: payment.amountPaid,
-        caseRef: payment.caseRef,
-      });
-      buffer = await this.pdf.htmlToPdf(renderSubjectReportHtml(subject), {
-        printBackground: true,
-        footerTemplate: renderReportFooter(subject),
-        margin: { top: '10mm', bottom: '18mm', left: '12mm', right: '12mm' },
-      });
-      // Store a fresh copy so the next view is served from S3 rather than
-      // re-rendered. Pointless without S3 — the job would launch a second
-      // Chromium render, compete with this request for CPU, and have nowhere
-      // to put the result, so every view would pay for two renders forever.
+    // ALWAYS the stored copy — this request never renders a PDF. Rendering
+    // here launches headless Chromium inside the request, which is what made
+    // previews hang for many seconds; the background job owns generation and
+    // re-runs on every status update, so a stored copy is what the client gets.
+    let buffer: Buffer | null = null;
+    if (doc.reportPdfS3Key && this.s3.isConfigured) {
+      try {
+        buffer = await this.s3.getObjectBuffer(doc.reportPdfS3Key);
+      } catch (e) {
+        // The key is recorded but the object is gone (bucket cleared, key
+        // rewritten mid-flight). Fall through to the "being prepared" path
+        // rather than 500ing at the viewer.
+        this.logger.warn(
+          `Report object missing for ${doc.id} (${doc.reportPdfS3Key}): ${
+            e instanceof Error ? e.message : e
+          }`,
+        );
+      }
+      // A copy rendered by an older template is still served — a slightly
+      // older layout beats a spinner — but queue a refresh so the next view
+      // is current.
+      if (isReportStale(doc.reportPdfS3Key)) this.reportGen.generateNow(doc.id);
+    }
+
+    if (!buffer) {
+      // Nothing stored yet. Queue generation and tell the caller to come back;
+      // 503 + Retry-After is the honest answer, and the viewer retries rather
+      // than holding a connection open through a Chromium render.
       if (this.s3.isConfigured) this.reportGen.generateNow(doc.id);
+      res.setHeader('Retry-After', '5');
+      res.status(503).json({
+        message:
+          'The report is being prepared. Please try again in a few seconds.',
+      });
+      return;
     }
 
     const safeName = (doc.name || 'candidate')
