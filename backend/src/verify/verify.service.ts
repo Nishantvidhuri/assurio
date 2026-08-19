@@ -611,18 +611,25 @@ export class VerifyService {
   /* ── KonnectNxt: Crime check ── */
 
   /**
-   * Initiates a court/criminal-records check. This does NOT return a verdict —
-   * KonnectNxt queues the search and answers with a `request_id`, which
-   * crimeCheckReport then polls until the vendor marks it completed. Court
-   * records are searched manually at source, so the vendor documents a typical
-   * turnaround of 24-48 hours.
+   * Submits a court/criminal-records check through the BGV pipeline — the same
+   * submit/download pair the credit check uses, and the one verified working
+   * against our account.
    *
-   *   POST {base}/api/v2/verification/crime-check/
-   *   → { data: { status: 'initiated', request_id, request_time } }
+   *   POST {base}/api/recruiter/v2/bgv-submit/
+   *   body { checks: ['criminal_check'], candidates: [{ name, father_name,
+   *          dob (YYYY-MM-DD), permanent_address }] }
+   *   → { data: { cases_created: [{ case_id, candidate_id, name }] },
+   *       credits_used: 100 }
    *
-   * Only `name` is mandatory; every other field narrows the search, so we send
-   * whatever the candidate supplied. The address is free text (the vendor caps
-   * it at 255 chars) rather than the structured shape the BGV bureau demands.
+   * No verdict comes back here: the case is queued and crimeCheckReport polls
+   * `case_id` until the PDF exists.
+   *
+   * The sibling endpoint POST /api/v2/verification/crime-check/ takes the same
+   * facts and returns structured risk data (risk_type, cases[]) instead of a
+   * PDF, which would be richer — but its report GET answers every request_id
+   * with "Invalid URL 'None/reports/v4'", an unset variable in their reports
+   * service, so a check submitted there can never be retrieved. Revisit if
+   * they fix it; it also costs 151 credits against this one's 100.
    */
   async crimeCheck(input: {
     name: string;
@@ -632,47 +639,57 @@ export class VerifyService {
     address?: string;
   }) {
     const address = sanitizeAddressLine(input.address).slice(0, 255);
-    // Only send a PAN that IS one. Aadhaar/OCR-sourced fields have arrived as
-    // junk ("CMYK"), and the vendor validates against ^[A-Z]{5}[0-9]{4}[A-Z]$ —
-    // a malformed value poisons the whole submission for a field that is
-    // merely optional accuracy.
-    const pan = (input.panNumber || '').toUpperCase().trim();
-    const panValid = /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan);
-    return this.knPost(KONNECT_NXT.endpoints.crimeCheck, {
+    const candidate: Record<string, unknown> = {
       name: input.name.trim().slice(0, 255),
       ...(input.fatherName
         ? { father_name: input.fatherName.trim().slice(0, 255) }
         : {}),
-      // Crime-check wants DD-MM-YYYY, unlike every Surepass endpoint. Normalise
-      // here, not just at the callers — the manual /verify endpoints hand us
-      // whatever the DTO carried.
-      ...(input.dob ? { dob: this.toDdMmYyyyDob(input.dob) } : {}),
-      ...(panValid ? { pan_number: pan } : {}),
-      // The vendor rejects addresses under 10 chars; omit rather than fail the
-      // whole submission over a stub like "Delhi".
-      ...(address.length >= 10 ? { address } : {}),
-    });
+      // This pipeline takes ISO dates — the inverse of crime-check, which wants
+      // DD-MM-YYYY. Normalise here, not at the callers.
+      ...(input.dob ? { dob: this.toIsoDob(input.dob) } : {}),
+      // Court records are searched against the PERMANENT address, as free text.
+      ...(address.length > 0 ? { permanent_address: address } : {}),
+    };
+    return this.knPost(
+      KONNECT_NXT.bgvEndpoints.submit,
+      { checks: ['criminal_check'], candidates: [candidate] },
+      this.konnectnxtBgvBase,
+    );
   }
 
   /**
-   * Polls a crime check by the `request_id` from crimeCheck. Free — the vendor
-   * documents this call as consuming no credits, so polling costs nothing.
+   * Case status — the completion signal for anything on the BGV pipeline.
    *
-   *   GET {base}/api/v2/verification/crime-check/?request_id=...
-   *   → 202 { data: { status: 'in_progress' } }        still searching
-   *   → 200 { data: { status: 'completed', risk_assessment: { risk_type,
-   *            risk_summary, number_of_cases }, cases: [], download_link } }
-   *   → 400 verification failed        → 404 report not available / unknown id
+   *   GET {base}/api/verification/bgv/status?case_id=...
+   *   → { data: { case_id, status: 'Completed', report_type: 'FINAL',
+   *               criminal_check: { status, Description, ... } } }
+   *   → 404 { message: 'No record found for this case Id' }
    *
-   * 202/404/400 are passed through rather than thrown: all three are documented
-   * report states, so the caller branches on the body. Only 401 and 5xx — our
-   * misconfiguration or their outage — surface as exceptions to retry.
+   * This exists because the download endpoint is NOT a completion signal: it
+   * returns a signed URL even while the search is running, pointing at an empty
+   * placeholder PDF. Storing that would publish an unsearched clean sheet, so
+   * the poller gates on this endpoint and only then fetches the document.
    */
-  async crimeCheckReport(requestId: string) {
+  async crimeCheckStatus(caseId: string) {
     return this.knGet(
-      `${KONNECT_NXT.endpoints.crimeCheck}?request_id=${encodeURIComponent(requestId)}`,
-      undefined,
-      [202, 404, 400],
+      `${KONNECT_NXT.bgvEndpoints.status}?case_id=${encodeURIComponent(caseId)}`,
+      this.konnectnxtBgvBase,
+    );
+  }
+
+  /**
+   * Fetches the court-record report URL for a completed case.
+   *
+   *   GET {base}/api/verification/bgv/download?case_id=...&type=pdf
+   *   → { message: 'Report Fetched Successfully.', data: '<signed PDF URL>' }
+   *
+   * Call only once crimeCheckStatus reports the case complete — see above.
+   * (`type` is accepted but ignored; the vendor always returns the PDF.)
+   */
+  async crimeCheckReport(caseId: string) {
+    return this.knGet(
+      `${KONNECT_NXT.bgvEndpoints.download}?case_id=${encodeURIComponent(caseId)}&type=pdf`,
+      this.konnectnxtBgvBase,
     );
   }
 

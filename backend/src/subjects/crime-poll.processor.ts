@@ -63,11 +63,7 @@ export class CrimePollProcessor extends WorkerHost {
           await this.verification.expireCrimeCheck(s.id);
           continue;
         }
-        // By the time the sweep sees a check, the submission is at least one
-        // tick old — a 404 here is a dead request_id, not read-side lag.
-        await this.verification.pollCrimeOnce(s.id, s.crimeRequestId!, {
-          failOnNotFound: true,
-        });
+        await this.verification.pollCrimeOnce(s.id, s.crimeRequestId!);
       } catch (e) {
         // One unreachable vendor call must not abort the whole sweep — this
         // subject is simply retried on the next tick.

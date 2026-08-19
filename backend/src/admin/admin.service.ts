@@ -10,6 +10,7 @@ import {
   checkApplicability,
   computeSubjectProgress,
 } from '../subjects/subject-progress';
+import { errorOf } from '../subjects/check-result';
 
 function crimeRisk(result: unknown): string | null {
   const data = (result as { data?: { risk_assessment?: { risk_type?: string } } } | null)?.data;
@@ -23,9 +24,20 @@ function crimeRisk(result: unknown): string | null {
  * address, DOB or father's name) means nothing to await, and done-without-a-
  * risk-band means it settled as a failure or a manual pass.
  */
-function crimeScope(d: Subject): { applicable: boolean; done: boolean } {
+function crimeScope(d: Subject): {
+  applicable: boolean;
+  done: boolean;
+  failed: boolean;
+} {
   const crime = checkApplicability(d).find((c) => c.key === 'crime');
-  return { applicable: Boolean(crime?.applicable), done: Boolean(crime?.done) };
+  return {
+    applicable: Boolean(crime?.applicable),
+    done: Boolean(crime?.done),
+    // Settled without a risk band is NOT a failure: the BGV pipeline returns a
+    // PDF and no structured verdict, so the column must read the error marker
+    // rather than infer failure from the missing band.
+    failed: Boolean(errorOf(d.crimeResult)),
+  };
 }
 
 // Progress across the applicable checks — single source of truth shared with
@@ -161,6 +173,7 @@ export class AdminService {
         crimeRisk: crimeRisk(d.crimeResult),
         crimeApplicable: crime.applicable,
         crimeSettled: crime.done,
+        crimeFailed: crime.failed,
         // Consent gates every check — the admin list needs it to avoid showing
         // "In progress" for a case that was refused or is still awaiting consent.
         consentStatus: d.consentStatus,
@@ -259,6 +272,7 @@ export class AdminService {
         crimeRisk: crimeRisk(d.crimeResult),
         crimeApplicable: crime.applicable,
         crimeSettled: crime.done,
+        crimeFailed: crime.failed,
         consentStatus: d.consentStatus,
         checksDone: prog.done,
         checksTotal: prog.total,

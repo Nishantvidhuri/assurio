@@ -406,14 +406,16 @@ export default function AdminClientPage() {
                                         "Completed" status reads as a stall. */}
                                     {s.crimeApplicable === false
                                       ? '—'
-                                      : s.crimeSettled
+                                      : s.crimeFailed
                                         ? 'Unable to verify'
-                                        : s.consentStatus === 'DECLINED' ||
-                                            s.consentStatus === 'EXPIRED'
-                                          ? 'Not run'
-                                          : s.consentStatus === 'PENDING'
-                                            ? 'Awaiting consent'
-                                            : 'Awaiting result'}
+                                        : s.crimeSettled
+                                          ? 'Report ready'
+                                          : s.consentStatus === 'DECLINED' ||
+                                              s.consentStatus === 'EXPIRED'
+                                            ? 'Not run'
+                                            : s.consentStatus === 'PENDING'
+                                              ? 'Awaiting consent'
+                                              : 'Awaiting result'}
                                   </span>
                                 )
                               }

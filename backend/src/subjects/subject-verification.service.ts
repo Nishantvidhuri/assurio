@@ -282,15 +282,14 @@ export class SubjectVerificationService {
           const resp = (await this.verify.crimeCheck({
             name: s.name,
             fatherName: crimeFatherName,
-            // crime-check takes DD-MM-YYYY; verify.service normalises whichever
-            // shape we hand it, so pass the stored value through untouched.
+            // verify.service normalises whichever date shape we hand it, so
+            // pass the stored value through untouched.
             dob: crimeDob,
             panNumber: s.panNumber || undefined,
             address: crimeAddress,
           })) as Record<string, unknown>;
-          // The initiate call never returns a verdict — only the id to poll.
-          const requestId = (resp?.data as Record<string, unknown> | undefined)
-            ?.request_id;
+          // The submit never returns a verdict — only the case to poll.
+          const requestId = this.firstCaseId(resp);
           if (requestId) {
             await this.prisma.subject.update({
               where: { id: s.id },
@@ -327,88 +326,79 @@ export class SubjectVerificationService {
   }
 
   /**
-   * Polls one crime check by request_id and stores the result once the vendor
-   * marks it completed. Returns true when the check reached a terminal state
-   * (stored result or stored failure), false while it is still in progress.
+   * Polls one crime check by case_id and stores the report once the vendor has
+   * produced it. Returns true when the check reached a terminal state, false
+   * while it is still running.
    *
-   * The vendor searches court records manually and documents a 24-48 hour
+   * The vendor searches court records manually and quotes a 24-48 hour
    * turnaround, so completion is NOT expected within a request lifetime — this
    * is called both by the short in-process poll (which catches the fast cases)
    * and by the durable sweep in CrimePollProcessor, which is what actually
    * finishes most checks. Both funnel through here so the storing rules can
    * never diverge.
    */
-  async pollCrimeOnce(
-    subjectId: string,
-    requestId: string,
-    opts: { failOnNotFound?: boolean } = {},
-  ): Promise<boolean> {
-    const report = (await this.verify.crimeCheckReport(requestId)) as
+  async pollCrimeOnce(subjectId: string, requestId: string): Promise<boolean> {
+    // Gate on the status endpoint, NOT on the download. The download returns a
+    // signed URL even mid-search, pointing at an empty placeholder PDF — so a
+    // URL proves nothing and storing it would publish an unsearched clean
+    // sheet as a finished criminal-records report.
+    const statusResp = (await this.verify.crimeCheckStatus(requestId)) as
       | Record<string, unknown>
       | undefined;
-    const data = report?.data as Record<string, unknown> | undefined;
-    const status = String(data?.status ?? '').toLowerCase();
+    const data = statusResp?.data as Record<string, unknown> | undefined;
+    if (!data) return false; // 404 / unknown case — keep waiting.
 
-    // The vendor returns 404 for two different things, and only one is fatal:
-    //   "Report not available. Please try again later." — still processing,
-    //      an ordinary pending state that must keep polling.
-    //   "Crime check request not found"                — the id is dead.
-    // Distinguish on the message, and default an unrecognised 404 to pending:
-    // over-polling a free endpoint is harmless, while wrongly failing a live
-    // check strands it as an insufficiency the client has to chase.
-    if (Number(report?.code) === 404) {
-      const notice = String(report?.message ?? '');
-      const deadRequest = /not found/i.test(notice);
-      if (!deadRequest || !opts.failOnNotFound) return false;
-      const msg = 'Crime check request not found at the source';
+    const criminal = data.criminal_check as Record<string, unknown> | undefined;
+    // The per-check status is authoritative; the case-level one is the
+    // fallback for a payload that omits it.
+    const state = String(criminal?.status ?? data.status ?? '').toLowerCase();
+    const reportType = String(data.report_type ?? '').toUpperCase();
+
+    if (/fail|cancel|reject|abort/.test(state)) {
+      const msg =
+        (typeof criminal?.Description === 'string' && criminal.Description) ||
+        `Crime check ${state}`;
       this.logger.warn(`Crime check failed for ${subjectId}: ${msg}`);
       await this.storeResult(subjectId, 'crimeResult', { __checkError: msg });
       return true;
     }
 
-    // 400 is the documented "Failed — verification failed or encountered an
-    // error" state, a terminal outcome rather than a transport error. It is
-    // also what a malformed call returns, so guard against recording OUR bug as
-    // the candidate's failure: we always send request_id, and if the vendor
-    // says otherwise that is ours to fix, not an insufficiency on the report.
-    if (Number(report?.code) === 400) {
-      const notice = String(report?.message ?? '');
-      if (/request_id/i.test(notice)) {
-        this.logger.error(
-          `Crime poll for ${subjectId} rejected as malformed: ${notice}`,
-        );
-        return false;
-      }
-      this.logger.warn(`Crime check failed for ${subjectId}: ${notice}`);
-      await this.storeResult(subjectId, 'crimeResult', {
-        __checkError: notice || 'Crime check failed at the source',
-      });
-      return true;
-    }
+    // `status: Completed` + `report_type: FINAL` is NOT sufficient. A case has
+    // been observed reporting both while its own PDF still read "Report Status:
+    // In Progress" with no severity and no end date — the search had not run.
+    // What separated it from a genuinely finished case was the error pair below
+    // (status_code 500 / error_message set) sitting inside criminal_check.
+    // Treat that as "not done" rather than "done": the sweep keeps polling and,
+    // if it never clears, the 72h expiry hands it to an operator. Publishing a
+    // report whose own first page says In Progress is the worse failure.
+    const vendorCode = Number(criminal?.status_code ?? 0);
+    const vendorError = String(criminal?.error_message ?? '').trim();
+    const vendorFaulted =
+      vendorCode >= 400 || (vendorError.length > 0 && !/^(none|null|-)$/i.test(vendorError));
 
-    // Anything that is not an explicit terminal state keeps the check pending.
-    // Guessing "done" from a missing status would publish an empty clean sheet
-    // as if the courts had been searched.
-    if (!data || status === 'in_progress' || status === 'initiated') {
+    const finished =
+      state === 'completed' && (!reportType || reportType === 'FINAL');
+    if (!finished) return false;
+    if (vendorFaulted) {
+      this.logger.warn(
+        `Crime case ${requestId} claims Completed but carries ${vendorCode} "${vendorError}" — treating as still running`,
+      );
       return false;
     }
 
-    if (status === 'completed') {
-      // storeResult (not a bare update) so completion + report delivery are
-      // evaluated the moment the last check lands.
-      await this.storeResult(subjectId, 'crimeResult', { data });
-      this.logger.log(`Crime report stored for ${subjectId} (${requestId})`);
-      return true;
-    }
+    const report = (await this.verify.crimeCheckReport(requestId)) as
+      | Record<string, unknown>
+      | undefined;
+    const url = typeof report?.data === 'string' ? report.data.trim() : '';
+    // Complete but no document yet — keep polling rather than storing a
+    // result with nothing to show for it.
+    if (!/^https?:\/\//i.test(url)) return false;
 
-    // A stated non-completed terminal status (failed/cancelled/...) is a real
-    // outcome: record it as an unresolved failure so an operator sees it and
-    // the report cannot silently complete without the crime check.
-    const msg =
-      (typeof data.message === 'string' && data.message) ||
-      `Crime check ${status || 'did not complete'}`;
-    this.logger.warn(`Crime check failed for ${subjectId}: ${msg}`);
-    await this.storeResult(subjectId, 'crimeResult', { __checkError: msg });
+    // Stored under `data` so vendorReportUrl finds it on both the report PDF
+    // and the UI. There is no structured verdict on this pipeline — only the
+    // document — and both readouts must say so rather than render "0 cases".
+    await this.storeResult(subjectId, 'crimeResult', { data: url });
+    this.logger.log(`Crime report stored for ${subjectId} (${requestId})`);
     return true;
   }
 
@@ -795,11 +785,10 @@ export class SubjectVerificationService {
         string,
         unknown
       >;
-      const requestId = (resp?.data as Record<string, unknown> | undefined)
-        ?.request_id;
+      const requestId = this.firstCaseId(resp);
       if (!requestId) {
         throw new BadRequestException(
-          'The source accepted the request but returned no request id.',
+          'The source accepted the request but created no case.',
         );
       }
       const updated = await this.prisma.subject.update({

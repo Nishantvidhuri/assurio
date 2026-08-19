@@ -1588,6 +1588,7 @@ export default function SubjectReport({
             name={subject.name}
             report={crimeReport}
             requestId={subject.crimeRequestId ?? null}
+            reportUrl={crimeReportUrl}
           />
         ) : (
           <PendingTile
@@ -2295,15 +2296,27 @@ function CrimeReadout({
   name,
   report,
   requestId,
+  reportUrl,
 }: {
   name: string;
   report: CrimeReport;
   requestId: string | null;
+  /** Resolved PDF link. On the BGV pipeline the whole result IS the URL, so it
+   *  never appears as report.download_link — resolve it outside and pass it. */
+  reportUrl?: string | null;
 }) {
   const ra = report.risk_assessment ?? {};
   const cases = report.cases ?? [];
   const [preview, setPreview] = useState<PdfPreview | null>(null);
   const caseCount = ra.number_of_cases ?? cases.length;
+  // The BGV pipeline hands back a PDF and no structured fields. With no risk
+  // band and no cases array there is no verdict — showing the "0 cases found"
+  // counter would assert a clean sheet the source never stated.
+  const hasVerdict =
+    typeof ra.risk_type === 'string' ||
+    typeof ra.number_of_cases === 'number' ||
+    Array.isArray(report.cases);
+  const pdfUrl = report.download_link || reportUrl || '';
 
   return (
     <div className="rp-readout">
@@ -2325,20 +2338,28 @@ function CrimeReadout({
       </div>
 
       <div className="rp-crime-bar">
-        <div className="rp-crime-stat">
-          <div className="rp-crime-stat-n">{caseCount}</div>
-          <div className="rp-crime-stat-l">
-            {caseCount === 1 ? 'Case found' : 'Cases found'}
+        {hasVerdict ? (
+          <div className="rp-crime-stat">
+            <div className="rp-crime-stat-n">{caseCount}</div>
+            <div className="rp-crime-stat-l">
+              {caseCount === 1 ? 'Case found' : 'Cases found'}
+            </div>
           </div>
-        </div>
-        {report.download_link && (
+        ) : (
+          <div className="rp-crime-stat">
+            <div className="rp-crime-stat-l">
+              Search complete — findings are in the report document
+            </div>
+          </div>
+        )}
+        {pdfUrl && (
           <div className="rp-crime-actions">
             <button
               type="button"
               className="rp-crime-pdf"
               onClick={() =>
                 setPreview({
-                  url: report.download_link as string,
+                  url: pdfUrl,
                   title: 'Crime check report',
                 })
               }
@@ -2348,7 +2369,7 @@ function CrimeReadout({
             </button>
             <a
               className="rp-crime-pdf rp-crime-pdf-light"
-              href={report.download_link}
+              href={pdfUrl}
               target="_blank"
               rel="noopener noreferrer"
             >

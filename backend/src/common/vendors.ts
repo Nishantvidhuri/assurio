@@ -64,7 +64,15 @@ export const KONNECT_NXT = {
   // returns the report for a given case_id. Ported from Recriauth.
   bgvBaseUrl: 'https://bgv.konnectnxt.com/api',
   bgvEndpoints: {
-    submit: '/async/v2/bgv-submit/',
+    // /recruiter/v2/ — verified working against our account (returns
+    // cases_created[].case_id, bills 100 credits). Recriauth calls
+    // /async/v2/bgv-submit/; that variant is unverified here, so don't
+    // "align" the two without testing, a wrong path costs a silent failure.
+    submit: '/recruiter/v2/bgv-submit/',
     download: '/verification/bgv/download',
+    // Case status — the ONLY reliable completion signal. The download endpoint
+    // hands back a URL even mid-search (an empty placeholder PDF), so its
+    // presence proves nothing; this reports status + report_type FINAL.
+    status: '/verification/bgv/status',
   },
 } as const;

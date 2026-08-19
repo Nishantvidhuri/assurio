@@ -634,9 +634,12 @@ export interface AdminSubjectRow {
   /** False when the crime check can never run for this candidate (missing
    *  address, DOB or father's name) — there is no result to await. */
   crimeApplicable?: boolean;
-  /** True once the check reached a terminal state. Settled with no crimeRisk
-   *  means it failed or was passed manually, not that it is still running. */
+  /** True once the check reached a terminal state. */
   crimeSettled?: boolean;
+  /** True only when the check actually errored. A settled check with no
+   *  crimeRisk is normally a success whose findings are in the PDF, so failure
+   *  must be read from here rather than inferred from a missing risk band. */
+  crimeFailed?: boolean;
   consentStatus?: ConsentStatus;
   checksDone?: number;
   checksTotal?: number;

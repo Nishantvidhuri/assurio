@@ -640,6 +640,14 @@ function buildGroups(s: ReportSubject): CheckGroup[] {
     crimeInstance.status = 'manual';
     crimeInstance.comment = manualComment(crimeManual);
   } else if (crime) {
+    // The BGV pipeline returns the findings as a PDF and nothing else. Without
+    // a risk band or a cases array there is NO verdict to report — printing
+    // "0 records / No Risk" from their absence would assert a clean sheet the
+    // source never gave us. Show the document and say where the answer is.
+    const hasVerdict =
+      typeof ra.risk_type === 'string' ||
+      typeof ra.number_of_cases === 'number' ||
+      Array.isArray(report.cases);
     const count = typeof ra.number_of_cases === 'number' ? (ra.number_of_cases as number) : cases.length;
     const riskType = (ra.risk_type as string) || (count > 0 ? 'Records Found' : 'No Risk');
     if (crimeReportUrl) {
@@ -650,13 +658,30 @@ function buildGroups(s: ReportSubject): CheckGroup[] {
         },
       ];
     }
-    crimeInstance.twoColRows = [
-      { label: 'Candidate Name', value: or(s.name) },
-      { label: 'Total Records Identified', value: or(count) },
-      { label: 'Risk Category', value: or(riskType) },
-      { label: 'Risk Summary', value: or(ra.risk_summary as string) },
-    ];
-    crimeInstance.status = /high|serious|critical|records found/i.test(riskType) && count > 0 ? 'discrepancy' : 'completed';
+    crimeInstance.twoColRows = hasVerdict
+      ? [
+          { label: 'Candidate Name', value: or(s.name) },
+          { label: 'Total Records Identified', value: or(count) },
+          { label: 'Risk Category', value: or(riskType) },
+          { label: 'Risk Summary', value: or(ra.risk_summary as string) },
+        ]
+      : [
+          { label: 'Candidate Name', value: or(s.name) },
+          { label: 'Search Status', value: 'Completed' },
+          { label: 'Findings', value: 'See attached court record report' },
+        ];
+    crimeInstance.status =
+      hasVerdict &&
+      /high|serious|critical|records found/i.test(riskType) &&
+      count > 0
+        ? 'discrepancy'
+        : 'completed';
+    if (!hasVerdict) {
+      crimeInstance.comment =
+        'The court-record search is complete. The source returned its findings as a report document rather than structured fields — refer to the attached PDF for the detail.';
+    }
+    // Everything below reads the structured fields; with none present the
+    // loops are no-ops, so they stay unguarded.
     cases.forEach((c, i) => {
       const loc = [c.district, c.state].filter(Boolean).join(', ');
       const bits = [
