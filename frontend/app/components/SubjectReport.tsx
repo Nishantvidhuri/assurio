@@ -1039,6 +1039,12 @@ export default function SubjectReport({
   // charge was refunded, so the live check cards would be misleading.
   const consentClosed =
     subject.consentStatus === 'DECLINED' || subject.consentStatus === 'EXPIRED';
+  // Consent has been answered either way — granted, refused or lapsed. The
+  // verification link only asks for that answer, so once it exists there is
+  // nothing left to send and offering it invites a pointless second email.
+  // An absent status is treated as still-pending, so older records keep it.
+  const consentDecided =
+    subject.consentStatus === 'GRANTED' || consentClosed;
 
   const cardStatuses: CheckStatus[] = [
     aadhaarStatus,
@@ -1190,7 +1196,7 @@ export default function SubjectReport({
                   role="menu"
                   className="absolute right-0 top-full z-50 mt-1 w-60 rounded-md border border-neutral-500 bg-white py-1 shadow-[0px_3px_10px_0px_rgba(11,26,59,0.1)]"
                 >
-                  {!consentClosed && (
+                  {!consentDecided && (
                     <button
                       role="menuitem"
                       className="flex w-full items-center gap-2 px-3 py-2.5 text-body-md font-medium text-text-body transition-colors hover:bg-neutral-200"
@@ -1236,7 +1242,7 @@ export default function SubjectReport({
             </div>
           </div>
           <div className="hidden gap-2 md:ml-auto md:flex md:items-center">
-            {!consentClosed && (
+            {!consentDecided && (
               <button
                 className="rp-refresh"
                 onClick={handleSendLink}
@@ -1269,7 +1275,10 @@ export default function SubjectReport({
               />
               {downloading ? 'Preparing…' : 'Download report'}
             </button>
-            {onRefresh && (
+            {/* Nothing left to poll for once every applicable check has
+                settled — a Refresh that can never change anything reads as a
+                broken button. */}
+            {onRefresh && !allChecksComplete && (
               <button
                 className="rp-refresh"
                 onClick={onRefresh}
