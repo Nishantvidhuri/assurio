@@ -605,7 +605,11 @@ export class SubjectsController {
         footerTemplate: renderReportFooter(subject),
         margin: { top: '10mm', bottom: '18mm', left: '12mm', right: '12mm' },
       });
-      this.reportGen.generateNow(doc.id);
+      // Store a fresh copy so the next view is served from S3 rather than
+      // re-rendered. Pointless without S3 — the job would launch a second
+      // Chromium render, compete with this request for CPU, and have nowhere
+      // to put the result, so every view would pay for two renders forever.
+      if (this.s3.isConfigured) this.reportGen.generateNow(doc.id);
     }
 
     const safeName = (doc.name || 'candidate')
