@@ -484,6 +484,17 @@ export async function uploadIdDocument(
 }
 
 /** Force-re-run a single ID check for a subject ("Recall API"). */
+/** Inputs an operator may correct when re-running a check. Only the fields the
+ *  chosen check uses are applied; the rest are ignored server-side. */
+export interface RecheckOverrides {
+  panNumber?: string;
+  voterId?: string;
+  passportFileNo?: string;
+  drivingLicense?: string;
+  uan?: string;
+  dob?: string;
+}
+
 export function recheckSubject(
   _token: string,
   id: string,
@@ -496,10 +507,13 @@ export function recheckSubject(
     | 'employment'
     | 'crime'
     | 'credit',
+  /** Corrected values. Saved to the candidate record before the re-run, so the
+   *  report's "Required inputs" reflects what was actually sent. */
+  overrides?: RecheckOverrides,
 ): Promise<Subject> {
   return request<Subject>(
     `/subjects/${encodeURIComponent(id)}/recheck/${type}`,
-    { method: 'POST' },
+    { method: 'POST', body: JSON.stringify(overrides ?? {}) },
   );
 }
 

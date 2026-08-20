@@ -40,6 +40,32 @@ function extractError(e: unknown): string {
  *  run to a few hundred KB; the largest seen so far is ~900 KB. */
 const MAX_CRIME_PDF_BYTES = 25 * 1024 * 1024;
 
+/** Subject fields a recall may correct, per check. Anything not listed here is
+ *  untouchable from the recall path — re-running a licence check must not be a
+ *  way to edit someone's PAN. */
+const RECHECK_EDITABLE_FIELDS: Record<string, readonly RecheckField[]> = {
+  pan: ['panNumber'],
+  voter: ['voterId'],
+  passport: ['passportFileNo', 'dob'],
+  dl: ['drivingLicense', 'dob'],
+  employment: ['uan'],
+  // Aadhaar re-fetches an existing DigiLocker session; crime and credit carry
+  // their own input paths. Nothing to edit here.
+  aadhaar: [],
+  crime: [],
+  credit: [],
+};
+
+export type RecheckField =
+  | 'panNumber'
+  | 'voterId'
+  | 'passportFileNo'
+  | 'drivingLicense'
+  | 'uan'
+  | 'dob';
+
+export type RecheckOverrides = Partial<Record<RecheckField, string>>;
+
 /** result field → billing type used in the subject's verificationLog. */
 const FIELD_TO_BILL_TYPE: Record<string, string> = {
   panResult: 'pan',
@@ -892,7 +918,29 @@ export class SubjectVerificationService {
       | 'employment'
       | 'crime'
       | 'credit',
+    overrides?: RecheckOverrides,
   ): Promise<Subject> {
+    // Corrected inputs are saved before the re-run, not just passed to the
+    // vendor: a mistyped licence number is wrong on the record too, and the
+    // report's "Required inputs" reads from the record. Only the fields this
+    // check actually uses are writable, so a recall can't quietly rewrite
+    // unrelated candidate data.
+    const editable = RECHECK_EDITABLE_FIELDS[type] ?? [];
+    const patch: Record<string, string> = {};
+    for (const f of editable) {
+      const v = overrides?.[f];
+      if (typeof v === 'string' && v.trim()) patch[f] = v.trim();
+    }
+    if (Object.keys(patch).length > 0) {
+      await this.prisma.subject.update({
+        where: { id: subjectId },
+        data: patch,
+      });
+      this.logger.log(
+        `Recall: ${type} inputs edited for ${subjectId} (${Object.keys(patch).join(', ')})`,
+      );
+    }
+
     const s = await this.prisma.subject.findUnique({
       where: { id: subjectId },
     });

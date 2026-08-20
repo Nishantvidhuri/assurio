@@ -34,6 +34,7 @@ import {
   fetchPdfBlobUrl,
   crimeReportPdfUrl,
   recheckSubject,
+  type RecheckOverrides,
   manualPassCheck,
   submitCrimeCheck,
   type CrimeSubmitPayload,
@@ -325,6 +326,41 @@ function formatTat(createdAt?: string, updatedAt?: string): string | undefined {
  * `pending` (all required inputs present, just awaiting the result) or
  * `unavailable` (the candidate didn't provide the details, so it can't run).
  */
+/**
+ * The candidate inputs each check sends, and which Subject field each maps to.
+ * Drives the recall editor: an operator corrects these, they are saved to the
+ * record, and the check re-runs with them. Checks absent from this map have
+ * nothing to edit (Aadhaar re-uses a DigiLocker session; crime and credit have
+ * their own submission paths) and recall fires immediately.
+ */
+/** Human labels for the recall dialog heading. */
+const RECALL_TITLES: Partial<Record<RecallType, string>> = {
+  pan: 'PAN verification',
+  voter: 'Voter ID verification',
+  passport: 'Passport verification',
+  dl: 'Driving licence',
+  employment: 'Employment history',
+};
+
+const RECALL_FIELDS: Partial<
+  Record<
+    RecallType,
+    ReadonlyArray<{ key: keyof RecheckOverrides; label: string; placeholder: string }>
+  >
+> = {
+  pan: [{ key: 'panNumber', label: 'PAN', placeholder: 'ABCDE1234F' }],
+  voter: [{ key: 'voterId', label: 'Voter ID', placeholder: 'ABC1234567' }],
+  passport: [
+    { key: 'passportFileNo', label: 'File number', placeholder: 'AH1234567' },
+    { key: 'dob', label: 'Date of birth', placeholder: 'DD-MM-YYYY' },
+  ],
+  dl: [
+    { key: 'drivingLicense', label: 'Licence number', placeholder: 'HR4120220002535' },
+    { key: 'dob', label: 'Date of birth', placeholder: 'DD-MM-YYYY' },
+  ],
+  employment: [{ key: 'uan', label: 'UAN', placeholder: '123456789012' }],
+};
+
 function checkStatus(
   done: boolean,
   inProgress: boolean,
@@ -592,6 +628,9 @@ export default function SubjectReport({
   } | null>(null);
   const [manualReason, setManualReason] = useState('');
   const [manualError, setManualError] = useState('');
+  // Recall-with-edits dialog: which check, and any error from the last attempt.
+  const [recallTarget, setRecallTarget] = useState<RecallType | null>(null);
+  const [recallError, setRecallError] = useState('');
   // Operator-entered crime submission (admin only).
   const [crimeSubmitOpen, setCrimeSubmitOpen] = useState(false);
   const [crimeSubmitting, setCrimeSubmitting] = useState(false);
@@ -642,18 +681,22 @@ export default function SubjectReport({
     }
   }
 
-  async function handleRecall(type: RecallType) {
+  async function handleRecall(type: RecallType, overrides?: RecheckOverrides) {
     const token = getToken();
     if (!token || !subject.id) return;
     setRecalling(type);
+    setRecallError('');
     try {
-      const updated = await recheckSubject(token, subject.id, type);
+      const updated = await recheckSubject(token, subject.id, type, overrides);
       onSubjectUpdate?.(updated as unknown as SubjectReportData);
+      setRecallTarget(null);
     } catch (err) {
-      // Surface a lightweight alert — the card keeps its previous result.
-      alert(
-        err instanceof Error ? err.message : 'Could not re-run this check.',
-      );
+      const msg =
+        err instanceof Error ? err.message : 'Could not re-run this check.';
+      // Inside the dialog the message belongs next to the fields that caused
+      // it; without one there is nowhere to put it but an alert.
+      if (recallTarget) setRecallError(msg);
+      else alert(msg);
     } finally {
       setRecalling(null);
     }
@@ -1086,8 +1129,20 @@ export default function SubjectReport({
   // On the client ("employee") side, hide inapplicable checks and the Recall
   // button — those are internal/admin concerns.
   const show = (s: CheckStatus) => admin || s !== 'unavailable';
+  // Checks whose inputs an operator can correct before re-running. A failed
+  // licence check is usually a typo, not a vendor problem, so re-sending the
+  // same wrong number is pointless — open the editor instead of firing.
   const recall = (type: RecallType) =>
-    admin ? () => handleRecall(type) : undefined;
+    admin
+      ? () => {
+          if (RECALL_FIELDS[type]?.length) {
+            setRecallError('');
+            setRecallTarget(type);
+          } else {
+            void handleRecall(type);
+          }
+        }
+      : undefined;
 
   // Admin-only escape hatch, offered on any check that isn't already settled by
   // the vendor — i.e. failed, stuck in progress, or awaiting the candidate.
@@ -1725,6 +1780,28 @@ export default function SubjectReport({
         />
       )}
 
+      {recallTarget && RECALL_FIELDS[recallTarget] && (
+        <RecallModal
+          type={recallTarget}
+          title={RECALL_TITLES[recallTarget] ?? 'this check'}
+          fields={RECALL_FIELDS[recallTarget]!}
+          // Pre-filled with what was actually sent, so the operator sees the
+          // value that failed rather than an empty box.
+          initial={{
+            panNumber: subject.panNumber ?? '',
+            voterId: subject.voterId ?? '',
+            passportFileNo: subject.passportFileNo ?? '',
+            drivingLicense: subject.drivingLicense ?? '',
+            uan: subject.uan ?? '',
+            dob: subject.dob ?? '',
+          }}
+          error={recallError}
+          busy={recalling === recallTarget}
+          onCancel={() => setRecallTarget(null)}
+          onConfirm={(values) => void handleRecall(recallTarget, values)}
+        />
+      )}
+
       {crimeSubmitOpen && (
         <CrimeSubmitModal
           // Pre-filled from the record, including the Aadhaar-derived address,
@@ -1898,6 +1975,116 @@ function ManualPassModal({
           </Button>
           <Button onClick={onConfirm} disabled={busy} isLoading={busy}>
             {mode === 'unable' ? 'Mark unable to verify' : 'Mark as passed'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Recall a check with corrected inputs.
+ *
+ * A failed ID check is far more often a typo than a vendor problem, so firing
+ * the same wrong value again just burns another call. This pre-fills what was
+ * sent, lets the operator fix it, and saves the correction to the record — the
+ * report's "Required inputs" then shows what actually went to the source.
+ */
+function RecallModal({
+  type,
+  title,
+  fields,
+  initial,
+  error,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  type: RecallType;
+  title: string;
+  fields: ReadonlyArray<{ key: keyof RecheckOverrides; label: string; placeholder: string }>;
+  initial: RecheckOverrides;
+  error: string;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: (values: RecheckOverrides) => void;
+}) {
+  const [form, setForm] = useState<RecheckOverrides>(initial);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !busy) onCancel();
+    };
+    document.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [busy, onCancel]);
+
+  const complete = fields.every((f) => (form[f.key] ?? '').trim().length > 0);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget && !busy) onCancel();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Re-run ${title}`}
+        className="w-full max-w-md overflow-hidden rounded-xl border border-border-default bg-white shadow-lg"
+      >
+        <div className="flex items-start gap-3 border-b border-border-default px-5 py-4">
+          <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-surface-info text-primary">
+            <RefreshCw size={18} />
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-body-lg font-semibold text-text-heading">
+              Re-run {title.toLowerCase()}
+            </h2>
+            <p className="mt-0.5 text-body-sm text-text-subheading">
+              Check the details before re-sending. Edits are saved to the
+              candidate.
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-4 px-5 py-4">
+          {fields.map((f) => (
+            <InputFieldWrapper key={String(f.key)} label={f.label} required>
+              <Input
+                value={form[f.key] ?? ''}
+                placeholder={f.placeholder}
+                disabled={busy}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, [f.key]: e.target.value }))
+                }
+              />
+            </InputFieldWrapper>
+          ))}
+
+          {error && (
+            <div className="rounded-lg border border-border-error bg-surface-error px-4 py-2.5 text-body-sm text-failure">
+              {error}
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-border-default bg-neutral-100 px-5 py-3">
+          <Button variant="secondary" onClick={onCancel} disabled={busy}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() => onConfirm(form)}
+            disabled={busy || !complete}
+            isLoading={busy}
+          >
+            {busy ? 'Re-running…' : 'Re-run check'}
           </Button>
         </div>
       </div>

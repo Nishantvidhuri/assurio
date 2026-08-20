@@ -38,6 +38,7 @@ import {
 } from './subjects.service';
 import { SubjectVerificationService } from './subject-verification.service';
 import { CrimeSubmitDto } from './crime-submit.dto';
+import { RecheckOverridesDto } from './recheck-overrides.dto';
 import { ConsentSettlementService } from '../wallet/consent-settlement.service';
 import { UsersService } from '../users/users.service';
 import { PdfService } from '../common/pdf.service';
@@ -354,6 +355,7 @@ export class SubjectsController {
     @Req() req: RequestWithUser,
     @Param('id') id: string,
     @Param('type') type: string,
+    @Body() overrides: RecheckOverridesDto,
   ) {
     if (req.user?.role === 'candidate') {
       throw new ForbiddenException('Account holder access required');
@@ -379,6 +381,7 @@ export class SubjectsController {
     const doc = await this.subjectVerification.recheck(
       id,
       type as (typeof allowed)[number],
+      overrides,
     );
     return toSubjectResponse(doc);
   }
