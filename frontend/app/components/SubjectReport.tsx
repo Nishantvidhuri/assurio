@@ -2009,7 +2009,14 @@ function RecallModal({
   onCancel: () => void;
   onConfirm: (values: RecheckOverrides) => void;
 }) {
-  const [form, setForm] = useState<RecheckOverrides>(initial);
+  // Seed from ONLY this check's fields. Carrying the whole record in means
+  // unrelated values ride along to the server, where an empty one still gets
+  // validated — a licence recall was failing on "UAN must be 12 digits".
+  const [form, setForm] = useState<RecheckOverrides>(() =>
+    Object.fromEntries(
+      fields.map((f) => [f.key, initial[f.key] ?? '']),
+    ) as RecheckOverrides,
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -2080,7 +2087,17 @@ function RecallModal({
             Cancel
           </Button>
           <Button
-            onClick={() => onConfirm(form)}
+            onClick={() =>
+              // Send only this check's fields, trimmed — never a blank, which
+              // the server would still validate and reject.
+              onConfirm(
+                Object.fromEntries(
+                  fields
+                    .map((f) => [f.key, (form[f.key] ?? '').trim()])
+                    .filter(([, v]) => v),
+                ) as RecheckOverrides,
+              )
+            }
             disabled={busy || !complete}
             isLoading={busy}
           >
