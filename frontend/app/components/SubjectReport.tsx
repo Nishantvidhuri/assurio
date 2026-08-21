@@ -1104,6 +1104,26 @@ export default function SubjectReport({
   const applicableCount = cardStatuses.filter(
     (s) => s !== 'unavailable',
   ).length;
+  /**
+   * Field-level comparison tally, mirroring the report PDF.
+   *
+   * Counted per field rather than per check — a wrong surname and a wrong DOB
+   * on one document are two things to look at. Partial is deliberately not
+   * folded in: a name matching two of three tokens is a question, not a
+   * finding, and counting it would overstate what the source said.
+   */
+  const comparedRows = [
+    ...panCompare,
+    ...aadhaarCompare,
+    ...voterCompare,
+    ...passportCompare,
+    ...employmentCompare,
+    ...dlCompare,
+  ];
+  const discrepancyCount = comparedRows.filter(
+    (r) => r.match === 'mismatch',
+  ).length;
+  const comparedCount = comparedRows.filter((r) => r.match !== 'na').length;
   // A check counts as "done" once it has finished processing — including a
   // Failed (invalid / not found) result, which is a terminal state, not pending,
   // and a manual override, which is an admin-recorded outcome.
@@ -1229,6 +1249,19 @@ export default function SubjectReport({
                 }
               />
             </span>
+            {/* Only shown when something actually disagreed — a "0
+                discrepancies" chip on every clean report is noise, and it
+                would dilute the one case that needs attention. */}
+            {discrepancyCount > 0 && (
+              <span className="hidden md:inline-flex">
+                <Tag
+                  variant="Failure"
+                  label={`${discrepancyCount} ${
+                    discrepancyCount === 1 ? 'discrepancy' : 'discrepancies'
+                  }`}
+                />
+              </span>
+            )}
             {/* Mobile: every report action collapses into this kebab menu. */}
             <div className="relative ml-auto md:hidden">
               <button
