@@ -27,7 +27,7 @@ const display = Plus_Jakarta_Sans({
 
 // Wordmark face — used only for the "Recrify" text beside the logo.
 const logo = localFont({
-  src: './fonts/Logoza.otf',
+  src: './fonts/Rosehot.ttf',
   display: 'swap',
   variable: '--font-logo',
 });

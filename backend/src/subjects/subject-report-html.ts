@@ -13,6 +13,7 @@
  * real without a pdf-lib post-pass.
  */
 import { RECRIFY_LOGO_DATA_URI } from './recrify-logo';
+import { RECRIFY_WORDMARK_FONT_DATA_URI } from './recrify-wordmark-font';
 import { BRAND } from '../common/brand-colors';
 import { resolveFatherName } from './bgv-address';
 import { isUnresolvedFailure } from './check-result';
@@ -1085,7 +1086,11 @@ html, body { font-family: Manrope, Arial, Helvetica, sans-serif; font-size: 10px
 .company-name { font-size: 12px; font-weight: 700; color: ${BRAND.textHeading}; }
 .recrify-logo { display: flex; align-items: center; gap: 8px; }
 .recrify-logo img { height: 30px; width: 30px; object-fit: contain; }
-.recrify-logo .word { font-size: 16px; font-weight: 700; color: ${BRAND.textHeading}; letter-spacing: -0.01em; }
+@font-face { font-family: 'RecrifyWordmark'; src: url('${RECRIFY_WORDMARK_FONT_DATA_URI}') format('truetype'); font-display: block; }
+/* The wordmark is set in the brand face, matching the app. Rosehot is a
+   high-contrast display serif, so it needs a size bump and open tracking to
+   stay legible at PDF scale — its hairlines vanish otherwise. */
+.recrify-logo .word { font-family: 'RecrifyWordmark', sans-serif; font-size: 20px; font-weight: 400; color: ${BRAND.textHeading}; letter-spacing: 0.01em; }
 .report-title { font-size: 20px; font-weight: 600; color: ${BRAND.textHeading}; margin-bottom: 4px; }
 .report-subtitle { font-size: 12px; font-weight: 600; line-height: 18px; color: ${BRAND.textBody}; margin-bottom: 20px; }
 .confidential-box { background: ${BRAND.successTint}; border-radius: 4px; padding: 8px; font-size: 8px; font-weight: 400; line-height: 1.6; color: #000000; margin-bottom: 20px; }
