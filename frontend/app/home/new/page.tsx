@@ -246,9 +246,11 @@ export default function AddCandidatePage() {
   const walletShortfall =
     !ONLINE_PAYMENT_ENABLED && walletInr !== null && !walletCovers;
   const payBlockedReason = walletShortfall
-    ? `Your wallet is short by ₹${Math.max(0, finalAmount - (walletInr ?? 0)).toLocaleString('en-IN')}. Contact us to top it up.`
+    ? t('pay.shortfall', {
+        amount: Math.max(0, finalAmount - (walletInr ?? 0)).toLocaleString('en-IN'),
+      })
     : !tcAgreed
-      ? 'Accept the Terms & Conditions to continue.'
+      ? t('pay.acceptTerms')
       : '';
 
   useEffect(() => {
@@ -413,11 +415,11 @@ export default function AddCandidatePage() {
     setUploadError('');
     for (const file of Array.from(files)) {
       if (!ACCEPTED_ID_TYPES.includes(file.type)) {
-        setUploadError(`${file.name}: only PDF, JPG, or PNG files are allowed.`);
+        setUploadError(t('upload.type', { file: file.name }));
         continue;
       }
       if (file.size > MAX_ID_SIZE_BYTES) {
-        setUploadError(`${file.name}: file must be 10MB or smaller.`);
+        setUploadError(t('upload.size', { file: file.name }));
         continue;
       }
       setUploading(true);
@@ -429,7 +431,7 @@ export default function AddCandidatePage() {
         }));
       } catch (err) {
         setUploadError(
-          err instanceof Error ? err.message : `Could not upload ${file.name}.`,
+          err instanceof Error ? err.message : t('upload.failed', { file: file.name }),
         );
       } finally {
         setUploading(false);
@@ -474,7 +476,7 @@ export default function AddCandidatePage() {
    * malformed, mirroring the Recriauth candidate form. Required-but-empty
    * fields stay gated by the disabled Continue button + aggregate error. */
   const emailError =
-    form.email.length > 0 && !emailValid ? 'Enter a valid email.' : undefined;
+    form.email.length > 0 && !emailValid ? t('inline.email') : undefined;
   const phoneError =
     form.phone.length > 0 && !phoneValid
       ? validatePhoneNumber(form.phone) || t('errors.phone')
@@ -487,10 +489,10 @@ export default function AddCandidatePage() {
     form.pan.length > 0 && !panValid
       ? t('errors.pan')
       : undefined;
-  const dobError = !dobValid ? 'Use DD-MM-YYYY.' : undefined;
+  const dobError = !dobValid ? t('inline.dob') : undefined;
   const dlError =
     form.drivingLicense.length > 0 && !dlValid
-      ? 'Licence number looks too short.'
+      ? t('inline.licence')
       : undefined;
   const voterError =
     form.voterId.length > 0 && !voterValid
@@ -498,7 +500,7 @@ export default function AddCandidatePage() {
       : undefined;
   const passportError =
     form.passportFileNo.length > 0 && !passportFileValid
-      ? 'File number looks too short.'
+      ? t('inline.fileNumber')
       : undefined;
   const uanError =
     form.uan.length > 0 && !uanValid ? t('errors.uan') : undefined;
@@ -510,7 +512,7 @@ export default function AddCandidatePage() {
   /* ── step 1 → 2 ── */
   function handleNextContact() {
     setError('');
-    if (!nameValid) return setError("Please enter the candidate's name.");
+    if (!nameValid) return setError(t('inline.nameRequired'));
     if (!emailValid) return setError(t('errors.email'));
     if (!phoneValid) return setError(t('errors.phone'));
     setStep(2);
@@ -583,14 +585,14 @@ export default function AddCandidatePage() {
       if (res.valid && res.percentOff > 0) {
         setDiscountPct(res.percentOff);
         setAppliedCode(res.code);
-        setDiscountMsg(`Code ${res.code} applied — ${res.percentOff}% off`);
+        setDiscountMsg(t('discount.applied', { code: res.code, percent: res.percentOff }));
       } else {
         setDiscountPct(0);
         setAppliedCode('');
-        setDiscountMsg('That code is invalid or expired.');
+        setDiscountMsg(t('discount.invalid'));
       }
     } catch {
-      setDiscountMsg('Could not validate the code. Please try again.');
+      setDiscountMsg(t('discount.failed'));
     } finally {
       setApplyingDiscount(false);
     }
@@ -612,7 +614,7 @@ export default function AddCandidatePage() {
     setPaying(true);
     try {
       const token = getToken();
-      if (!token) throw new Error('Session expired');
+      if (!token) throw new Error(t('payment.sessionExpired'));
 
       // Wallet path: no Razorpay round-trip — the server debits the balance
       // and creates the candidate in one transaction, then we land on the
@@ -671,7 +673,7 @@ export default function AddCandidatePage() {
         },
       });
       if (!order.keyId) {
-        throw new Error('Payments are not configured. Please contact support.');
+        throw new Error(t('payment.notConfigured'));
       }
 
       // Razorpay opens as an overlay on this page — no redirect.
@@ -698,7 +700,7 @@ export default function AddCandidatePage() {
       }
 
       if (!response.razorpay_order_id || !response.razorpay_signature) {
-        throw new Error('Payment could not be confirmed. Please try again.');
+        throw new Error(t('payment.unconfirmed'));
       }
 
       const qs = new URLSearchParams({
@@ -711,7 +713,7 @@ export default function AddCandidatePage() {
       setError(
         err instanceof Error
           ? err.message
-          : 'Could not start the payment. Please try again.',
+          : t('payment.startFailed'),
       );
       setPaying(false);
     }
@@ -969,9 +971,7 @@ export default function AddCandidatePage() {
                   </label>
 
                   <p className="text-body-sm text-text-subheading">
-                    Upload at least one valid ID from Aadhaar, PAN, Voter ID, or
-                    Driving Licence. Every file is virus-scanned before it is
-                    stored.
+                    {t('uploadHelp')}
                   </p>
 
                   {idDocuments.length > 0 && (
@@ -1080,7 +1080,7 @@ export default function AddCandidatePage() {
               <InputFieldWrapper label={t('additional.fatherName')} optional>
                 <Input
                   value={form.fatherName}
-                  placeholder="e.g. Ramesh Kumar"
+                  placeholder={t('fatherNamePlaceholder')}
                   onChange={(event) => set('fatherName', event.target.value)}
                 />
               </InputFieldWrapper>
@@ -1181,8 +1181,7 @@ export default function AddCandidatePage() {
                 />
                 <p className="mt-1.5 flex items-start gap-1.5 text-body-sm text-text-subheading">
                   <ShieldCheck className="mt-0.5 size-3.5 shrink-0" />
-                  Only the candidate can verify their Aadhaar. After payment,
-                  we&apos;ll email them a secure DigiLocker link.
+                  {t('aadhaarHelp')}
                 </p>
               </InputFieldWrapper>
 
@@ -1339,7 +1338,7 @@ export default function AddCandidatePage() {
 
             <CollapsibleSection title={t('sections.contact')}>
               <div className="divide-y divide-border-default overflow-hidden rounded-lg border border-border-default">
-                <SummaryRow label="Name" value={form.name} />
+                <SummaryRow label={t('basic.name')} value={form.name} />
                 {form.email && <SummaryRow label={t('basic.email')} value={form.email} />}
                 {form.phone && <SummaryRow label={t('basic.phone')} value={form.phone} />}
                 {form.role && <SummaryRow label={t('basic.role')} value={form.role} />}
@@ -1378,12 +1377,12 @@ export default function AddCandidatePage() {
             <CollapsibleSection title={t('sections.identity')}>
               <div className="divide-y divide-border-default overflow-hidden rounded-lg border border-border-default">
                 <SummaryRow
-                  label="Aadhaar"
+                  label={t('additional.aadhaar')}
                   value={'XXXX XXXX ' + aadhaarDigits.slice(-4)}
                 />
                 <SummaryRow label="PAN" value={form.pan} />
                 <SummaryRow
-                  label="Driving licence"
+                  label={t('checks.dl')}
                   value={form.drivingLicense}
                 />
                 <SummaryRow label={t('additional.voterId')} value={form.voterId} />
@@ -1577,24 +1576,25 @@ export default function AddCandidatePage() {
               {discountPct > 0 && (
                 <div className="flex items-center justify-center gap-1.5 border-t border-border-success bg-surface-success px-4 py-2 text-body-sm font-medium text-success">
                   <Sparkles className="size-3.5" />
-                  You saved ₹{discountAmount.toLocaleString('en-IN')} on this
-                  verification
+                  {t('saved', { amount: discountAmount.toLocaleString('en-IN') })}
                 </div>
               )}
             </div>
 
             <div className="rounded-lg border border-border-default bg-white p-4">
               <p className="mb-3 text-body-sm text-text-body">
-                By checking the box below, you agree to our{' '}
-                <a
-                  href="/legal/terms"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="font-medium text-text-link underline underline-offset-2 hover:text-text-link-hover"
-                >
-                  {t('review.termsLink')}
-                </a>{' '}
-                and confirm you have obtained the candidate&apos;s consent.
+                {t.rich('termsIntro', {
+                  terms: () => (
+                    <a
+                      href="/legal/terms"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium text-text-link underline underline-offset-2 hover:text-text-link-hover"
+                    >
+                      {t('review.termsLink')}
+                    </a>
+                  ),
+                })}
               </p>
               <label className="flex w-fit cursor-pointer items-center gap-2 select-none">
                 <Checkbox
@@ -1611,7 +1611,7 @@ export default function AddCandidatePage() {
                   }}
                 />
                 <span className="text-body-md text-text-body">
-                  I accept the Terms &amp; Conditions
+                  {t('review.acceptTerms')}
                   <span className="text-text-error"> *</span>
                 </span>
               </label>
@@ -1731,7 +1731,13 @@ export default function AddCandidatePage() {
                   disabled={paying || !tcAgreed || walletShortfall}
                   rightIcon={<ArrowRight className="size-4" />}
                 >
-                  {paying ? (payMethod === 'wallet' ? 'Processing…' : 'Opening secure checkout…') : payMethod === 'wallet' ? `Pay ₹${finalAmount} from wallet` : `Proceed to pay ₹${finalAmount}`}
+                  {paying
+                    ? payMethod === 'wallet'
+                      ? t('pay.processing')
+                      : t('pay.opening')
+                    : payMethod === 'wallet'
+                      ? t('pay.fromWallet', { amount: finalAmount })
+                      : t('pay.proceed', { amount: finalAmount })}
                 </Button>
               </HoverTooltipAnchor>
             </div>
@@ -1799,7 +1805,13 @@ export default function AddCandidatePage() {
                 disabled={paying || !tcAgreed || walletShortfall}
                 rightIcon={<ArrowRight className="size-4" />}
               >
-                {paying ? (payMethod === 'wallet' ? 'Processing…' : 'Opening secure checkout…') : payMethod === 'wallet' ? `Pay ₹${finalAmount} from wallet` : `Proceed to pay ₹${finalAmount}`}
+                {paying
+                    ? payMethod === 'wallet'
+                      ? t('pay.processing')
+                      : t('pay.opening')
+                    : payMethod === 'wallet'
+                      ? t('pay.fromWallet', { amount: finalAmount })
+                      : t('pay.proceed', { amount: finalAmount })}
               </Button>
             </div>
           )}

@@ -199,6 +199,42 @@
       "contact": "Contact",
       "additional": "Additional details",
       "identity": "Identity"
+    },
+    "fatherNamePlaceholder": "e.g. Ramesh Kumar",
+    "aadhaarHelp": "Only the candidate can verify their Aadhaar. After payment, we'll email them a secure DigiLocker link.",
+    "uploadHelp": "Upload at least one valid ID from Aadhaar, PAN, Voter ID, or Driving Licence. Every file is virus-scanned before it is stored.",
+    "saved": "You saved ₹{amount} on this verification",
+    "termsIntro": "By checking the box below, you agree to our <terms></terms> and confirm you have obtained the candidate's consent.",
+    "pay": {
+      "fromWallet": "Pay ₹{amount} from wallet",
+      "proceed": "Proceed to pay ₹{amount}",
+      "processing": "Processing…",
+      "opening": "Opening secure checkout…",
+      "shortfall": "Your wallet is short by ₹{amount}. Contact us to top it up.",
+      "acceptTerms": "Accept the Terms & Conditions to continue."
+    },
+    "inline": {
+      "email": "Enter a valid email.",
+      "dob": "Use DD-MM-YYYY.",
+      "licence": "Licence number looks too short.",
+      "fileNumber": "File number looks too short.",
+      "nameRequired": "Please enter the candidate's name."
+    },
+    "upload": {
+      "type": "{file}: only PDF, JPG, or PNG files are allowed.",
+      "size": "{file}: file must be 10MB or smaller.",
+      "failed": "Could not upload {file}."
+    },
+    "discount": {
+      "applied": "Code {code} applied — {percent}% off",
+      "invalid": "That code is invalid or expired.",
+      "failed": "Could not validate the code. Please try again."
+    },
+    "payment": {
+      "sessionExpired": "Session expired",
+      "notConfigured": "Payments are not configured. Please contact support.",
+      "unconfirmed": "Payment could not be confirmed. Please try again.",
+      "startFailed": "Could not start the payment. Please try again."
     }
   }
 }
