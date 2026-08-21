@@ -1005,6 +1005,29 @@ export function renderSubjectReportHtml(s: ReportSubject): string {
   const allDone =
     conducted.length > 0 &&
     conducted.every((g) => TERMINAL_STATUSES.includes(g.status));
+  /**
+   * Field-level comparison tally across every conducted check.
+   *
+   * "Discrepancy" is the word the rest of this report already uses for a check
+   * whose details did not line up, so the count uses it too rather than
+   * introducing a second term for the same idea. Counted per FIELD, not per
+   * check: one wrong surname and one wrong DOB on the same document are two
+   * things for a client to look at, and collapsing them to "1 check" hides
+   * that.
+   *
+   * Partial is kept separate. A name matching on two of three tokens is a
+   * question, not a finding, and folding it into the headline number would
+   * overstate what the sources actually said.
+   */
+  const comparedRows = groups.flatMap((g) =>
+    g.instances.flatMap((i) => i.dataRows),
+  );
+  const discrepancyCount = comparedRows.filter(
+    (r) => r.match === 'mismatch',
+  ).length;
+  const partialCount = comparedRows.filter((r) => r.match === 'partial').length;
+  const comparedCount = comparedRows.filter((r) => r.match !== 'na').length;
+
   const companyInitial = (s.clientName || 'A').charAt(0).toUpperCase();
 
   const summaryRows = groups
@@ -1101,6 +1124,13 @@ html, body { font-family: Manrope, Arial, Helvetica, sans-serif; font-size: 10px
 .checks-table tr.sub td { border-top: 1px solid ${BRAND.borderSoft}; }
 .checks-table .sub-label { color: ${BRAND.primary}; padding-left: 18px; }
 .checks-table .sub-label .sub-letter { color: ${BRAND.textBody}; }
+.tally { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 4px; margin-bottom: 10px; }
+.tally-n { font-size: 18px; font-weight: 700; line-height: 1.2; }
+.tally-l { font-size: 9px; }
+.tally-clear { background: ${BRAND.successTint}; color: ${BRAND.textBody}; }
+.tally-clear .tally-n { color: ${BRAND.success}; }
+.tally-flag { background: ${BRAND.warningTint}; color: ${BRAND.textBody}; }
+.tally-flag .tally-n { color: ${BRAND.warning}; }
 .legend-table td:first-child, .legend-table th:first-child { width: 180px; vertical-align: middle; }
 .legend-table td { color: ${BRAND.textBody}; }
 @media print { * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; } }
@@ -1140,6 +1170,22 @@ html, body { font-family: Manrope, Arial, Helvetica, sans-serif; font-size: 10px
   <div class="break">
     <div class="section">
       <div class="section-header">Verification Summary</div>
+      ${
+        comparedCount > 0
+          ? `<div class="tally ${discrepancyCount > 0 ? 'tally-flag' : 'tally-clear'}">
+               <span class="tally-n">${discrepancyCount}</span>
+               <span class="tally-l">${
+                 discrepancyCount === 1 ? 'discrepancy' : 'discrepancies'
+               } found across ${comparedCount} compared field${
+                 comparedCount === 1 ? '' : 's'
+               }${
+                 partialCount > 0
+                   ? ` · ${partialCount} partial match${partialCount === 1 ? '' : 'es'}`
+                   : ''
+               }</span>
+             </div>`
+          : ''
+      }
       <table class="section-table checks-table">
         <thead><tr><th>No.</th><th>Verification Check</th><th>Status</th></tr></thead>
         <tbody>${summaryRows}</tbody>
