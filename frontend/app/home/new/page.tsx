@@ -816,12 +816,15 @@ export default function AddCandidatePage() {
             >
               <ArrowLeft className="size-5 transition-transform duration-300 ease-out group-hover:-translate-x-1" />
             </button>
-            <div className="min-w-0">
-              <div className="mb-1.5 flex items-center justify-between">
-                <span className="text-body-md font-semibold text-text-heading">
+            <div className="min-w-0 flex-1">
+              {/* gap-3 + shrink-0: with justify-between alone the two labels
+                  butt together once the step title is long, which every
+                  Hindi and Kannada title is. */}
+              <div className="mb-1.5 flex items-center justify-between gap-3">
+                <span className="min-w-0 truncate text-body-md font-semibold text-text-heading">
                   {stepItems[step - 1].title}
                 </span>
-                <span className="text-body-sm text-text-subheading">
+                <span className="shrink-0 text-body-sm text-text-subheading">
                   {t('stepOf', { step, total: stepItems.length })}
                 </span>
               </div>

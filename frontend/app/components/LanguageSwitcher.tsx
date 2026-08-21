@@ -44,14 +44,20 @@ export default function LanguageSwitcher({
   }
 
   return (
-    <label className={`inline-flex items-center gap-2 ${className}`}>
-      <Globe className="size-4 shrink-0 text-text-subheading" aria-hidden />
+    <label className={`inline-flex items-center gap-1.5 ${className}`}>
+      {/* The globe is decoration — the option text already says what the
+          control is, in the language it selects. Dropped below sm, where the
+          top bar has a logo, wallet balance and avatar competing for width. */}
+      <Globe
+        className="hidden size-4 shrink-0 text-text-subheading sm:block"
+        aria-hidden
+      />
       <span className="sr-only">{t('switch')}</span>
       <select
         value={locale}
         disabled={pending}
         onChange={(e) => choose(e.target.value)}
-        className="rounded-md border border-border-default bg-white px-2 py-1.5 text-body-sm text-text-body disabled:opacity-60"
+        className="max-w-[7.5rem] rounded-md border border-border-default bg-white px-2 py-1.5 text-body-sm text-text-body disabled:opacity-60"
       >
         {LOCALES.map((l) => (
           <option key={l} value={l}>
