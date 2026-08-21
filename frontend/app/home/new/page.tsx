@@ -40,7 +40,6 @@ import { openRazorpayCheckout } from '../../lib/razorpay';
 import { getToken } from '../../lib/session';
 import { doLogout } from '../../lib/logout';
 import { ONLINE_PAYMENT_ENABLED } from '../../lib/feature-flags';
-import LanguageSwitcher from '../../components/LanguageSwitcher';
 import { CLIENT_NAV } from '../../components/Sidebar';
 import AppShell from '../../components/AppShell';
 import {
@@ -780,7 +779,7 @@ export default function AddCandidatePage() {
           >
             <ArrowLeft className="size-5 transition-transform duration-300 ease-out group-hover:-translate-x-1" />
           </Link>
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0">
             <h1 className="text-h4 font-semibold tracking-h3 text-text-heading md:text-h3">
               {t('fillYourself')}
             </h1>
@@ -788,7 +787,6 @@ export default function AddCandidatePage() {
               {t('subtitle')}
             </p>
           </div>
-          <LanguageSwitcher className="mt-1 shrink-0" />
         </div>
 
         <div className="flex flex-col gap-6 lg:flex-row lg:items-stretch lg:gap-0">
@@ -816,7 +814,7 @@ export default function AddCandidatePage() {
             >
               <ArrowLeft className="size-5 transition-transform duration-300 ease-out group-hover:-translate-x-1" />
             </button>
-            <div className="min-w-0 flex-1">
+            <div className="min-w-0">
               <div className="mb-1.5 flex items-center justify-between">
                 <span className="text-body-md font-semibold text-text-heading">
                   {stepItems[step - 1].title}
@@ -1444,7 +1442,7 @@ export default function AddCandidatePage() {
                         className="flex items-start gap-2.5 rounded-lg border border-border-warning bg-surface-warning px-3.5 py-3"
                       >
                         <XCircle className="mt-0.5 size-4 shrink-0 text-text-warning" />
-                        <div className="min-w-0 flex-1">
+                        <div className="min-w-0">
                           <div className="text-body-sm font-medium text-text-heading">
                             {c.label}
                           </div>

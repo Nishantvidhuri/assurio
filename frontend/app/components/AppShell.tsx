@@ -26,6 +26,7 @@ import {
 } from '@/shared/components/ui';
 import { cn } from '@/shared/lib/utils';
 import WalletPill from './WalletPill';
+import LanguageSwitcher from './LanguageSwitcher';
 import type { SidebarItem, SidebarUser } from './Sidebar';
 
 export interface Crumb {
@@ -188,7 +189,16 @@ export default function AppShell({
           profileMenuItems={profileMenuItems}
           // Client accounts spend from the wallet, so the balance rides along
           // in the top bar on every page (admins have no wallet).
-          creditsSlot={user.role === 'admin' ? undefined : <WalletPill />}
+          // The language switcher belongs in the shell, not on one page: it has
+          // to be reachable from wherever someone happens to be, at every
+          // breakpoint. On /home/new it previously sat in a lg:flex-only
+          // header, so it simply did not exist on a phone.
+          creditsSlot={
+            <div className="flex items-center gap-2">
+              <LanguageSwitcher />
+              {user.role === 'admin' ? null : <WalletPill />}
+            </div>
+          }
           breadcrumbs={
             <Breadcrumbs>
               {(breadcrumbs ?? [{ label: activeItem?.label ?? 'Dashboard' }]).map(
