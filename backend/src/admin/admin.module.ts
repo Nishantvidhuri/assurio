@@ -5,6 +5,7 @@ import { SubjectsService } from '../subjects/subjects.service';
 import { UsersService } from '../users/users.service';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
+import { WalletModule } from '../wallet/wallet.module';
 import { InvoiceLifecycleService } from '../payments/invoice-lifecycle.service';
 import { ReportModule } from '../subjects/report.module';
 
@@ -13,6 +14,7 @@ import { ReportModule } from '../subjects/report.module';
     AuthModule,
     ReportModule,
     BullModule.registerQueue({ name: 'candidate-invite' }),
+    WalletModule,
   ],
   controllers: [AdminController],
   providers: [

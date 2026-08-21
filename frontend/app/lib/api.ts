@@ -676,6 +676,8 @@ export interface AdminClientRow {
   revenue?: number;
   /** Profit (₹) = revenue − apiCost. */
   profit?: number;
+  /** Wallet balance in paise. Only present on the client detail response. */
+  walletBalancePaise?: number;
   createdAt?: string;
 }
 
@@ -1259,6 +1261,32 @@ export function adminClient(
   id: string,
 ): Promise<AdminClientDetail> {
   return request<AdminClientDetail>(`/admin/clients/${encodeURIComponent(id)}`);
+}
+
+export interface AdminWalletCreditResult {
+  /** False when this requestId had already been applied — nothing changed. */
+  applied: boolean;
+  balancePaise: number;
+  balanceRupees: number;
+}
+
+/**
+ * Admin: credit a client's wallet by hand (bank transfer, goodwill, correction).
+ *
+ * `amountPaise` is integer paise — every ledger amount in this system is, and
+ * sending rupees would put a float in charge of how much money someone has.
+ * `requestId` is generated once per attempt so a double-submit credits once.
+ */
+export function adminCreditWallet(
+  id: string,
+  amountPaise: number,
+  note: string,
+  requestId: string,
+): Promise<AdminWalletCreditResult> {
+  return request<AdminWalletCreditResult>(
+    `/admin/clients/${encodeURIComponent(id)}/wallet/credit`,
+    { method: 'POST', body: JSON.stringify({ amountPaise, note, requestId }) },
+  );
 }
 
 /* ── Internal per-client invoices (ported from Recriauth) ── */

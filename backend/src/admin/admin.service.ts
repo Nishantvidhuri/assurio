@@ -245,14 +245,24 @@ export class AdminService {
     });
   }
 
+  /** The client user, or null. Light lookup for callers that only need to
+   *  confirm the account exists and is not an admin. */
+  async findClientUser(id: string) {
+    const user = await this.prisma.user.findUnique({ where: { id } });
+    return !user || user.role === 'admin' ? null : user;
+  }
+
   async getClient(id: string) {
     const user = await this.prisma.user.findUnique({ where: { id } });
     if (!user || user.role === 'admin') throw new NotFoundException('Client not found');
 
-    const docs = await this.prisma.subject.findMany({
-      where: { userId: id },
-      orderBy: { updatedAt: 'desc' },
-    });
+    const [docs, wallet] = await Promise.all([
+      this.prisma.subject.findMany({
+        where: { userId: id },
+        orderBy: { updatedAt: 'desc' },
+      }),
+      this.prisma.wallet.findUnique({ where: { userId: id } }),
+    ]);
 
     const subjects = docs.map((d) => {
       const prog = subjectProgress(d);
@@ -302,6 +312,10 @@ export class AdminService {
         email: user.email,
         candidateCount: docs.length,
         createdAt: user.createdAt,
+        // Read from the wallet row, not summed from the ledger: the row is the
+        // balance of record and the ledger is its history. A wallet that has
+        // never been touched has no row yet, which is a zero balance.
+        walletBalancePaise: wallet?.balancePaise ?? 0,
       },
       subjects,
       drafts,

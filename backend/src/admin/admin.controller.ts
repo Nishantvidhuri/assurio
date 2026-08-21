@@ -1,10 +1,13 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   ForbiddenException,
   Get,
+  NotFoundException,
   Param,
   Patch,
+  Post,
   Query,
   Req,
   UseGuards,
@@ -13,6 +16,10 @@ import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SubjectsService } from '../subjects/subjects.service';
 import { AdminService } from './admin.service';
+import { AdminWalletCreditDto } from './admin-wallet-credit.dto';
+import { WalletService } from '../wallet/wallet.service';
+import { adminCreditKey, paiseToRupees } from '../wallet/wallet.constants';
+import { randomUUID } from 'crypto';
 import {
   InvoiceLifecycleService,
   type ListFilters,
@@ -29,7 +36,52 @@ export class AdminController {
     private readonly admin: AdminService,
     private readonly subjectsSvc: SubjectsService,
     private readonly invoiceLifecycle: InvoiceLifecycleService,
+    private readonly wallet: WalletService,
   ) {}
+
+  /**
+   * Credit a client's wallet by hand — money received outside Razorpay, a
+   * goodwill credit, a correction.
+   *
+   * Goes through the same ledger as every other movement rather than touching
+   * the balance directly: the entry is immutable, attributed to the admin who
+   * made it, carries their stated reason, and is keyed so a resubmit cannot
+   * double-credit. `applied: false` means the key had already been used and
+   * nothing changed — the caller can tell a duplicate from a fresh credit.
+   */
+  @Post('clients/:id/wallet/credit')
+  async creditClientWallet(
+    @Req() req: RequestWithUser,
+    @Param('id') id: string,
+    @Body() body: AdminWalletCreditDto,
+  ) {
+    this.requireAdmin(req);
+    const client = await this.admin.findClientUser(id);
+    if (!client) throw new NotFoundException('Client not found');
+    if (client.role === 'admin') {
+      throw new BadRequestException('Admins do not hold a client wallet');
+    }
+
+    const note = body.note.trim();
+    if (!note) {
+      throw new BadRequestException('A reason is required for a manual credit');
+    }
+
+    const result = await this.wallet.credit({
+      userId: id,
+      reason: 'ADMIN_CREDIT',
+      amountPaise: body.amountPaise,
+      idempotencyKey: adminCreditKey(body.requestId || randomUUID()),
+      note,
+      createdByUserId: req.user?.sub,
+    });
+
+    return {
+      applied: result.applied,
+      balancePaise: result.balancePaise,
+      balanceRupees: paiseToRupees(result.balancePaise),
+    };
+  }
 
   // ── Internal per-client invoices ledger (read-only) ──
   // Our billing is pay-first: the client pays (Razorpay) and the invoice is

@@ -8,12 +8,15 @@ import {
   ArrowLeft,
   CheckCircle2,
   ChevronDown,
+  Plus,
   Search,
   Users,
+  Wallet,
   X,
 } from 'lucide-react';
 import {
   adminClient,
+  adminCreditWallet,
   me,
   type AdminClientDetail,
   type AdminSubjectRow,
@@ -29,6 +32,9 @@ import {
   FilterChip,
   Pagination,
   SearchBar,
+  Button,
+  Input,
+  InputFieldWrapper,
   Tag,
   Table,
   TableBody,
@@ -75,6 +81,16 @@ function checkProgressStatus(
   return { label: status || 'Invited', variant: 'Warning' };
 }
 
+/** Paise → "₹1,234.50". Formatting only ever happens at the edge; every
+ *  amount in the system travels as integer paise. */
+function formatRupees(paise: number): string {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    minimumFractionDigits: 2,
+  }).format(paise / 100);
+}
+
 function riskClassBadge(risk?: string | null): string {
   const r = (risk || '').toLowerCase();
   if (r.includes('no risk')) return 'risk-no';
@@ -95,6 +111,141 @@ function riskClass(risk?: string | null): string {
   return 'risk-no';
 }
 
+
+/**
+ * Credit a client's wallet by hand.
+ *
+ * Amount is entered in rupees because that is what an operator thinks in, and
+ * converted to integer paise here — the wire and the ledger only ever carry
+ * paise. The requestId is minted once when the dialog opens, so a double
+ * submit or a retry lands as one credit rather than two.
+ */
+function TopUpModal({
+  clientName,
+  balancePaise,
+  error,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  clientName: string;
+  balancePaise: number;
+  error: string;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: (amountPaise: number, note: string, requestId: string) => void;
+}) {
+  const [amount, setAmount] = useState('');
+  const [note, setNote] = useState('');
+  const [requestId] = useState(() =>
+    typeof crypto !== 'undefined' && crypto.randomUUID
+      ? crypto.randomUUID()
+      : String(Date.now()),
+  );
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !busy) onCancel();
+    };
+    document.addEventListener('keydown', onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [busy, onCancel]);
+
+  const rupees = Number(amount);
+  const valid = Number.isFinite(rupees) && rupees >= 1 && rupees <= 200000;
+  const amountBad = amount.trim() !== '' && !valid;
+  const ready = valid && note.trim().length > 0;
+  // Round at the boundary: 49.999 must not become 4999.9 paise.
+  const paise = Math.round(rupees * 100);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget && !busy) onCancel();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Add money to wallet"
+        className="w-full max-w-md overflow-hidden rounded-xl border border-border-default bg-white shadow-lg"
+      >
+        <div className="flex items-start gap-3 border-b border-border-default px-5 py-4">
+          <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full bg-surface-info text-primary">
+            <Wallet size={18} />
+          </span>
+          <div className="min-w-0">
+            <h2 className="text-body-lg font-semibold text-text-heading">
+              Add money to wallet
+            </h2>
+            <p className="mt-0.5 text-body-sm text-text-subheading">
+              {clientName} · balance {formatRupees(balancePaise)}
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-4 px-5 py-4">
+          <InputFieldWrapper
+            label="Amount (₹)"
+            required
+            error={amountBad ? 'Enter an amount between ₹1 and ₹2,00,000' : undefined}
+          >
+            <Input
+              type="number"
+              inputMode="decimal"
+              min={1}
+              max={200000}
+              value={amount}
+              placeholder="5000"
+              disabled={busy}
+              onChange={(e) => setAmount(e.target.value)}
+            />
+          </InputFieldWrapper>
+
+          <InputFieldWrapper label="Reason" required>
+            <Input
+              value={note}
+              placeholder="e.g. NEFT received 21 Aug, ref HDFC0001234"
+              disabled={busy}
+              onChange={(e) => setNote(e.target.value)}
+            />
+          </InputFieldWrapper>
+
+          <div className="rounded-lg border border-border-warning bg-surface-warning px-4 py-2.5 text-body-sm text-warning-900">
+            This credits real balance the client can spend on checks. The entry
+            is permanent and recorded against your account.
+          </div>
+
+          {error && (
+            <div className="rounded-lg border border-border-error bg-surface-error px-4 py-2.5 text-body-sm text-failure">
+              {error}
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-border-default bg-neutral-100 px-5 py-3">
+          <Button variant="secondary" onClick={onCancel} disabled={busy}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() => onConfirm(paise, note.trim(), requestId)}
+            disabled={busy || !ready}
+            isLoading={busy}
+          >
+            {valid ? `Add ${formatRupees(paise)}` : 'Add money'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminClientPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -109,6 +260,10 @@ export default function AdminClientPage() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  // Manual wallet top-up (admin only).
+  const [topUpOpen, setTopUpOpen] = useState(false);
+  const [topUpBusy, setTopUpBusy] = useState(false);
+  const [topUpError, setTopUpError] = useState('');
 
   function toggleSort(key: 'name' | 'status') {
     if (sortKey === key) {
@@ -159,6 +314,30 @@ export default function AdminClientPage() {
 
   function handleLogout() {
     doLogout(router);
+  }
+
+  async function handleTopUp(amountPaise: number, note: string, requestId: string) {
+    const id = params?.id;
+    if (!id) return;
+    setTopUpBusy(true);
+    setTopUpError('');
+    try {
+      const res = await adminCreditWallet(id, amountPaise, note, requestId);
+      // Reflect the authoritative balance the ledger returned rather than
+      // adding locally — if the request was a duplicate, nothing moved.
+      setDetail((d) =>
+        d
+          ? { ...d, client: { ...d.client, walletBalancePaise: res.balancePaise } }
+          : d,
+      );
+      setTopUpOpen(false);
+    } catch (err) {
+      setTopUpError(
+        err instanceof Error ? err.message : 'Could not credit this wallet.',
+      );
+    } finally {
+      setTopUpBusy(false);
+    }
   }
 
   const filteredSubjects = useMemo(() => {
@@ -222,6 +401,22 @@ export default function AdminClientPage() {
                 {detail.client.email}
               </span>
             </header>
+
+            {/* ── Wallet ── */}
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border-default bg-white px-5 py-4">
+              <div>
+                <div className="text-body-sm text-text-placeholder">
+                  Wallet balance
+                </div>
+                <div className="mt-1 text-2xl font-semibold text-text-heading">
+                  {formatRupees(detail.client.walletBalancePaise ?? 0)}
+                </div>
+              </div>
+              <Button variant="secondary" onClick={() => setTopUpOpen(true)}>
+                <Plus size={15} />
+                Add money
+              </Button>
+            </div>
 
             {/* ── Tabs: Candidates | Invoices ── */}
             <div className="mb-2 flex items-center gap-1 border-b border-border-default">
@@ -441,6 +636,19 @@ export default function AdminClientPage() {
             </section>
             )}
           </>
+        )}
+
+        {topUpOpen && detail && (
+          <TopUpModal
+            clientName={detail.client.name}
+            balancePaise={detail.client.walletBalancePaise ?? 0}
+            error={topUpError}
+            busy={topUpBusy}
+            onCancel={() => setTopUpOpen(false)}
+            onConfirm={(paise, note, requestId) =>
+              void handleTopUp(paise, note, requestId)
+            }
+          />
         )}
       </AppShell>
   );

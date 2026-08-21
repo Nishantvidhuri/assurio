@@ -56,3 +56,17 @@ export function refundKey(subjectId: string): string {
 export function topupKey(razorpayPaymentId: string): string {
   return `topup:rzp:${razorpayPaymentId}`;
 }
+
+/**
+ * One admin credit per operator intent — ever.
+ *
+ * The other keys name an external event (a Razorpay payment, a subject's
+ * charge) that is unique by nature. A manual credit has no such event: the same
+ * admin may legitimately credit the same client ₹500 twice in a day, so the key
+ * cannot be derived from the amount or the client. The caller supplies an id
+ * generated once per intent, and a resubmitted form reuses it — so a double
+ * click, a retried request or an impatient refresh credits exactly once.
+ */
+export function adminCreditKey(requestId: string): string {
+  return `admin-credit:${requestId}`;
+}
