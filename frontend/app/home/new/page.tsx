@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock,
+  CreditCard,
   FileText,
   Loader2,
   ReceiptText,
@@ -18,6 +19,7 @@ import {
   Sparkles,
   Tag,
   UploadCloud,
+  Wallet,
   X,
   XCircle,
   Zap,
@@ -1581,46 +1583,93 @@ export default function AddCandidatePage() {
             </div>
 
             {walletCovers && (
-              <div className="flex flex-col gap-2 rounded-lg border border-border-default bg-white p-4">
-                <div className="text-body-md font-medium text-text-heading">
+              <fieldset className="rounded-lg border border-border-default bg-white p-4">
+                <legend className="px-1 text-body-md font-medium text-text-heading">
                   Pay using
+                </legend>
+                {/* Two selectable tiles rather than bare radios: the choice
+                    carries real consequences (wallet is refundable if consent
+                    is declined, a card payment is not), so each option states
+                    its own terms instead of relying on a footnote that changes
+                    under the selection. */}
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  {[
+                    {
+                      value: 'wallet' as const,
+                      icon: <Wallet className="size-[18px]" />,
+                      title: 'Wallet balance',
+                      meta: `₹${(walletInr ?? 0).toLocaleString('en-IN')} available`,
+                      note: 'Refunded automatically if consent is declined',
+                    },
+                    {
+                      value: 'razorpay' as const,
+                      icon: <CreditCard className="size-[18px]" />,
+                      title: 'Card / UPI',
+                      meta: 'via Razorpay',
+                      note: 'Secure checkout opens in a popup',
+                    },
+                  ].map((opt) => {
+                    const selected = payMethod === opt.value;
+                    return (
+                      <label
+                        key={opt.value}
+                        className={`relative flex cursor-pointer gap-3 rounded-lg border p-3.5 transition-colors select-none ${
+                          selected
+                            ? 'border-primary bg-primary-bg ring-1 ring-primary'
+                            : 'border-border-default bg-white hover:border-neutral-500 hover:bg-neutral-100'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="pay-method"
+                          checked={selected}
+                          onChange={() => setPayMethod(opt.value)}
+                          /* Visually hidden, not removed — the label stays
+                             clickable, arrow keys still move between options
+                             and screen readers still announce a radio group. */
+                          className="sr-only"
+                        />
+                        <span
+                          className={`mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full ${
+                            selected
+                              ? 'bg-primary text-white'
+                              : 'bg-neutral-200 text-text-subheading'
+                          }`}
+                        >
+                          {opt.icon}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="flex items-center gap-1.5">
+                            <span className="text-body-md font-medium text-text-heading">
+                              {opt.title}
+                            </span>
+                            {selected && (
+                              <CheckCircle2 className="size-4 shrink-0 text-primary" />
+                            )}
+                          </span>
+                          <span className="mt-0.5 block text-body-sm text-text-subheading">
+                            {opt.meta}
+                          </span>
+                          <span className="mt-1 block text-body-sm text-text-placeholder">
+                            {opt.note}
+                          </span>
+                        </span>
+                      </label>
+                    );
+                  })}
                 </div>
-                <label className="flex w-fit cursor-pointer items-center gap-2 select-none">
-                  <input
-                    type="radio"
-                    name="pay-method"
-                    checked={payMethod === 'wallet'}
-                    onChange={() => setPayMethod('wallet')}
-                    className="accent-primary"
-                  />
-                  <span className="text-body-md text-text-body">
-                    Wallet balance{' '}
-                    <span className="text-text-subheading">
-                      (₹{(walletInr ?? 0).toLocaleString('en-IN')} available)
-                    </span>
-                  </span>
-                </label>
-                <label className="flex w-fit cursor-pointer items-center gap-2 select-none">
-                  <input
-                    type="radio"
-                    name="pay-method"
-                    checked={payMethod === 'razorpay'}
-                    onChange={() => setPayMethod('razorpay')}
-                    className="accent-primary"
-                  />
-                  <span className="text-body-md text-text-body">
-                    Card / UPI via Razorpay
-                  </span>
-                </label>
-              </div>
+              </fieldset>
             )}
 
-            <div className="inline-flex items-center gap-1.5 text-body-sm text-text-subheading">
-              <ShieldCheck className="size-3.5" />
-              {payMethod === 'wallet'
-                ? 'Paid from your Recrify wallet — auto-refunded if the candidate declines consent'
-                : 'Secured by Razorpay'}
-            </div>
+            {/* Only when there is no choice to make — with the tiles on screen
+                each option already states its own terms, and repeating them
+                here just says the same thing twice. */}
+            {!walletCovers && (
+              <div className="inline-flex items-center gap-1.5 text-body-sm text-text-subheading">
+                <ShieldCheck className="size-3.5" />
+                Secured by Razorpay
+              </div>
+            )}
 
             <Divider />
 
