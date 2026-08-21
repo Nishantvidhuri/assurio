@@ -235,6 +235,24 @@
       "notConfigured": "Payments are not configured. Please contact support.",
       "unconfirmed": "Payment could not be confirmed. Please try again.",
       "startFailed": "Could not start the payment. Please try again."
+    },
+    "needs": "Needs {fields}",
+    "fields": {
+      "name": "Name",
+      "email": "Email",
+      "phone": "Phone",
+      "role": "Role",
+      "gender": "Gender",
+      "fatherName": "Father's name",
+      "permanentAddress": "Permanent address",
+      "pincode": "Pincode",
+      "aadhaar": "Aadhaar number",
+      "pan": "PAN",
+      "dob": "Date of birth",
+      "drivingLicense": "Driving licence",
+      "voterId": "Voter ID",
+      "passportFileNo": "Passport file number",
+      "uan": "UAN"
     }
   }
 }

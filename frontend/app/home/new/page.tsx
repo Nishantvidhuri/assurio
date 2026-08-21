@@ -56,7 +56,6 @@ import {
   saveServerDraft,
 } from './server-draft';
 import {
-  missingLabels,
   performableEta,
   splitChecks,
   type CheckFieldKey,
@@ -1416,7 +1415,7 @@ export default function AddCandidatePage() {
                         >
                           <CheckCircle2 className="size-4 shrink-0 text-icon-success" />
                           <span className="flex-1 text-body-sm font-medium text-text-heading">
-                            {c.label}
+                            {t(`checks.${c.id}`)}
                           </span>
                           <span className="inline-flex shrink-0 items-center gap-1 text-body-sm text-text-subheading">
                             {eta === 'Instant on consent' ? (
@@ -1424,7 +1423,7 @@ export default function AddCandidatePage() {
                             ) : (
                               <Clock className="size-3" />
                             )}
-                            {eta}
+                            {t(`eta.${eta}`)}
                           </span>
                         </RevealBox>
                       );
@@ -1448,11 +1447,15 @@ export default function AddCandidatePage() {
                         <XCircle className="mt-0.5 size-4 shrink-0 text-text-warning" />
                         <div className="min-w-0">
                           <div className="text-body-sm font-medium text-text-heading">
-                            {c.label}
+                            {t(`checks.${c.id}`)}
                           </div>
                           <div className="flex items-center justify-between gap-x-2">
                             <span className="min-w-0 flex-1 text-body-sm text-warning-900">
-                              Needs {missingLabels(c.missing)}
+                              {t('needs', {
+                                fields: c.missing
+                                  .map((k) => t(`fields.${k}`))
+                                  .join(', '),
+                              })}
                             </span>
                             <button
                               type="button"
