@@ -8,8 +8,10 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { CheckCircle2, ShieldCheck, ExternalLink, Loader2, AlertTriangle } from 'lucide-react';
 import TermsBox from '../../components/TermsBox';
+import LanguageSwitcher from '../../components/LanguageSwitcher';
 import {
   Button,
   Divider,
@@ -37,6 +39,7 @@ type DlState = 'idle' | 'initializing' | 'awaiting' | 'fetching' | 'failed';
 export default function VerifyPage() {
   const params = useParams<{ token: string }>();
   const token = params?.token ?? '';
+  const t = useTranslations('verify');
 
   const [info, setInfo] = useState<VerifyLinkInfo | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -85,7 +88,7 @@ export default function VerifyPage() {
         if (res.termsAccepted) setAgreed(true);
       })
       .catch((err) => {
-        if (!cancelled) setLoadError(err instanceof Error ? err.message : 'Invalid link');
+        if (!cancelled) setLoadError(err instanceof Error ? err.message : t('aadhaar.invalidLink'));
       });
     return () => {
       cancelled = true;
@@ -107,7 +110,7 @@ export default function VerifyPage() {
       await verifyLinkFetchAadhaar(token);
       setStep('done');
     } catch (err) {
-      setDlError(err instanceof Error ? err.message : 'Could not fetch Aadhaar.');
+      setDlError(err instanceof Error ? err.message : t('aadhaar.fetchError'));
       setDl('failed');
     }
   }, [token, stopPolling]);
@@ -120,7 +123,7 @@ export default function VerifyPage() {
           if (s.completed) void finishAadhaar();
           else if (s.failed) {
             stopPolling();
-            setDlError(s.errorDescription || 'DigiLocker verification failed.');
+            setDlError(s.errorDescription || t('aadhaar.failedError'));
             setDl('failed');
           }
         })
@@ -153,7 +156,7 @@ export default function VerifyPage() {
       setStep('declined');
     } catch (err) {
       setDeclineError(
-        err instanceof Error ? err.message : 'Could not record your decision.',
+        err instanceof Error ? err.message : t('decline.failed'),
       );
     } finally {
       setSubmitting(false);
@@ -207,7 +210,7 @@ export default function VerifyPage() {
       if (url) window.open(url, '_blank', 'noopener');
       setDl('awaiting');
     } catch (err) {
-      setDlError(err instanceof Error ? err.message : 'Could not start DigiLocker.');
+      setDlError(err instanceof Error ? err.message : t('aadhaar.startError'));
       setDl('failed');
     }
   }
@@ -236,10 +239,10 @@ export default function VerifyPage() {
         ? 'ongoing'
         : 'not_started';
   const stepItems: StepperItem[] = [
-    { id: 'consent', title: 'Consent', status: stepStatus(0) },
-    { id: 'form', title: 'Your details', status: stepStatus(1) },
+    { id: 'consent', title: t('steps.consent'), status: stepStatus(0) },
+    { id: 'form', title: t('steps.details'), status: stepStatus(1) },
     ...(aadhaarRequired
-      ? [{ id: 'aadhaar', title: 'Aadhaar', status: stepStatus(2) }]
+      ? [{ id: 'aadhaar', title: t('steps.aadhaar'), status: stepStatus(2) }]
       : []),
   ];
   // Allow jumping back to an already-completed / current step only.
@@ -253,7 +256,7 @@ export default function VerifyPage() {
       <Shell>
         <div className="flex flex-col items-center gap-3 py-10 text-center">
           <AlertTriangle className="size-10 text-failure" />
-          <h1 className="text-xl font-semibold text-text-heading">Link not valid</h1>
+          <h1 className="text-xl font-semibold text-text-heading">{t('invalid.title')}</h1>
           <p className="max-w-sm text-body-md text-text-body">{loadError}</p>
         </div>
       </Shell>
@@ -277,11 +280,10 @@ export default function VerifyPage() {
         <div className="flex flex-col items-center gap-3 text-center">
           <AlertTriangle className="size-10 text-warning" />
           <h1 className="text-xl font-semibold text-text-heading">
-            Verification declined
+            {t('decline.doneTitle')}
           </h1>
           <p className="max-w-md text-body-md text-text-body">
-            Thanks for letting us know. This request is now closed and none of
-            your details were checked. You can safely close this page.
+            {t('decline.doneBody')}
           </p>
         </div>
       </Shell>
@@ -293,10 +295,10 @@ export default function VerifyPage() {
       {/* Page header */}
       <div className="mb-6 flex flex-col gap-1">
         <h1 className="text-h3 font-semibold tracking-h3 text-text-heading">
-          Candidate Form
+          {t('pageTitle')}
         </h1>
         <p className="text-body-md text-text-subheading">
-          This information will be used to complete your background verification.
+          {t('pageSubtitle')}
         </p>
       </div>
 
@@ -349,12 +351,10 @@ export default function VerifyPage() {
               </span>
               <div className="min-w-0">
                 <h1 className="text-base font-semibold text-text-heading">
-                  {info.clientName} has started your background verification
+                  {t('consent.heading', { client: info.clientName })}
                 </h1>
                 <p className="mt-0.5 text-body-sm text-text-subheading">
-                  Review the Terms &amp; Conditions below, then give your consent
-                  to continue. You can decline any time — nothing about you is
-                  verified or stored.
+                  {t('consent.body')}
                 </p>
               </div>
             </div>
@@ -368,7 +368,7 @@ export default function VerifyPage() {
                 disabled={submitting}
                 className="w-full rounded-lg"
               >
-                I refuse to start
+                {t('consent.refuse')}
               </Button>
             </div>
           </div>
@@ -377,11 +377,10 @@ export default function VerifyPage() {
           {info.checks && info.checks.length > 0 && (
             <div className="rounded-xl border border-border-default bg-neutral-100 p-4">
               <h2 className="text-body-md font-semibold text-text-heading">
-                What will be verified
+                {t('consent.checksTitle')}
               </h2>
               <p className="mt-0.5 text-body-sm text-text-subheading">
-                These checks start only after you tap Agree &amp; continue —
-                nothing has been checked yet.
+                {t('consent.checksBody')}
               </p>
               <ul className="mt-3 grid gap-2 sm:grid-cols-2">
                 {info.checks.map((c) => (
@@ -399,13 +398,10 @@ export default function VerifyPage() {
           <TermsBox
             agreed={agreed}
             onAgreedChange={setAgreed}
-            label={
-              <>
-                I, <strong>{info.candidateName}</strong>, have read and agree to the
-                Terms &amp; Conditions, and consent to Recrify verifying my details
-                on behalf of {info.clientName}.
-              </>
-            }
+            label={t('consent.agreeLabel', {
+              name: info.candidateName,
+              client: info.clientName,
+            })}
           />
           <Button
             variant="primary"
@@ -414,7 +410,7 @@ export default function VerifyPage() {
             isLoading={submitting}
             className="h-12! w-full rounded-lg text-body-lg!"
           >
-            Agree &amp; continue
+            {t('consent.agreeButton')}
           </Button>
         </div>
       )}
@@ -423,32 +419,32 @@ export default function VerifyPage() {
         <div className="flex flex-col gap-6">
           <div className="space-y-1">
             <h2 className="text-base font-semibold tracking-h4 text-text-heading md:text-h4">
-              Personal Information
+              {t('form.title')}
             </h2>
             <p className="text-body-sm text-text-subheading">
-              Make sure these match your Aadhaar records.
+              {t('form.subtitle')}
             </p>
           </div>
 
           <div className="grid gap-x-5 gap-y-5 md:grid-cols-2">
-            <InputFieldWrapper label="Name" required className="md:col-span-2">
+            <InputFieldWrapper label={t('form.name')} required className="md:col-span-2">
               <Input
                 value={name}
-                placeholder="Enter name"
+                placeholder={t('form.namePlaceholder')}
                 onChange={(e) => setName(e.target.value)}
               />
             </InputFieldWrapper>
 
-            <InputFieldWrapper label="Email" required>
+            <InputFieldWrapper label={t('form.email')} required>
               <Input
                 type="email"
                 value={email}
-                placeholder="Enter your email"
+                placeholder={t('form.emailPlaceholder')}
                 onChange={(e) => setEmail(e.target.value)}
               />
             </InputFieldWrapper>
 
-            <InputFieldWrapper label="Contact Number" required>
+            <InputFieldWrapper label={t('form.phone')} required>
               <PhoneInput
                 defaultCountry="IN"
                 value={phone}
@@ -458,18 +454,18 @@ export default function VerifyPage() {
 
             {aadhaarRequired && (
             <InputFieldWrapper
-              label="Aadhaar Number"
+              label={t('form.aadhaar')}
               required
               className="md:col-span-2"
               error={
                 aadhaar.length > 0 && !aadhaarValid
-                  ? `Aadhaar number must be exactly 12 digits (${aadhaarDigits.length}/12).`
+                  ? t('form.aadhaarError', { count: aadhaarDigits.length })
                   : undefined
               }
             >
               <Input
                 value={aadhaar}
-                placeholder="Enter 12-digit Aadhaar number"
+                placeholder={t('form.aadhaarPlaceholder')}
                 inputMode="numeric"
                 maxLength={12}
                 onChange={(e) =>
@@ -486,7 +482,7 @@ export default function VerifyPage() {
             disabled={submitting || !formValid}
             isLoading={submitting}
           >
-            Continue
+            {t('form.continue')}
           </Button>
         </div>
       )}
@@ -495,23 +491,22 @@ export default function VerifyPage() {
         <div className="flex flex-col gap-5">
           <div>
             <h1 className="text-xl font-semibold text-text-heading">
-              Verify your Aadhaar
+              {t('aadhaar.title')}
             </h1>
             <p className="mt-1 text-body-md text-text-body">
-              We use DigiLocker (Government of India) to securely verify your
-              Aadhaar. You&apos;ll be redirected to give consent.
+              {t('aadhaar.body')}
             </p>
           </div>
 
           {dl === 'idle' && (
             <Button variant="primary" onClick={() => void startDigiLocker()}>
-              <ShieldCheck size={16} /> Verify with DigiLocker
+              <ShieldCheck size={16} /> {t('aadhaar.start')}
             </Button>
           )}
 
           {dl === 'initializing' && (
             <div className="flex items-center gap-2 text-body-md text-text-body">
-              <Loader2 className="size-4 animate-spin" /> Starting DigiLocker…
+              <Loader2 className="size-4 animate-spin" /> {t('aadhaar.starting')}
             </div>
           )}
 
@@ -519,11 +514,10 @@ export default function VerifyPage() {
             <div className="flex flex-col gap-3 rounded-xl border border-border-default bg-neutral-100 p-4">
               <div className="flex items-center gap-2 text-body-md font-medium text-text-heading">
                 <Loader2 className="size-4 animate-spin text-primary" />
-                Complete the consent in the DigiLocker tab…
+                {t('aadhaar.awaitingTitle')}
               </div>
               <p className="text-body-sm text-text-body">
-                This page will update automatically once you finish. If the tab
-                didn&apos;t open, use the button below.
+                {t('aadhaar.awaitingBody')}
               </p>
               {dlUrl && (
                 <a
@@ -532,7 +526,7 @@ export default function VerifyPage() {
                   rel="noopener noreferrer"
                   className="inline-flex w-fit items-center gap-1.5 text-body-sm font-medium text-text-link"
                 >
-                  <ExternalLink size={14} /> Reopen DigiLocker
+                  <ExternalLink size={14} /> {t('aadhaar.reopen')}
                 </a>
               )}
             </div>
@@ -540,7 +534,7 @@ export default function VerifyPage() {
 
           {dl === 'fetching' && (
             <div className="flex items-center gap-2 text-body-md text-text-body">
-              <Loader2 className="size-4 animate-spin" /> Retrieving your Aadhaar…
+              <Loader2 className="size-4 animate-spin" /> {t('aadhaar.fetching')}
             </div>
           )}
 
@@ -548,10 +542,10 @@ export default function VerifyPage() {
             <div className="flex flex-col gap-3 rounded-xl border border-border-error bg-surface-error p-4">
               <div className="flex items-start gap-2 text-body-md font-medium text-text-error">
                 <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-                <span>{dlError || 'Something went wrong.'}</span>
+                <span>{dlError || t('aadhaar.genericError')}</span>
               </div>
               <Button variant="primary" onClick={() => void startDigiLocker()}>
-                <ShieldCheck size={16} /> Retry with DigiLocker
+                <ShieldCheck size={16} /> {t('aadhaar.retry')}
               </Button>
             </div>
           )}
@@ -562,11 +556,10 @@ export default function VerifyPage() {
         <div className="flex flex-col items-center gap-3 py-8 text-center">
           <CheckCircle2 className="size-12 text-success" />
           <h1 className="text-xl font-semibold text-text-heading">
-            Aadhaar verified — you&apos;re all set
+            {t('done.title')}
           </h1>
           <p className="max-w-sm text-body-md text-text-body">
-            Thanks, {info.candidateName.split(' ')[0]}. Your verification is
-            complete. You can close this window.
+            {t('done.body', { firstName: info.candidateName.split(' ')[0] })}
           </p>
         </div>
       )}
@@ -597,12 +590,10 @@ export default function VerifyPage() {
               id="decline-title"
               className="text-lg font-semibold text-text-heading"
             >
-              Decline this verification?
+              {t('decline.title')}
             </h2>
             <p className="mt-2 text-body-md text-text-body">
-              The request will be closed and {info.clientName} will be notified.
-              Nothing about you will be verified or stored. This cannot be
-              undone.
+              {t('decline.body', { client: info.clientName })}
             </p>
             {declineError && (
               <p className="mt-3 text-body-sm text-text-error">{declineError}</p>
@@ -613,7 +604,7 @@ export default function VerifyPage() {
                 onClick={() => setDeclineOpen(false)}
                 disabled={submitting}
               >
-                Go back
+                {t('decline.back')}
               </Button>
               <Button
                 variant="primary"
@@ -621,7 +612,7 @@ export default function VerifyPage() {
                 isLoading={submitting}
                 disabled={submitting}
               >
-                Yes, decline
+                {t('decline.confirm')}
               </Button>
             </div>
           </div>
@@ -639,13 +630,20 @@ function Shell({
   /** Vertically centre the content — for terminal screens with no flow left. */
   centered?: boolean;
 }) {
+  const t = useTranslations('verify');
   return (
     <div className="flex min-h-screen flex-col bg-white">
       <header className="border-b border-border-default bg-white">
         <div className="mx-auto flex max-w-[1040px] items-center gap-2.5 px-6 py-4">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo-mark.png" alt="" width={28} height={28} />
-          <span className="text-lg font-semibold text-text-heading">Recrify</span>
+          <span className="text-lg font-semibold text-text-heading">
+            {t('brand')}
+          </span>
+          {/* The switcher lives in the header of every state — including the
+              invalid-link and declined screens. Someone who cannot read the
+              page needs it most exactly when something has gone wrong. */}
+          <LanguageSwitcher className="ml-auto" />
         </div>
       </header>
       <main
@@ -658,7 +656,7 @@ function Shell({
         {children}
       </main>
       <p className="pb-8 text-center text-body-sm text-text-placeholder">
-        Secured by Recrify · Consent-first background checks
+        {t('footer')}
       </p>
     </div>
   );

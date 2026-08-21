@@ -18,5 +18,70 @@
     "cancel": "Cancel",
     "loading": "Loading…",
     "checksDone": "{done} of {total} checks done"
+  },
+  "verify": {
+    "brand": "Recrify",
+    "footer": "Secured by Recrify · Consent-first background checks",
+    "pageTitle": "Candidate Form",
+    "pageSubtitle": "This information will be used to complete your background verification.",
+    "steps": {
+      "consent": "Consent",
+      "details": "Your details",
+      "aadhaar": "Aadhaar"
+    },
+    "invalid": {
+      "title": "Link not valid"
+    },
+    "consent": {
+      "heading": "{client} has started your background verification",
+      "body": "Review the Terms & Conditions below, then give your consent to continue. You can decline any time — nothing about you is verified or stored.",
+      "refuse": "I refuse to start",
+      "checksTitle": "What will be verified",
+      "checksBody": "These checks start only after you tap Agree & continue — nothing has been checked yet.",
+      "agreeLabel": "I, {name}, have read and agree to the Terms & Conditions, and consent to Recrify verifying my details on behalf of {client}.",
+      "agreeButton": "Agree & continue"
+    },
+    "decline": {
+      "title": "Decline this verification?",
+      "body": "The request will be closed and {client} will be notified. Nothing about you will be verified or stored. This cannot be undone.",
+      "back": "Go back",
+      "confirm": "Yes, decline",
+      "failed": "Could not record your decision.",
+      "doneTitle": "Verification declined",
+      "doneBody": "Thanks for letting us know. This request is now closed and none of your details were checked. You can safely close this page."
+    },
+    "form": {
+      "title": "Personal Information",
+      "subtitle": "Make sure these match your Aadhaar records.",
+      "name": "Name",
+      "namePlaceholder": "Enter name",
+      "email": "Email",
+      "emailPlaceholder": "Enter your email",
+      "phone": "Contact Number",
+      "aadhaar": "Aadhaar Number",
+      "aadhaarPlaceholder": "Enter 12-digit Aadhaar number",
+      "aadhaarError": "Aadhaar number must be exactly 12 digits ({count}/12).",
+      "continue": "Continue"
+    },
+    "aadhaar": {
+      "title": "Verify your Aadhaar",
+      "body": "We use DigiLocker (Government of India) to securely verify your Aadhaar. You'll be redirected to give consent.",
+      "start": "Verify with DigiLocker",
+      "starting": "Starting DigiLocker…",
+      "awaitingTitle": "Complete the consent in the DigiLocker tab…",
+      "awaitingBody": "This page will update automatically once you finish. If the tab didn't open, use the button below.",
+      "reopen": "Reopen DigiLocker",
+      "fetching": "Retrieving your Aadhaar…",
+      "retry": "Retry with DigiLocker",
+      "genericError": "Something went wrong.",
+      "startError": "Could not start DigiLocker.",
+      "fetchError": "Could not fetch Aadhaar.",
+      "failedError": "DigiLocker verification failed.",
+      "invalidLink": "Invalid link"
+    },
+    "done": {
+      "title": "Aadhaar verified — you're all set",
+      "body": "Thanks, {firstName}. Your verification is complete. You can close this window."
+    }
   }
 }
