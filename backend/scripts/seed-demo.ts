@@ -5,15 +5,15 @@
  *
  * Run:  npx ts-node scripts/seed-demo.ts
  * Demo logins (fixtures only, created by this script):
- *   owner:     demo@assurio.test / assurio-demo
- *   candidate: sunita+demo@assurio.test / assurio-demo
+ *   owner:     demo@recrify.test / recrify-demo
+ *   candidate: sunita+demo@recrify.test / recrify-demo
  */
 import 'dotenv/config';
 import * as bcrypt from 'bcryptjs';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../generated/prisma/client';
 
-const PASSWORD = 'assurio-demo';
+const PASSWORD = 'recrify-demo';
 
 /** Tiny neutral placeholder "document photo" (SVG data URL). */
 function docImage(label: string, tint: string): string {
@@ -39,7 +39,7 @@ const panResult = {
   aadhaar_linked: true,
   dob_verified: true,
   masked_aadhaar: 'XXXX-XXXX-5678',
-  email: 'sunita+demo@assurio.test',
+  email: 'sunita+demo@recrify.test',
   phone_number: '+91 98765 43210',
   address: {
     line_1: 'Flat 12B, HSR Layout',
@@ -94,9 +94,9 @@ async function main() {
 
     // ── Demo owner ──
     const owner = await prisma.user.upsert({
-      where: { email: 'demo@assurio.test' },
+      where: { email: 'demo@recrify.test' },
       create: {
-        email: 'demo@assurio.test',
+        email: 'demo@recrify.test',
         name: 'Demo Owner',
         passwordHash,
         role: 'owner',
@@ -108,7 +108,7 @@ async function main() {
     // ── Candidates in varied states ──
     const candidates = [
       {
-        email: 'sunita+demo@assurio.test',
+        email: 'sunita+demo@recrify.test',
         name: 'Sunita Devi',
         role: 'Domestic Worker',
         status: 'active',
@@ -131,7 +131,7 @@ async function main() {
         ] as object,
       },
       {
-        email: 'arjun+demo@assurio.test',
+        email: 'arjun+demo@recrify.test',
         name: 'Arjun Patel',
         role: 'Driver',
         status: 'active',
@@ -147,13 +147,13 @@ async function main() {
         crimeRequestId: 'REQ-20452', // crime pending — no result yet
       },
       {
-        email: 'meena+demo@assurio.test',
+        email: 'meena+demo@recrify.test',
         name: 'Meena Joshi',
         role: 'Tenant',
         status: 'invited',
       },
       {
-        email: 'vikram+demo@assurio.test',
+        email: 'vikram+demo@recrify.test',
         name: 'Vikram Singh',
         role: 'Security Guard',
         status: 'active',
@@ -181,12 +181,12 @@ async function main() {
     }
 
     const sunita = await prisma.subject.findFirst({
-      where: { email: 'sunita+demo@assurio.test', userId: owner.id },
+      where: { email: 'sunita+demo@recrify.test', userId: owner.id },
     });
 
     console.log('✓ Demo data seeded.');
-    console.log(`  owner:     demo@assurio.test / ${PASSWORD}`);
-    console.log(`  candidate: sunita+demo@assurio.test / ${PASSWORD}`);
+    console.log(`  owner:     demo@recrify.test / ${PASSWORD}`);
+    console.log(`  candidate: sunita+demo@recrify.test / ${PASSWORD}`);
     console.log(`  report:    /subject/${sunita?.id}`);
   } finally {
     await prisma.$disconnect();

@@ -16,7 +16,7 @@ import Lenis from 'lenis';
 import HomeStory from './components/HomeStory';
 import StoryToggle from './components/StoryToggle';
 
-const STORY_PREF_KEY = 'assurio:home-3d-story';
+const STORY_PREF_KEY = 'recrify:home-3d-story';
 
 const useIsoLayout =
   typeof window !== 'undefined' ? useLayoutEffect : useEffect;
@@ -257,7 +257,7 @@ const TESTIMONIALS = [
   },
   {
     quote:
-      'Hiring counter staff used to be a gut call. Assurio gives me a clear report so I can make a more informed decision.',
+      'Hiring counter staff used to be a gut call. Recrify gives me a clear report so I can make a more informed decision.',
     name: 'Rohit Sharma',
     role: 'Shop Owner, Jaipur',
   },
@@ -272,7 +272,7 @@ const TESTIMONIALS = [
 const FAQS = [
   {
     q: 'How does verification work?',
-    a: 'You enter a person’s details or PAN with their consent. Assurio runs identity and background screening across available sources and returns a structured trust report with risk indicators and match confidence.',
+    a: 'You enter a person’s details or PAN with their consent. Recrify runs identity and background screening across available sources and returns a structured trust report with risk indicators and match confidence.',
   },
   {
     q: 'What data is verified?',
@@ -280,23 +280,23 @@ const FAQS = [
   },
   {
     q: 'Is consent required?',
-    a: 'Yes. Assurio is consent-first. Verification is intended to be run with the knowledge and consent of the person being screened.',
+    a: 'Yes. Recrify is consent-first. Verification is intended to be run with the knowledge and consent of the person being screened.',
   },
   {
     q: 'How fast are reports?',
     a: 'Most reports are generated within minutes, depending on the checks selected and source availability.',
   },
   {
-    q: 'Can landlords use Assurio?',
-    a: 'Yes. Landlords and PG owners use Assurio to verify tenants and residents before move-in as part of a safer onboarding process.',
+    q: 'Can landlords use Recrify?',
+    a: 'Yes. Landlords and PG owners use Recrify to verify tenants and residents before move-in as part of a safer onboarding process.',
   },
   {
     q: 'Can businesses onboard employees?',
-    a: 'Yes. Shops, SMEs and agencies use Assurio to screen staff and contract workers, with bulk verification available on business plans.',
+    a: 'Yes. Shops, SMEs and agencies use Recrify to screen staff and contract workers, with bulk verification available on business plans.',
   },
   {
     q: 'Does verification guarantee safety?',
-    a: 'No. Assurio surfaces available verification signals and risk indicators to support better-informed decisions. It does not guarantee outcomes or certify that a person is safe.',
+    a: 'No. Recrify surfaces available verification signals and risk indicators to support better-informed decisions. It does not guarantee outcomes or certify that a person is safe.',
   },
   {
     q: 'How secure is personal data?',
@@ -306,7 +306,7 @@ const FAQS = [
 
 /* --------------------------------- Page ----------------------------------- */
 
-export default function AssurioLanding() {
+export default function RecrifyLanding() {
   const root = useRef<HTMLDivElement>(null);
   const [openFaq, setOpenFaq] = useState<number | null>(0);
 
@@ -481,7 +481,7 @@ export default function AssurioLanding() {
               priority
               aria-hidden="true"
             />
-            <span className="ep-logo-text">Assurio</span>
+            <span className="ep-logo-text">Recrify</span>
           </Link>
           <nav className="ep-nav-links">
             <a href="#how">How it Works</a>
@@ -493,7 +493,7 @@ export default function AssurioLanding() {
           <div className="ep-nav-cta">
             <a
               className="ep-btn ep-btn-ghost"
-              href="mailto:hello@assurio.com?subject=Book%20a%20Demo"
+              href="mailto:hello@recrify.in?subject=Book%20a%20Demo"
             >
               Book Demo
             </a>
@@ -545,7 +545,7 @@ export default function AssurioLanding() {
               </Link>
               <a
                 className="ep-btn ep-btn-ghost ep-btn-lg"
-                href="mailto:hello@assurio.com?subject=Book%20a%20Demo"
+                href="mailto:hello@recrify.in?subject=Book%20a%20Demo"
               >
                 Book Demo
               </a>
@@ -681,7 +681,7 @@ export default function AssurioLanding() {
               align="left"
             />
             <p className="ep-section-text">
-              Every Assurio report distils verification into a clear summary —
+              Every Recrify report distils verification into a clear summary —
               risk score, identity match, confidence, and a structured
               recommendation. No jargon, no guesswork.
             </p>
@@ -736,8 +736,8 @@ export default function AssurioLanding() {
       <section className="ep-section">
         <div className="ep-container">
           <SectionHead
-            kicker="Why Assurio"
-            title="Why Businesses & Families Choose Assurio"
+            kicker="Why Recrify"
+            title="Why Businesses & Families Choose Recrify"
           />
           <div className="ep-grid-3 ep-reveal-group">
             {WHY.map((c) => (
@@ -828,7 +828,7 @@ export default function AssurioLanding() {
               </ul>
               <a
                 className="ep-btn ep-btn-ghost ep-btn-block"
-                href="mailto:sales@assurio.com?subject=Business%20Plan%20Enquiry"
+                href="mailto:sales@recrify.in?subject=Business%20Plan%20Enquiry"
               >
                 Talk to Sales
               </a>
@@ -857,7 +857,7 @@ export default function AssurioLanding() {
                 </div>
                 <img
                   src="/landing/client-dashboard.png"
-                  alt="Assurio client dashboard listing candidates"
+                  alt="Recrify client dashboard listing candidates"
                   loading="lazy"
                 />
               </div>
@@ -878,7 +878,7 @@ export default function AssurioLanding() {
                 </div>
                 <img
                   src="/landing/candidate-page.png"
-                  alt="Assurio candidate identity-verification flow"
+                  alt="Recrify candidate identity-verification flow"
                   loading="lazy"
                 />
               </div>
@@ -989,7 +989,7 @@ export default function AssurioLanding() {
             </Link>
             <a
               className="ep-btn ep-btn-outline-light ep-btn-lg"
-              href="mailto:hello@assurio.com?subject=Book%20a%20Demo"
+              href="mailto:hello@recrify.in?subject=Book%20a%20Demo"
             >
               Book Demo
             </a>
@@ -1010,7 +1010,7 @@ export default function AssurioLanding() {
                 height={34}
                 aria-hidden="true"
               />
-              <span className="ep-logo-text">Assurio</span>
+              <span className="ep-logo-text">Recrify</span>
             </Link>
             <p className="ep-footer-tag">
               Trust and verification for safer hiring, renting and onboarding.
@@ -1039,7 +1039,7 @@ export default function AssurioLanding() {
           />
         </div>
         <div className="ep-container ep-footer-base">
-          <span>© {new Date().getFullYear()} Assurio</span>
+          <span>© {new Date().getFullYear()} Recrify</span>
           <span>Consent-first verification · Privacy focused</span>
         </div>
       </footer>

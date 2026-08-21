@@ -21,21 +21,21 @@ export class EmailService {
     const body = `
       <p style="margin:0 0 18px;font-size:16px;line-height:1.6;color:${BRAND.ink}">Hi ${this.esc(firstName)},</p>
       <p style="margin:0 0 14px;font-size:16px;line-height:1.6;color:${BRAND.textBody}">
-        You've been invited to complete a quick background verification on Assurio.
+        You've been invited to complete a quick background verification on Recrify.
       </p>
       <p style="margin:0 0 36px;font-size:16px;line-height:1.6;color:${BRAND.textBody}">
         Tap the button below to set your password and get started — it only takes a minute.
       </p>
       ${this.button(inviteUrl, 'Set password & continue')}
       ${this.linkFallback(inviteUrl)}
-      <p style="margin:40px 0 0;font-size:16px;line-height:1.6;color:${BRAND.ink}"><strong>The Assurio Team.</strong></p>
+      <p style="margin:40px 0 0;font-size:16px;line-height:1.6;color:${BRAND.ink}"><strong>The Recrify Team.</strong></p>
     `;
     return this.send(
       to,
-      `Welcome to Assurio, ${this.esc(firstName)}`,
+      `Welcome to Recrify, ${this.esc(firstName)}`,
       this.wrap({
-        preheader: 'Set your password and complete your Assurio verification.',
-        heading: 'Welcome to Assurio',
+        preheader: 'Set your password and complete your Recrify verification.',
+        heading: 'Welcome to Recrify',
         bodyHtml: body,
       }),
     );
@@ -50,20 +50,20 @@ export class EmailService {
     const body = `
       <p style="margin:0 0 18px;font-size:16px;line-height:1.6;color:${BRAND.ink}">Hi ${this.esc(firstName)},</p>
       <p style="margin:0 0 14px;font-size:16px;line-height:1.6;color:${BRAND.textBody}">
-        Tap the button below to reset your Assurio account password.
+        Tap the button below to reset your Recrify account password.
       </p>
       <p style="margin:0 0 36px;font-size:16px;line-height:1.6;color:${BRAND.textBody}">
         If you didn't request a new password, you can safely delete this email. This link is valid for 1 hour.
       </p>
       ${this.button(resetUrl, 'Reset Password')}
       ${this.linkFallback(resetUrl)}
-      <p style="margin:40px 0 0;font-size:16px;line-height:1.6;color:${BRAND.ink}"><strong>The Assurio Team.</strong></p>
+      <p style="margin:40px 0 0;font-size:16px;line-height:1.6;color:${BRAND.ink}"><strong>The Recrify Team.</strong></p>
     `;
     return this.send(
       to,
-      'Reset your Assurio password',
+      'Reset your Recrify password',
       this.wrap({
-        preheader: 'Use this secure link to choose a new Assurio password.',
+        preheader: 'Use this secure link to choose a new Recrify password.',
         heading: 'Reset Your Password',
         bodyHtml: body,
       }),
@@ -79,7 +79,7 @@ export class EmailService {
     const body = `
       <p style="margin:0 0 18px;font-size:16px;line-height:1.6;color:${BRAND.ink}">Hi ${this.esc(firstName)},</p>
       <p style="margin:0 0 14px;font-size:16px;line-height:1.6;color:${BRAND.textBody}">
-        A <strong style="color:${BRAND.ink}">${this.esc(checkLabel)}</strong> verification has been started on your Assurio account.
+        A <strong style="color:${BRAND.ink}">${this.esc(checkLabel)}</strong> verification has been started on your Recrify account.
       </p>
       <p style="margin:0 0 14px;font-size:16px;line-height:1.6;color:${BRAND.textBody}">
         No action is needed from you right now. You'll be notified once the report is ready.
@@ -87,13 +87,13 @@ export class EmailService {
       <p style="margin:0 0 0;font-size:16px;line-height:1.6;color:${BRAND.textBody}">
         If this looks unexpected, please contact the account holder who initiated the check.
       </p>
-      <p style="margin:40px 0 0;font-size:16px;line-height:1.6;color:${BRAND.ink}"><strong>The Assurio Team.</strong></p>
+      <p style="margin:40px 0 0;font-size:16px;line-height:1.6;color:${BRAND.ink}"><strong>The Recrify Team.</strong></p>
     `;
     return this.send(
       to,
       `${checkLabel} verification started`,
       this.wrap({
-        preheader: `A ${checkLabel} verification has been started on your Assurio account.`,
+        preheader: `A ${checkLabel} verification has been started on your Recrify account.`,
         heading: `${checkLabel} Verification Started`,
         bodyHtml: body,
       }),
@@ -119,11 +119,11 @@ export class EmailService {
       </p>
       ${this.button(verifyUrl, 'Start verification')}
       ${this.linkFallback(verifyUrl)}
-      <p style="margin:40px 0 0;font-size:16px;line-height:1.6;color:${BRAND.ink}"><strong>The Assurio Team.</strong></p>
+      <p style="margin:40px 0 0;font-size:16px;line-height:1.6;color:${BRAND.ink}"><strong>The Recrify Team.</strong></p>
     `;
     return this.send(
       to,
-      `${this.esc(clientName)} requested your verification on Assurio`,
+      `${this.esc(clientName)} requested your verification on Recrify`,
       this.wrap({
         preheader: `${clientName} has started your background verification — complete it in a minute.`,
         heading: 'Complete your verification',
@@ -162,7 +162,7 @@ export class EmailService {
       // bottom accent stripe
       '<tr><td style="height:4px;background:${BRAND.primary};font-size:0;line-height:0">&nbsp;</td></tr>',
       '</table>',
-      '<div style="max-width:600px;margin:14px auto 0;text-align:center;color:${BRAND.textDisabled};font-size:11.5px;line-height:1.5">Assurio · Consent-first background checks</div>',
+      '<div style="max-width:600px;margin:14px auto 0;text-align:center;color:${BRAND.textDisabled};font-size:11.5px;line-height:1.5">Recrify · Consent-first background checks</div>',
       '</td></tr>',
       '</table>',
       '</body></html>',
@@ -219,7 +219,7 @@ export class EmailService {
       this.logger.warn(`RESEND_API_KEY not set — email to ${to} skipped.`);
       return false;
     }
-    const from = process.env.EMAIL_FROM || 'Assurio <onboarding@resend.dev>';
+    const from = process.env.EMAIL_FROM || 'Recrify <onboarding@resend.dev>';
     try {
       const res = await fetch('https://api.resend.com/emails', {
         method: 'POST',

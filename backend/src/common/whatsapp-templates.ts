@@ -15,7 +15,7 @@ export type CrimeRisk = 'high' | 'medium' | 'low';
 
 const firstNameOf = (full: string): string => full.split(' ')[0] || full;
 
-const SIGNOFF = '_The Assurio Team_';
+const SIGNOFF = '_The Recrify Team_';
 
 /* ── To the CLIENT ─────────────────────────────────────────────────── */
 
@@ -29,7 +29,7 @@ export function reportReadyText(
     `The background verification report for *${candidateName}* is ready.\n\n` +
     (reportUrl
       ? `View and download it here:\n${reportUrl}\n\n`
-      : `View and download it from your Assurio dashboard.\n\n`) +
+      : `View and download it from your Recrify dashboard.\n\n`) +
     SIGNOFF
   );
 }
@@ -65,7 +65,7 @@ export function crimeRiskAlertText(
     `${band.heading} — ${candidateName}\n\n` +
     `Hi ${firstNameOf(clientName)},\n\n` +
     `The criminal records check for *${candidateName}* came back *${band.label}*.\n\n` +
-    `${band.advice} Full details are in your Assurio dashboard.\n\n` +
+    `${band.advice} Full details are in your Recrify dashboard.\n\n` +
     SIGNOFF
   );
 }
@@ -81,7 +81,7 @@ export function refundProcessedText(
       : '';
   return (
     `Hi ${firstNameOf(clientName)},\n\n` +
-    `A refund ${amt}has been credited back to your Assurio wallet for *${candidateName}*'s verification.\n\n` +
+    `A refund ${amt}has been credited back to your Recrify wallet for *${candidateName}*'s verification.\n\n` +
     `This happens automatically when a candidate declines or the consent request expires — no checks were run, so no charge applies.\n\n` +
     SIGNOFF
   );
@@ -115,7 +115,7 @@ export function draftReminderText(clientName: string): string {
   return (
     `Hi ${firstNameOf(clientName)},\n\n` +
     `You have a candidate verification *draft* that has been pending for a week.\n\n` +
-    `Complete it from your Assurio dashboard to start the checks — otherwise it will be cleared soon.\n\n` +
+    `Complete it from your Recrify dashboard to start the checks — otherwise it will be cleared soon.\n\n` +
     SIGNOFF
   );
 }
@@ -134,7 +134,7 @@ export function verificationRequestedText(
       : '• Identity verification';
   return (
     `Hi ${firstNameOf(candidateName)},\n\n` +
-    `*${clientName}* has requested a background verification for you via *Assurio*.\n\n` +
+    `*${clientName}* has requested a background verification for you via *Recrify*.\n\n` +
     `This will include:\n${list}\n\n` +
     `Please review and give your consent to begin — it takes less than 10 minutes:\n${inviteUrl}\n\n` +
     SIGNOFF

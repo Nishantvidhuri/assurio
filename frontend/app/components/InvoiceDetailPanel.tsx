@@ -4,7 +4,7 @@
  * Invoice detail slide-over — a plain fixed panel (not the RDS DialogBox, whose
  * enter transition was leaving it off-screen here). Fetches the full invoice by
  * id and renders the Recriauth-style detail: Invoice No./Date/Terms, Billed By
- * (Assurio) / Billed To (the client), Billing Summary, Payment Information, and
+ * (Recrify) / Billed To (the client), Billing Summary, Payment Information, and
  * a Download Invoice action. Shared by the global payments page and the
  * per-client invoices ledger.
  */
@@ -101,14 +101,14 @@ function InvoiceDetailBody({ detail }: { detail: InvoiceDetailResponse }) {
     detail.lineItems && detail.lineItems.length > 0
       ? detail.lineItems.map((it) => ({
           description: candidate
-            ? `Assurio verification · ${candidate}`
+            ? `Recrify verification · ${candidate}`
             : it.description ?? 'Background verification services',
           amount: Number(it.total ?? it.lineSubtotal ?? 0),
         }))
       : [
           {
             description: candidate
-              ? `Assurio verification · ${candidate}`
+              ? `Recrify verification · ${candidate}`
               : 'Background verification services',
             amount: detail.subtotal,
           },

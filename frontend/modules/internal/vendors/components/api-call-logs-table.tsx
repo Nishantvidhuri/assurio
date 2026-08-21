@@ -219,7 +219,7 @@ function RowGroup({ call, expanded, loading, detail, onToggle }: RowGroupProps) 
                 onClick={(event) => {
                   // Don't let the case link also toggle the row's expansion.
                   event.stopPropagation();
-                  // Unreachable in Assurio: caseReference/candidateCaseId are
+                  // Unreachable in Recrify: caseReference/candidateCaseId are
                   // always null (no CandidateCase model), so this branch never
                   // renders. Kept for parity with the Recriauth original.
                   router.push(`/admin/subject/${call.candidateCaseId}`);

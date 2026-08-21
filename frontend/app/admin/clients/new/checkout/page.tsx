@@ -69,7 +69,7 @@ export default function CheckoutPage() {
       const aadhaarDigits = draft.aadhaar.replace(/\s/g, '');
       const link = await createPaymentLink(token, {
         amount: PRICE_INR,
-        description: `Assurio onboarding · ${draft.name}`,
+        description: `Recrify onboarding · ${draft.name}`,
         customer: {
           name: draft.name,
           email: draft.email,
@@ -104,7 +104,7 @@ export default function CheckoutPage() {
         </Link>
         <div className="co-bar-brand">
           <span className="co-mark">A</span>
-          Assurio
+          Recrify
         </div>
         <div className="co-bar-secure">
           <Lock size={13} />
@@ -185,7 +185,7 @@ export default function CheckoutPage() {
                 </li>
                 <li>
                   <CheckCircle2 size={14} />
-                  No card details stored on Assurio
+                  No card details stored on Recrify
                 </li>
               </ul>
             </div>

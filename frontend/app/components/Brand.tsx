@@ -12,7 +12,7 @@ export default function Brand() {
         priority
         aria-hidden="true"
       />
-      <span className="brand-name">Assurio</span>
+      <span className="brand-name">Recrify</span>
     </div>
   );
 }

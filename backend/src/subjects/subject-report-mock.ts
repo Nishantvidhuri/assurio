@@ -124,7 +124,7 @@ export function mockReportSubject(variant: MockVariant): ReportSubject {
           number_of_cases: 0,
         },
         cases: [],
-        download_link: 'https://reports.assurio.example/crime/ASR-202608-000101.pdf',
+        download_link: 'https://reports.recrify.example/crime/ASR-202608-000101.pdf',
       },
     };
     s.creditResult = {
@@ -135,7 +135,7 @@ export function mockReportSubject(variant: MockVariant): ReportSubject {
         total_accounts: 6,
         active_accounts: 3,
         overdue_amount: 0,
-        pdf_url: 'https://reports.assurio.example/credit/ASR-202608-000101.pdf',
+        pdf_url: 'https://reports.recrify.example/credit/ASR-202608-000101.pdf',
       },
     };
     return s;
@@ -202,7 +202,7 @@ export function mockReportSubject(variant: MockVariant): ReportSubject {
         number_of_cases: 0,
       },
       cases: [],
-      download_link: 'https://reports.assurio.example/crime/ASR-202608-000103.pdf',
+      download_link: 'https://reports.recrify.example/crime/ASR-202608-000103.pdf',
     },
   };
   s.creditResult = null;

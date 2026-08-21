@@ -12,7 +12,7 @@
  * PdfService's Chromium header/footer (renderReportFooter) so page numbers are
  * real without a pdf-lib post-pass.
  */
-import { ASSURIO_LOGO_DATA_URI } from './assurio-logo';
+import { RECRIFY_LOGO_DATA_URI } from './recrify-logo';
 import { BRAND } from '../common/brand-colors';
 import { resolveFatherName } from './bgv-address';
 import { isUnresolvedFailure } from './check-result';
@@ -894,7 +894,7 @@ function documentsSection(header: string, inst: Instance): string {
 }
 function commentBox(text: string): string {
   return `<div class="recriauth-comment">
-    <div class="recriauth-comment-title">Assurio Comments</div>
+    <div class="recriauth-comment-title">Recrify Comments</div>
     <ul class="recriauth-comment-list"><li class="recriauth-comment-item">${escapeHtml(text)}</li></ul>
   </div>`;
 }
@@ -929,11 +929,11 @@ function renderGroup(g: CheckGroup): string {
 /** Chromium footer template — the angled navy page-number banner, repeated on
  *  every physical page with a real page number. Fed to PdfService. */
 export function renderReportFooter(s: ReportSubject): string {
-  const meta = `${escapeHtml(s.name)} · Case ${escapeHtml(s.caseRef || '-')} · Strictly confidential — Powered by Assurio.`;
+  const meta = `${escapeHtml(s.name)} · Case ${escapeHtml(s.caseRef || '-')} · Strictly confidential — Powered by Recrify.`;
   return `<div style="width:100%;font-family:Arial,Helvetica,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact;font-size:8px;color:${BRAND.textBody};padding:0 12mm;box-sizing:border-box;display:flex;align-items:center;">
     <span style="background:${BRAND.primaryDark};color:#ffffff;font-size:9px;font-weight:700;padding:5px 22px 5px 14px;-webkit-print-color-adjust:exact;print-color-adjust:exact;clip-path:polygon(0 0,100% 0,calc(100% - 12px) 100%,0 100%);border-bottom-left-radius:6px;"><span class="pageNumber"></span></span>
     <span style="flex:1;padding-left:14px;">${meta}</span>
-    <span style="color:${BRAND.primary};">assurio.com</span>
+    <span style="color:${BRAND.primary};">recrify.in</span>
   </div>`;
 }
 
@@ -1083,9 +1083,9 @@ html, body { font-family: Manrope, Arial, Helvetica, sans-serif; font-size: 10px
 .company-info { display: flex; align-items: center; gap: 12px; }
 .company-logo-placeholder { width: 40px; height: 40px; border-radius: 50%; background: ${BRAND.primaryDeep}; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 700; }
 .company-name { font-size: 12px; font-weight: 700; color: ${BRAND.textHeading}; }
-.assurio-logo { display: flex; align-items: center; gap: 8px; }
-.assurio-logo img { height: 30px; width: 30px; object-fit: contain; }
-.assurio-logo .word { font-size: 16px; font-weight: 700; color: ${BRAND.textHeading}; letter-spacing: -0.01em; }
+.recrify-logo { display: flex; align-items: center; gap: 8px; }
+.recrify-logo img { height: 30px; width: 30px; object-fit: contain; }
+.recrify-logo .word { font-size: 16px; font-weight: 700; color: ${BRAND.textHeading}; letter-spacing: -0.01em; }
 .report-title { font-size: 20px; font-weight: 600; color: ${BRAND.textHeading}; margin-bottom: 4px; }
 .report-subtitle { font-size: 12px; font-weight: 600; line-height: 18px; color: ${BRAND.textBody}; margin-bottom: 20px; }
 .confidential-box { background: ${BRAND.successTint}; border-radius: 4px; padding: 8px; font-size: 8px; font-weight: 400; line-height: 1.6; color: #000000; margin-bottom: 20px; }
@@ -1108,13 +1108,13 @@ html, body { font-family: Manrope, Arial, Helvetica, sans-serif; font-size: 10px
       <div class="company-logo-placeholder">${escapeHtml(companyInitial)}</div>
       <span class="company-name">${escapeHtml(s.clientName || '—')}</span>
     </div>
-    <div class="assurio-logo"><img src="${ASSURIO_LOGO_DATA_URI}" alt="Assurio"/><span class="word">Assurio</span></div>
+    <div class="recrify-logo"><img src="${RECRIFY_LOGO_DATA_URI}" alt="Recrify"/><span class="word">Recrify</span></div>
   </div>
   <div class="report-title">Background Verification Report</div>
   <div class="report-subtitle">${escapeHtml(s.name)} (${escapeHtml(s.caseRef || '—')})</div>
   <div class="confidential-box">
-    This report is strictly confidential and intended solely for the designated recipient. Any use beyond its intended purpose requires prior written permission from Assurio. Unauthorised use, disclosure, or distribution is strictly prohibited.
-    <span class="powered">- Powered by Assurio, consent-first background checks.</span>
+    This report is strictly confidential and intended solely for the designated recipient. Any use beyond its intended purpose requires prior written permission from Recrify. Unauthorised use, disclosure, or distribution is strictly prohibited.
+    <span class="powered">- Powered by Recrify, consent-first background checks.</span>
   </div>
   <div class="section">
     <div class="section-header">Candidate Details</div>

@@ -25,7 +25,7 @@ const display = Plus_Jakarta_Sans({
   variable: '--font-display',
 });
 
-// Wordmark face — used only for the "Assurio" text beside the logo.
+// Wordmark face — used only for the "Recrify" text beside the logo.
 const logo = localFont({
   src: './fonts/Logoza.otf',
   display: 'swap',
@@ -33,7 +33,7 @@ const logo = localFont({
 });
 
 export const metadata: Metadata = {
-  title: 'Assurio — Background Verification',
+  title: 'Recrify — Background Verification',
   description:
     'Background screening for tenants, employees, caretakers, domestic workers, PG residents, drivers, and service professionals.',
 };

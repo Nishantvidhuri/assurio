@@ -301,12 +301,12 @@ export class SubjectsService {
    */
   async createDemoSubject(email: string, name: string): Promise<Subject> {
     let owner = await this.prisma.user.findFirst({
-      where: { email: 'demo-owner@assurio.local' },
+      where: { email: 'demo-owner@recrify.local' },
     });
     if (!owner) {
       owner = await this.prisma.user.create({
         data: {
-          email: 'demo-owner@assurio.local',
+          email: 'demo-owner@recrify.local',
           name: 'Demo Company',
           passwordHash: 'demo-no-login',
           role: 'owner',

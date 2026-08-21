@@ -1,8 +1,8 @@
 /**
- * Assurio compatibility layer for the ported Vendor Management module.
+ * Recrify compatibility layer for the ported Vendor Management module.
  *
  * The module is a 1:1 port from Recriauth. A handful of its collaborators are
- * platform services Assurio doesn't have (multi-tenant test-data visibility,
+ * platform services Recrify doesn't have (multi-tenant test-data visibility,
  * the SSE event bus, the internal user-activity audit trail, the internal
  * team-access tiers). Rather than dragging those subsystems in, this file
  * provides the same injectable surfaces with inert behaviour, so every query,
@@ -18,7 +18,7 @@ import { PrismaService } from '../../../common/prisma.service';
 
 /* ─────────────────────────────────────────────────────────────────────────
  * Request shape
- * Assurio's JwtAuthGuard puts the JWT payload on `req.user`. The ported code
+ * Recrify's JwtAuthGuard puts the JWT payload on `req.user`. The ported code
  * reads `req.auth?.sub`, so the controller normalises one onto the other and
  * this interface describes the result.
  * ───────────────────────────────────────────────────────────────────────── */
@@ -31,7 +31,7 @@ export interface RequestWithAuth extends Request {
 export function normalizeAuth(req: RequestWithAuth): RequestWithAuth {
   req.auth = {
     sub: req.user?.sub,
-    // Assurio has a single admin tier; treat every admin as SUPER_ADMIN so the
+    // Recrify has a single admin tier; treat every admin as SUPER_ADMIN so the
     // ported write-permission check (VENDOR_MANAGER_ROLES) passes for admins.
     access:
       req.user?.role === 'admin' ? InternalTeamAccess.SUPER_ADMIN : null,
@@ -53,7 +53,7 @@ export type InternalTeamAccess =
 
 /* ─────────────────────────────────────────────────────────────────────────
  * Test-data visibility — Recriauth hides seeded test tenants from internal
- * dashboards. Assurio has no test-tenant concept, so nothing is hidden.
+ * dashboards. Recrify has no test-tenant concept, so nothing is hidden.
  * ───────────────────────────────────────────────────────────────────────── */
 @Injectable()
 export class TestDataVisibilityService {
@@ -63,7 +63,7 @@ export class TestDataVisibilityService {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
- * SSE event bus — Assurio broadcasts via EventsService on its own channels;
+ * SSE event bus — Recrify broadcasts via EventsService on its own channels;
  * vendor-settings pushes are not wired up, so this is a no-op sink.
  * ───────────────────────────────────────────────────────────────────────── */
 export const SseEventType = {
@@ -80,7 +80,7 @@ export class EventBusService {
 
 /* ─────────────────────────────────────────────────────────────────────────
  * Internal user-activity trail — Recriauth records admin actions for its
- * audit log. Assurio has no equivalent surface yet.
+ * audit log. Recrify has no equivalent surface yet.
  * ───────────────────────────────────────────────────────────────────────── */
 @Injectable()
 export class InternalUserActivityService {

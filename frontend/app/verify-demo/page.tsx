@@ -339,13 +339,13 @@ function Shell({ children }: { children: React.ReactNode }) {
         <div className="flex items-center gap-2.5">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo-mark.png" alt="" width={30} height={30} />
-          <span className="text-lg font-semibold text-text-heading">Assurio</span>
+          <span className="text-lg font-semibold text-text-heading">Recrify</span>
         </div>
         <div className="rounded-2xl border border-border-default bg-white p-6 shadow-sm">
           {children}
         </div>
         <p className="text-center text-body-sm text-text-placeholder">
-          Secured by Assurio · Consent-first background checks
+          Secured by Recrify · Consent-first background checks
         </p>
       </div>
     </div>

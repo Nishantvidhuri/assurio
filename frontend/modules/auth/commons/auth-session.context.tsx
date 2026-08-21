@@ -1,16 +1,16 @@
 'use client';
 
 /**
- * Assurio shim for the RDS `auth-session.context`.
+ * Recrify shim for the RDS `auth-session.context`.
  *
  * The original Recriauth context is wired to that product's auth API layer
- * (api-client / auth.api / auth.service), which conflicts with Assurio's own
+ * (api-client / auth.api / auth.service), which conflicts with Recrify's own
  * cookie-based auth. Rather than importing that whole stack, this adapter
  * exposes the same surface (`AuthSessionProvider` / `useAuthSession`) backed by
- * Assurio's session helpers, so RDS components that read the session — topbar,
+ * Recrify's session helpers, so RDS components that read the session — topbar,
  * insufficient-credits-dialog, etc. — work unmodified.
  *
- * Fields RDS knows about but Assurio has no concept of (organization, billing
+ * Fields RDS knows about but Recrify has no concept of (organization, billing
  * model, internal access tier) resolve to null.
  */
 import {
@@ -23,7 +23,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { AuthUser } from './auth.types';
-import { me as fetchMe, type AuthUser as AssurioUser } from '@/app/lib/api';
+import { me as fetchMe, type AuthUser as RecrifyUser } from '@/app/lib/api';
 import { clearSession, getUser } from '@/app/lib/session';
 
 interface AuthSessionContextValue {
@@ -35,14 +35,14 @@ interface AuthSessionContextValue {
   logout: () => Promise<void>;
 }
 
-/** Map an Assurio user onto the richer RDS AuthUser shape. */
-function toAuthUser(u: AssurioUser | null): AuthUser | null {
+/** Map an Recrify user onto the richer RDS AuthUser shape. */
+function toAuthUser(u: RecrifyUser | null): AuthUser | null {
   if (!u) return null;
   return {
     id: u.id,
     email: u.email,
     name: u.name,
-    // Assurio roles are 'admin' | 'owner' | 'candidate'; RDS expects its own
+    // Recrify roles are 'admin' | 'owner' | 'candidate'; RDS expects its own
     // enums. Cast through unknown — consumers only compare, never construct.
     userType: (u.role === 'admin' ? 'INTERNAL' : 'CLIENT') as AuthUser['userType'],
     role: (u.role ?? null) as AuthUser['role'],
@@ -112,7 +112,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
 export function useAuthSession(): AuthSessionContextValue {
   const ctx = useContext(AuthSessionContext);
   if (ctx) return ctx;
-  // RDS components may render outside the provider (Assurio pages manage their
+  // RDS components may render outside the provider (Recrify pages manage their
   // own auth). Degrade to an inert session rather than throwing.
   return {
     user: null,

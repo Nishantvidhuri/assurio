@@ -85,7 +85,7 @@ function CandidateSuccessPage() {
         // ran in one server transaction) before we navigated here — just show
         // the cached record; there is no Razorpay callback to verify.
         if (search.get('wallet') === '1') {
-          const cached = sessionStorage.getItem('assurio:created');
+          const cached = sessionStorage.getItem('recrify:created');
           if (cached) {
             try {
               setCreated(JSON.parse(cached));
@@ -165,9 +165,9 @@ function CandidateSuccessPage() {
         }
 
         // Guard against double-create on React StrictMode / re-renders
-        const guardKey = 'assurio:created-for-' + razorpay_payment_id;
+        const guardKey = 'recrify:created-for-' + razorpay_payment_id;
         if (sessionStorage.getItem(guardKey)) {
-          const cached = sessionStorage.getItem('assurio:created');
+          const cached = sessionStorage.getItem('recrify:created');
           if (cached) {
             try {
               setCreated(JSON.parse(cached));
@@ -206,13 +206,13 @@ function CandidateSuccessPage() {
         });
         if (cancelled) return;
         setCreated(subject);
-        sessionStorage.setItem('assurio:created', JSON.stringify(subject));
+        sessionStorage.setItem('recrify:created', JSON.stringify(subject));
         setStatus('ok');
         // The candidate now exists — drop the in-progress draft.
-        const savedDraftId = sessionStorage.getItem('assurio:draft-id');
+        const savedDraftId = sessionStorage.getItem('recrify:draft-id');
         if (savedDraftId) {
           void deleteServerDraft(savedDraftId);
-          sessionStorage.removeItem('assurio:draft-id');
+          sessionStorage.removeItem('recrify:draft-id');
         }
       } catch (err) {
         if (cancelled) return;
@@ -242,13 +242,13 @@ function CandidateSuccessPage() {
 
   function done() {
     clearDraft();
-    sessionStorage.removeItem('assurio:created');
+    sessionStorage.removeItem('recrify:created');
     router.replace('/home');
   }
 
   function addAnother() {
     clearDraft();
-    sessionStorage.removeItem('assurio:created');
+    sessionStorage.removeItem('recrify:created');
     router.push('/home/new');
   }
 

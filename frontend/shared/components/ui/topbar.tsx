@@ -346,13 +346,13 @@ const TopBar = forwardRef<HTMLElement, TopBarProps>(
               <span className="flex items-center gap-2">
                 <Image
                   src="/logo-mark.png"
-                  alt="Assurio"
+                  alt="Recrify"
                   width={24}
                   height={24}
                   priority
                 />
                 <span className="font-[family-name:var(--font-logo)] text-[17px] leading-none text-text-heading">
-                  Assurio
+                  Recrify
                 </span>
               </span>
             </Link>
@@ -382,13 +382,13 @@ const TopBar = forwardRef<HTMLElement, TopBarProps>(
             <span className="flex items-center gap-2">
               <Image
                 src="/logo-mark.png"
-                alt="Assurio"
+                alt="Recrify"
                 width={24}
                 height={24}
                 priority
               />
               <span className="font-[family-name:var(--font-logo)] text-[17px] leading-none text-text-heading">
-                Assurio
+                Recrify
               </span>
             </span>
           </Link>

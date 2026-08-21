@@ -750,7 +750,7 @@ export class SubjectVerificationService {
     if (claimed.count === 0) return;
 
     const buffer = await this.s3.getObjectBuffer(doc.reportPdfS3Key);
-    const filename = `Assurio-report-${doc.name.replace(/[^A-Za-z0-9]+/g, '-')}.pdf`;
+    const filename = `Recrify-report-${doc.name.replace(/[^A-Za-z0-9]+/g, '-')}.pdf`;
     const caption = reportReadyText(client?.name || 'there', doc.name);
 
     const ok = await this.whatsapp.sendDocument(

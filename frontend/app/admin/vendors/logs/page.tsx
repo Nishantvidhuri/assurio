@@ -6,7 +6,7 @@ import { ApiCallLogsSkeleton } from '@/modules/internal/vendors/components/api-c
 import type { VendorCallLogResponse } from '@/modules/internal/vendors/commons/internal-vendors.types';
 
 export const metadata: Metadata = {
-  title: 'Vendor API Call Logs — Assurio',
+  title: 'Vendor API Call Logs — Recrify',
 };
 
 type SearchParams = Record<string, string | string[] | undefined>;

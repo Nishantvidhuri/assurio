@@ -30,7 +30,7 @@ class InternalVendorsService {
   }
 
   /**
-   * Assurio CSRF: the double-submit token lives in the `as_csrf` cookie and is
+   * Recrify CSRF: the double-submit token lives in the `as_csrf` cookie and is
    * (re)issued by GET /auth/csrf. Recriauth's authService/ra_csrf pair is
    * replaced here — the rest of this service is the original.
    */

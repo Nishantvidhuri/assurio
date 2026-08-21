@@ -4,7 +4,7 @@
  * Compat shim for React's `useEffectEvent`.
  *
  * Recriauth runs Next 16, whose vendored React exports `useEffectEvent`.
- * Assurio is on Next 15, whose App Router bundles an older vendored React
+ * Recrify is on Next 15, whose App Router bundles an older vendored React
  * that does NOT — even with react@19.2 in node_modules (`useEffectEvent is
  * not a function` at runtime). Same semantics: a stable identity callback
  * that always sees the latest render's values.

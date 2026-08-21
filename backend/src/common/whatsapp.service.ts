@@ -11,7 +11,7 @@ import * as T from './whatsapp-templates';
  *
  * Required env vars:
  *   OPENWA_URL        – Base URL of the OpenWA API, e.g. http://localhost:2785/api
- *   OPENWA_SESSION    – Session name/ID configured in OpenWA (e.g. "assurio")
+ *   OPENWA_SESSION    – Session name/ID configured in OpenWA (e.g. "recrify")
  *
  * Optional:
  *   OPENWA_API_KEY      – X-API-Key header (only needed if you enabled API key auth
@@ -207,9 +207,9 @@ export class WhatsAppService {
     const firstName = name.split(' ')[0] || name;
     const text =
       `Hi ${firstName},\n\n` +
-      `A *${checkLabel}* verification has been started on your Assurio account.\n\n` +
+      `A *${checkLabel}* verification has been started on your Recrify account.\n\n` +
       `No action is needed from you right now. You'll be notified once the report is ready.\n\n` +
-      `_The Assurio Team_`;
+      `_The Recrify Team_`;
     return this.send(phone, text);
   }
 
@@ -775,13 +775,13 @@ export class WhatsAppService {
     const phoneStr = candidate.phone || 'Not provided';
     const text =
       `Hi ${firstName},\n\n` +
-      `A new candidate has been added to your *Assurio* account.\n\n` +
+      `A new candidate has been added to your *Recrify* account.\n\n` +
       `*${candidate.name}*\n` +
       `Role: ${roleStr}\n` +
       `Email: ${candidate.email}\n` +
       `Phone: ${phoneStr}\n\n` +
       `Background verification is now in progress. You will be notified when checks are complete.\n\n` +
-      `_The Assurio Team_`;
+      `_The Recrify Team_`;
     return this.send(clientPhone, text);
   }
 
@@ -815,8 +815,8 @@ export class WhatsAppService {
     }
 
     text +=
-      `\nView full details in your Assurio dashboard.\n\n` +
-      `_The Assurio Team_`;
+      `\nView full details in your Recrify dashboard.\n\n` +
+      `_The Recrify Team_`;
 
     return this.send(clientPhone, text);
   }
@@ -1067,7 +1067,7 @@ export class WhatsAppService {
     <div class="brand">
       <span class="brand-mark">A</span>
       <div>
-        <div class="brand-name">Assurio</div>
+        <div class="brand-name">Recrify</div>
         <div class="brand-sub">Consent-first background checks</div>
       </div>
     </div>
@@ -1112,7 +1112,7 @@ export class WhatsAppService {
   ` : `<div class="no-cases">No criminal records found for this individual.</div>`}
 
   <div class="footer">
-    Assurio · Background verification infrastructure.<br />
+    Recrify · Background verification infrastructure.<br />
     This report is sourced from publicly available court records via KonnectNxt.<br />
     Generated on ${esc(now)} · For client use only.
   </div>

@@ -85,7 +85,7 @@ export default function LoginPage() {
         <div className="mb-6 text-center">
           <h1 className="text-xl font-semibold text-text-heading">Welcome Back</h1>
           <p className="mt-1 text-sm text-text-subheading">
-            Sign in to your Assurio account
+            Sign in to your Recrify account
           </p>
         </div>
 

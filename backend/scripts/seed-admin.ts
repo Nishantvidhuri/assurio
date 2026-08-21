@@ -1,5 +1,5 @@
 /**
- * Creates (or updates) the Assurio admin account in PostgreSQL.
+ * Creates (or updates) the Recrify admin account in PostgreSQL.
  * Run:  npm run seed:admin
  * Reads ADMIN_EMAIL / ADMIN_PASSWORD / DATABASE_URL from backend/.env
  */
@@ -8,10 +8,10 @@ import * as bcrypt from 'bcryptjs';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from '../generated/prisma/client';
 
-const email = (process.env.ADMIN_EMAIL || 'admin@assurio.com')
+const email = (process.env.ADMIN_EMAIL || 'admin@recrify.in')
   .toLowerCase()
   .trim();
-const password = process.env.ADMIN_PASSWORD || 'assurio-admin';
+const password = process.env.ADMIN_PASSWORD || 'recrify-admin';
 
 async function main() {
   const prisma = new PrismaClient({
@@ -24,8 +24,8 @@ async function main() {
 
     await prisma.user.upsert({
       where: { email },
-      create: { name: 'Assurio Admin', email, passwordHash, role: 'admin' },
-      update: { name: 'Assurio Admin', passwordHash, role: 'admin' },
+      create: { name: 'Recrify Admin', email, passwordHash, role: 'admin' },
+      update: { name: 'Recrify Admin', passwordHash, role: 'admin' },
     });
 
     console.log(existing ? '✓ Admin account updated.' : '✓ Admin account created.');

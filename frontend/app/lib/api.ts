@@ -1652,7 +1652,7 @@ export async function downloadSubjectReport(
     .toLowerCase();
   const a = document.createElement('a');
   a.href = url;
-  a.download = `assurio-report-${safe}.pdf`;
+  a.download = `recrify-report-${safe}.pdf`;
   document.body.appendChild(a);
   a.click();
   a.remove();

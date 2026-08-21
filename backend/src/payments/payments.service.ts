@@ -214,7 +214,7 @@ export class PaymentsService {
     const subtotal = Math.round((totalRupees / (1 + taxRate / 100)) * 100) / 100;
     const tax = Math.round((totalRupees - subtotal) * 100) / 100;
 
-    const description = link.description || 'Assurio background verification bundle';
+    const description = link.description || 'Recrify background verification bundle';
     const lineItems: InvoiceLineItem[] = [
       { description, quantity: 1, rate: subtotal, total: subtotal },
     ];
@@ -283,7 +283,7 @@ export class PaymentsService {
     const tax = Math.round((totalRupees - subtotal) * 100) / 100;
 
     const description =
-      notes.description || 'Assurio background verification bundle';
+      notes.description || 'Recrify background verification bundle';
     const lineItems: InvoiceLineItem[] = [
       { description, quantity: 1, rate: subtotal, total: subtotal },
     ];
@@ -472,8 +472,8 @@ export class PaymentsService {
       <div class="logo-row">
         <div class="logo-mark">A</div>
         <div>
-          <div class="logo-name">Assurio</div>
-          <div class="logo-tagline">assurio.com · Consent-first background checks</div>
+          <div class="logo-name">Recrify</div>
+          <div class="logo-tagline">recrify.in · Consent-first background checks</div>
         </div>
       </div>
     </div>
@@ -511,7 +511,7 @@ export class PaymentsService {
       <div class="pay-right"><div class="pay-label">Link ID</div><div class="pay-value">${escapeHtml(inv.razorpayPaymentLinkId || '—')}</div></div>
     </div>
     <div class="footer">
-      <div class="footer-left">Assurio · assurio.com<br/>Computer-generated receipt · No signature required</div>
+      <div class="footer-left">Recrify · recrify.in<br/>Computer-generated receipt · No signature required</div>
       <div class="footer-stamp">✓ Verified</div>
     </div>
   </div>

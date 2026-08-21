@@ -6,7 +6,7 @@ import { VendorsOverviewSkeleton } from '@/modules/internal/vendors/components/v
 import type { VendorOverviewResponse } from '@/modules/internal/vendors/commons/internal-vendors.types';
 
 export const metadata: Metadata = {
-  title: 'Vendor Management — Assurio',
+  title: 'Vendor Management — Recrify',
 };
 
 interface SearchParams {

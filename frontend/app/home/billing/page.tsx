@@ -148,7 +148,7 @@ export default function BillingPage() {
           orderId: order.orderId,
           amount: order.amount,
           currency: order.currency,
-          name: 'Assurio',
+          name: 'Recrify',
           description: 'Wallet top-up',
           prefill: {
             name: user?.name || 'Customer',

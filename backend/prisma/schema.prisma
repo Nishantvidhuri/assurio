@@ -275,7 +275,7 @@ model OutboxEvent {
 // Operational alerts — powers the /admin/operations "Active alerts" panel.
 // Self-healing: raised (upsert on dedupeKey) by the observability sweep and by
 // event-driven callers; auto-resolved when the condition clears. Ported from
-// Recriauth's OperationalAlert model, trimmed to Assurio's alert types.
+// Recriauth's OperationalAlert model, trimmed to Recrify's alert types.
 // =====================================================================
 enum OperationalAlertType {
   DEAD_JOBS

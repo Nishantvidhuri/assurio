@@ -2,7 +2,7 @@
 
 /**
  * Scratch page proving the imported RDS component library renders correctly
- * inside Assurio. Safe to delete once the components are in real use.
+ * inside Recrify. Safe to delete once the components are in real use.
  */
 import { useState, type ChangeEvent } from 'react';
 import {
@@ -31,7 +31,7 @@ export default function RdsDemoPage() {
         <div>
           <h1 className="text-2xl font-semibold">RDS Components</h1>
           <p className="mt-1 text-sm text-gray-500">
-            Imported from Recriauth — rendering inside Assurio.
+            Imported from Recriauth — rendering inside Recrify.
           </p>
         </div>
 

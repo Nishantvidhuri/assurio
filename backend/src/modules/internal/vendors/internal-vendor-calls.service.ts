@@ -63,7 +63,7 @@ function excludeTestTenantSqlA(excludeTestData: boolean): Prisma.Sql {
 function excludeTestTenantWhere(
   excludeTestData: boolean,
 ): Prisma.VendorApiCallAuditWhereInput {
-  // Assurio has no test-tenant concept (no Organization model), so nothing
+  // Recrify has no test-tenant concept (no Organization model), so nothing
   // is excluded — see compat.TestDataVisibilityService.
   void excludeTestData;
   return {};
@@ -139,7 +139,7 @@ export class InternalVendorCallsService {
           row.attemptNumber != null && row.maxAttempts != null
             ? `${row.attemptNumber}/${row.maxAttempts}`
             : null,
-        caseReference: null, // no CandidateCase model in Assurio
+        caseReference: null, // no CandidateCase model in Recrify
         candidateCaseId: row.candidateCaseId,
         requestId: row.requestId,
       })),
@@ -201,7 +201,7 @@ export class InternalVendorCallsService {
         row.errorMessage,
       ),
       // Case/check/verification enrichment is Recriauth-only (those models
-      // don't exist in Assurio); the response keys are preserved as null.
+      // don't exist in Recrify); the response keys are preserved as null.
       caseReference: null,
       checkName: null,
       verificationType: null,
@@ -517,7 +517,7 @@ export class InternalVendorCallsService {
   /**
    * Month-to-date call counts per verification type for a vendor.
    *
-   * Assurio has no VendorVerification link table (Recriauth-only) and
+   * Recrify has no VendorVerification link table (Recriauth-only) and
    * VendorApiCallAudit carries no verificationType column, so counts are
    * derived from the recorded endpoints via the vendor's cost-rate card, which
    * maps each endpoint prefix to a verificationType (longest prefix wins).
@@ -601,7 +601,7 @@ export class InternalVendorCallsService {
       httpStatusCode: row.httpStatusCode,
       success: row.success,
       createdAt: row.createdAt.toISOString(),
-      verificationType: null, // no VendorVerification model in Assurio
+      verificationType: null, // no VendorVerification model in Recrify
     }));
   }
 

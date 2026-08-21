@@ -247,7 +247,7 @@ export class WhatsAppController {
     const publicBase = (
       process.env.PUBLIC_APP_URL ||
       process.env.APP_URL ||
-      'https://assurio.com'
+      'https://recrify.in'
     ).replace(/\/$/, '');
 
     const sent = await this.whatsapp.sendVerificationStarted(

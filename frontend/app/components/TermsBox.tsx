@@ -53,7 +53,7 @@ export default function TermsBox({ onAgreedChange, agreed, label }: TermsBoxProp
           Issued by <strong style={{ color: 'var(--ink)' }}>Recrivio Technologies Private Limited</strong>,
           a company incorporated under the Companies Act, 2013, with its registered office at
           Ram Ganga Nagar, Awas Yojana M.O 2, R.K. University, Bareilly, Uttar Pradesh – 243006
-          (<strong style={{ color: 'var(--ink)' }}>"Company"</strong>), operating the Assurio platform.
+          (<strong style={{ color: 'var(--ink)' }}>"Company"</strong>), operating the Recrify platform.
           By clicking "I Agree" or by accessing or using the Platform, you acknowledge that you
           have read, understood, and agree to be bound by these Terms.
         </p>
@@ -165,7 +165,7 @@ export default function TermsBox({ onAgreedChange, agreed, label }: TermsBoxProp
             <>
               I confirm that I have obtained the candidate's consent and I agree to
               the Terms &amp; Conditions of Recrivio Technologies Private Limited,
-              operating the Assurio platform.
+              operating the Recrify platform.
             </>
           )}
         </span>

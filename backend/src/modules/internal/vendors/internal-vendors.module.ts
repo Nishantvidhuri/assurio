@@ -15,7 +15,7 @@ import {
 /**
  * Vendor Management (ported from Recriauth). Recriauth composes this from
  * separate platform modules (user-activity, vendor-config, event-bus,
- * test-data); Assurio supplies those surfaces from ./compat, registered here
+ * test-data); Recrify supplies those surfaces from ./compat, registered here
  * as providers so the ported services' constructor injection is unchanged.
  */
 @Module({

@@ -11,7 +11,7 @@ import type {
 } from '@/modules/internal/vendors/commons/internal-vendors.types';
 
 export const metadata: Metadata = {
-  title: 'Vendor Detail — Assurio',
+  title: 'Vendor Detail — Recrify',
 };
 
 const VALID_CODES = new Set<VendorCode>([

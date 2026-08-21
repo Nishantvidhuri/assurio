@@ -5,7 +5,7 @@ import PageLoader from '@/app/components/PageLoader';
  * Admin gate + AppShell for the ported Vendor Management routes.
  *
  * In Recriauth these pages sit under app/dashboard/internal/, whose layout
- * supplies the dashboard chrome. Assurio has no equivalent parent layout for
+ * supplies the dashboard chrome. Recrify has no equivalent parent layout for
  * /admin, so each page normally does the me() gate itself — this wrapper does
  * it once for every /admin/vendors route, keeping the ported pages untouched.
  */

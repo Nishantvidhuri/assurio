@@ -3,8 +3,8 @@
 import { usePathname } from 'next/navigation';
 import { useEffect } from 'react';
 
-const BASE = 'Assurio';
-const DEFAULT_TITLE = 'Assurio — Background Verification';
+const BASE = 'Recrify';
+const DEFAULT_TITLE = 'Recrify — Background Verification';
 
 /**
  * Route → tab-title label. Longest matching prefix wins, so specific routes

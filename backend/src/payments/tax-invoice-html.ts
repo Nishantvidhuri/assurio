@@ -12,7 +12,7 @@ import type { Invoice } from '../../generated/prisma/client';
 import { BRAND } from '../common/brand-colors';
 import { SELLER, DEFAULT_SAC, type SellerDetails } from './seller-config';
 import { STAMP_SVG, SIGNATURE_PNG_DATA_URI } from './invoice-assets';
-import { ASSURIO_LOGO_DATA_URI } from '../subjects/assurio-logo';
+import { RECRIFY_LOGO_DATA_URI } from '../subjects/recrify-logo';
 
 interface LineItem {
   description: string;
@@ -123,7 +123,7 @@ export function renderTaxInvoiceHtml(
   const sellerAddress = seller.addressLines.join(', ');
 
   const lineDesc = candidate
-    ? `Assurio verification · ${candidate}`
+    ? `Recrify verification · ${candidate}`
     : 'Background verification services';
   const rows =
     items.length > 0
@@ -287,8 +287,8 @@ export function renderTaxInvoiceHtml(
         <span class="header-title">Tax Invoice</span>
       </div>
       <div class="logo-container" style="display:flex;align-items:center;gap:9px;justify-content:flex-end;">
-        <img src="${ASSURIO_LOGO_DATA_URI}" alt="Assurio" style="width:40px;height:40px;object-fit:contain;" />
-        <span style="font-size:22px;font-weight:700;color:${BRAND.textHeading};letter-spacing:-0.01em;">Assurio</span>
+        <img src="${RECRIFY_LOGO_DATA_URI}" alt="Recrify" style="width:40px;height:40px;object-fit:contain;" />
+        <span style="font-size:22px;font-weight:700;color:${BRAND.textHeading};letter-spacing:-0.01em;">Recrify</span>
       </div>
     </div>
 

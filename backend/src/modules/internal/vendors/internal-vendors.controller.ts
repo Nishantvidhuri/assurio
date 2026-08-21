@@ -31,7 +31,7 @@ import {
  * module calls them verbatim through shared/http/api-client.
  *
  * Recriauth gates these with AccessJwtGuard + a system-permission decorator;
- * Assurio uses JwtAuthGuard plus the same in-controller admin check that
+ * Recrify uses JwtAuthGuard plus the same in-controller admin check that
  * AdminController uses.
  */
 @Controller('v1/internal/vendors')

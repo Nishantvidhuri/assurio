@@ -35,7 +35,7 @@ export interface CandidateDraft {
   consentAcceptedAt: string;
 }
 
-const KEY = 'assurio:candidate-draft';
+const KEY = 'recrify:candidate-draft';
 
 export function saveDraft(draft: CandidateDraft): void {
   if (typeof window === 'undefined') return;

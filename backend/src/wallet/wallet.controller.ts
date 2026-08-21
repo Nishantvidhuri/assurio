@@ -115,7 +115,7 @@ export class WalletController {
         customer_name: user.name,
         customer_email: user.email,
         customer_contact: user.phone ?? '',
-        description: 'Assurio wallet top-up',
+        description: 'Recrify wallet top-up',
       },
     });
     return {

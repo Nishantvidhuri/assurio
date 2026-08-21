@@ -838,7 +838,7 @@ export class InternalVendorsService {
     if (!viewerUserId) {
       throw new ForbiddenException('Authenticated internal user required');
     }
-    // Recriauth resolves the writer's tier from InternalTeamEmployee. Assurio
+    // Recriauth resolves the writer's tier from InternalTeamEmployee. Recrify
     // has a single admin tier, surfaced as SUPER_ADMIN by compat.normalizeAuth.
     const access = req.auth?.access ?? null;
     if (!access || !VENDOR_MANAGER_ROLES.includes(access)) {

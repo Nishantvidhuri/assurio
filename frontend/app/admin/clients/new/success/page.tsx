@@ -191,7 +191,7 @@ function SuccessPage() {
           </h1>
           <p className="suc-sub">
             {draft
-              ? `${draft.name.split(' ')[0]} is now an Assurio client.`
+              ? `${draft.name.split(' ')[0]} is now an Recrify client.`
               : 'Your payment was confirmed.'}
           </p>
 

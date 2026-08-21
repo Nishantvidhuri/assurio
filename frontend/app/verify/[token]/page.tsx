@@ -402,7 +402,7 @@ export default function VerifyPage() {
             label={
               <>
                 I, <strong>{info.candidateName}</strong>, have read and agree to the
-                Terms &amp; Conditions, and consent to Assurio verifying my details
+                Terms &amp; Conditions, and consent to Recrify verifying my details
                 on behalf of {info.clientName}.
               </>
             }
@@ -645,7 +645,7 @@ function Shell({
         <div className="mx-auto flex max-w-[1040px] items-center gap-2.5 px-6 py-4">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/logo-mark.png" alt="" width={28} height={28} />
-          <span className="text-lg font-semibold text-text-heading">Assurio</span>
+          <span className="text-lg font-semibold text-text-heading">Recrify</span>
         </div>
       </header>
       <main
@@ -658,7 +658,7 @@ function Shell({
         {children}
       </main>
       <p className="pb-8 text-center text-body-sm text-text-placeholder">
-        Secured by Assurio · Consent-first background checks
+        Secured by Recrify · Consent-first background checks
       </p>
     </div>
   );

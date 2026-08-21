@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { TermsContent } from '../../components/TermsContent';
 
 export const metadata: Metadata = {
-  title: 'Terms & Conditions — Assurio',
+  title: 'Terms & Conditions — Recrify',
 };
 
 export default function TermsPage() {

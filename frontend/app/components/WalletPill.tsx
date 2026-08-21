@@ -3,10 +3,10 @@
 /**
  * Top-bar wallet pill for client accounts — mirrors Recriauth's credits pill
  * (same RDS shape: h-10 rounded-full, coin badge, balance text), with the
- * rupee coin since Assurio's wallet is money, not credits.
+ * rupee coin since Recrify's wallet is money, not credits.
  *
  * Refreshes on every route change and whenever something spends or tops up the
- * wallet — those flows dispatch `assurio:wallet-updated`, so the balance never
+ * wallet — those flows dispatch `recrify:wallet-updated`, so the balance never
  * goes stale after a payment or a consent refund.
  */
 import { useCallback, useEffect, useState } from 'react';
@@ -17,7 +17,7 @@ import { cn } from '@/shared/lib/utils';
 import { getWallet } from '../lib/api';
 import { getToken } from '../lib/session';
 
-export const WALLET_UPDATED_EVENT = 'assurio:wallet-updated';
+export const WALLET_UPDATED_EVENT = 'recrify:wallet-updated';
 
 /** Tell every mounted WalletPill to re-fetch (call after a top-up / charge). */
 export function notifyWalletUpdated(): void {

@@ -84,17 +84,17 @@ async function main() {
   }
 
   // Restore the one thing we keep: the admin login.
-  const email = (process.env.ADMIN_EMAIL || 'admin@assurio.com')
+  const email = (process.env.ADMIN_EMAIL || 'admin@recrify.in')
     .toLowerCase()
     .trim();
-  const password = process.env.ADMIN_PASSWORD || 'assurio-admin';
+  const password = process.env.ADMIN_PASSWORD || 'recrify-admin';
   const prisma = new PrismaClient({
     adapter: new PrismaPg({ connectionString: url }),
   });
   try {
     await prisma.user.create({
       data: {
-        name: 'Assurio Admin',
+        name: 'Recrify Admin',
         email,
         passwordHash: await bcrypt.hash(password, 10),
         role: 'admin',

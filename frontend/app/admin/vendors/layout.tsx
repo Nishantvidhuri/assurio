@@ -7,11 +7,11 @@ import AdminVendorsShell from './admin-shell';
 // mounted while only the page content swaps. The shell itself decides which
 // routes get the shared chrome (detail passes through).
 //
-// Assurio additions:
+// Recrify additions:
 //  • AdminVendorsShell supplies the admin gate + app chrome that Recriauth's
 //    app/dashboard/internal layout provided.
 //  • SSEProvider is required because the ported components call useSSEEvent
-//    (useSSE throws without a provider). Assurio has no /v1/sse/subscribe
+//    (useSSE throws without a provider). Recrify has no /v1/sse/subscribe
 //    endpoint, and the provider only opens an EventSource once it sees an
 //    authenticated session from its own auth context — which our shim reports
 //    as null here — so it stays inert instead of reconnect-looping. Live

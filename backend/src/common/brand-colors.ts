@@ -1,5 +1,5 @@
 /**
- * Assurio brand palette for server-rendered surfaces — the report PDF, the
+ * Recrify brand palette for server-rendered surfaces — the report PDF, the
  * invoice PDF, and transactional emails. These can't read the frontend's CSS
  * variables, so the hex values live here instead.
  *

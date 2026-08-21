@@ -989,7 +989,7 @@ export default function CandidatePage() {
                   Read the consent letter before signing.
                 </div>
                 <p className="vf-callout-sub">
-                  Authorises the Hiring Organisation and Assurio to run your
+                  Authorises the Hiring Organisation and Recrify to run your
                   background verification.
                 </p>
               </div>
@@ -1158,7 +1158,7 @@ function ConsentLetterDialog({
           <div className="vf-letter">
             <p>
               I, <strong>{NAME}</strong>, hereby authorize {ORG} and its
-              background verification platform <strong>Assurio</strong>,
+              background verification platform <strong>Recrify</strong>,
               including its partners, agents, contractors, or subcontractors
               (collectively referred to as the &ldquo;Company&rdquo;), to
               conduct background verification checks in relation to my

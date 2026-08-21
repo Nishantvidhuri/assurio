@@ -642,7 +642,7 @@ function InvoiceDetailBody({
         }))
       : [
           {
-            description: `Assurio verification${row.candidateName ? ` · ${row.candidateName}` : ''}`,
+            description: `Recrify verification${row.candidateName ? ` · ${row.candidateName}` : ''}`,
             amount: subtotal,
           },
         ];

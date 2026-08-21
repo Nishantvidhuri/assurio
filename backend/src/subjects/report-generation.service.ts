@@ -25,7 +25,7 @@ export const REPORT_JOB = 'regenerate';
 // vendor text). v5: "Verified manually" status + legend, Date Completed now counts terminal
 // outcomes (manual / failed), and vendor-supplied credit & court report PDFs are
 // attached as documents.
-export const REPORT_TEMPLATE_VERSION = 8;
+export const REPORT_TEMPLATE_VERSION = 9;
 
 /** True when a stored report predates the current template. */
 export function isReportStale(key: string | null | undefined): boolean {

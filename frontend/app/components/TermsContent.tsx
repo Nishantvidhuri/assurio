@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 
 /**
- * Read-only rendering of Assurio's Terms & Conditions prose, built from RDS
+ * Read-only rendering of Recrify's Terms & Conditions prose, built from RDS
  * tokens. Shown inside the T&C dialog on the add-candidate flow (the accept
  * checkbox lives in the form, matching Recriauth's linked-doc + checkbox
  * pattern).
@@ -16,7 +16,7 @@ export function TermsContent() {
       <p>
         Issued by <strong className="text-text-heading">Recrivio</strong> (the{' '}
         <strong className="text-text-heading">&ldquo;Company&rdquo;</strong>),
-        which operates the Assurio background-verification platform. By clicking{' '}
+        which operates the Recrify background-verification platform. By clicking{' '}
         &ldquo;I Agree&rdquo; or by accessing or using the Platform, you
         acknowledge that you have read, understood, and agree to be bound by
         these Terms.

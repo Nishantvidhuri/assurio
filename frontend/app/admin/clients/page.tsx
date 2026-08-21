@@ -157,7 +157,7 @@ export default function AdminClientsPage() {
         <div>
           <h1 className="page-title">Clients</h1>
           <p className="page-sub">
-            Every client on Assurio. Open one to see their candidates and
+            Every client on Recrify. Open one to see their candidates and
             wallet history.
           </p>
         </div>

@@ -80,7 +80,7 @@ export default function CandidateCheckoutPage() {
       const aadhaarDigits = draft.aadhaar.replace(/\s/g, '');
       const order = await createOrder(token, {
         amount: PRICE_INR,
-        description: `Assurio verification · ${draft.name}`,
+        description: `Recrify verification · ${draft.name}`,
         customer: {
           name: draft.name,
           email: draft.email || undefined,
@@ -105,7 +105,7 @@ export default function CandidateCheckoutPage() {
           orderId: order.orderId,
           amount: order.amount,
           currency: order.currency,
-          name: 'Assurio',
+          name: 'Recrify',
           description: `Verification · ${draft.name}`,
           prefill: {
             name: draft.name,
@@ -155,7 +155,7 @@ export default function CandidateCheckoutPage() {
         </Link>
         <div className="co-bar-brand">
           <span className="co-mark">A</span>
-          Assurio
+          Recrify
         </div>
         <div className="co-bar-secure">
           <Lock size={13} />

@@ -3,7 +3,7 @@
 /* ============================================================================
    HomeStory — "The Knock"
    A pinned, scroll-scrubbed 3D story: an applicant arrives with perfect
-   paperwork; an Assurio check reveals the documents belong to someone else;
+   paperwork; an Recrify check reveals the documents belong to someone else;
    the next applicant verifies clean and the door opens.
    Three.js (R3F) scene + DOM overlays + one GSAP timeline. Light theme.
    ========================================================================== */
@@ -27,7 +27,7 @@ const CAPTIONS = [
   { k: '01 — the knock', t: 'Every hire starts with a stranger at the door.' },
   { k: '02 — the applicant', t: 'He says he’s from maintenance. Uniform, toolbox, a folder of references.' },
   { k: '03 — the paperwork', t: 'ID, references, nine years of experience. Everything looks right.' },
-  { k: '04 — the check', t: 'Thirty seconds in Assurio — before he’s inside your house.' },
+  { k: '04 — the check', t: 'Thirty seconds in Recrify — before he’s inside your house.' },
   { k: '05 — the flag', t: "Three checks pass. One doesn't." },
   { k: '06 — the reveal', t: 'The papers belong to someone else. The uniform is a costume — and the man behind it has a record.' },
   { k: '07 — the right way', t: 'The next applicant is exactly who she says she is. Verified in 28 seconds.' },
@@ -335,11 +335,11 @@ export default function HomeStory() {
   }, []);
 
   return (
-    <section className="ep-story" ref={root} aria-label="How Assurio works — a short story">
+    <section className="ep-story" ref={root} aria-label="How Recrify works — a short story">
       {/* Screen-reader narrative (visual scene is decorative) */}
       <p className="ep-sr-only">
         A short illustrated story: a man arrives at a home presenting as a
-        maintenance worker, with a perfect ID and references. An Assurio
+        maintenance worker, with a perfect ID and references. An Recrify
         identity check passes the Aadhaar name match, address history and
         reference callback — but the PAN is registered to a different person.
         The documents belong to someone else; the uniform is a disguise. The
@@ -388,7 +388,7 @@ export default function HomeStory() {
         {/* the check — run 1 */}
         <div className="ep-story-panel ep-story-panel-run">
           <div className="ep-story-panel-top">
-            <span className="ep-story-panel-brand">assurio</span>
+            <span className="ep-story-panel-brand">recrify</span>
             <span className="ep-story-panel-kind">identity check</span>
           </div>
           <div className="ep-story-panel-subject">
@@ -435,7 +435,7 @@ export default function HomeStory() {
         {/* the check — run 2, clean */}
         <div className="ep-story-panel ep-story-panel-clear">
           <div className="ep-story-panel-top">
-            <span className="ep-story-panel-brand">assurio</span>
+            <span className="ep-story-panel-brand">recrify</span>
             <span className="ep-story-panel-kind">identity check</span>
           </div>
           <div className="ep-story-panel-subject">

@@ -146,7 +146,7 @@ export default function AddClientPage() {
                   Add a new <em>client</em>
                 </h1>
                 <p className="ac-sub">
-                  Capture KYC details to onboard a client to Assurio. A one-time
+                  Capture KYC details to onboard a client to Recrify. A one-time
                   ₹{PRICE_INR} verification fee applies.
                 </p>
               </header>

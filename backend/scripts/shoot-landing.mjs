@@ -10,7 +10,7 @@ const FRONTEND = 'http://localhost:3000';
 const API = 'http://localhost:3001';
 const OUT = '/Users/nishant/bg_check/frontend/public/landing';
 const CHROME = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
-const PASSWORD = 'assurio-demo';
+const PASSWORD = 'recrify-demo';
 
 const subjectId = process.argv[2];
 if (!subjectId) {
@@ -57,14 +57,14 @@ try {
   await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 2 });
 
   // Owner shots
-  await loginAs(page, 'demo@assurio.test');
+  await loginAs(page, 'demo@recrify.test');
   await shoot(page, '/home', 'client-dashboard.png');
   await page.setViewport({ width: 1368, height: 900, deviceScaleFactor: 2 });
   await shoot(page, `/subject/${subjectId}`, 'candidate-report.png', { fullPage: true });
 
   // Candidate shot
   await page.setViewport({ width: 1440, height: 900, deviceScaleFactor: 2 });
-  await loginAs(page, 'sunita+demo@assurio.test');
+  await loginAs(page, 'sunita+demo@recrify.test');
   await shoot(page, '/candidate', 'candidate-page.png');
 } finally {
   await browser.close();

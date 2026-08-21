@@ -117,7 +117,7 @@ export class PaymentsController {
 
     const link = await this.payments.createLink({
       amount,
-      description: (body.description || 'Assurio verification').slice(0, 2048),
+      description: (body.description || 'Recrify verification').slice(0, 2048),
       customer: {
         name,
         email,
@@ -154,7 +154,7 @@ export class PaymentsController {
       customer_name: name,
       customer_email: email,
       customer_contact: (body.customer?.contact || '').trim(),
-      description: (body.description || 'Assurio verification').slice(0, 512),
+      description: (body.description || 'Recrify verification').slice(0, 512),
     };
 
     const order = await this.payments.createOrder({

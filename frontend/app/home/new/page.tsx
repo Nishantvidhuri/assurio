@@ -605,10 +605,10 @@ export default function AddCandidatePage() {
             discountCode: appliedCode || undefined,
           },
         });
-        sessionStorage.setItem('assurio:created', JSON.stringify(subject));
+        sessionStorage.setItem('recrify:created', JSON.stringify(subject));
         clearDraft();
         if (draftId) void deleteServerDraft(draftId);
-        sessionStorage.removeItem('assurio:draft-id');
+        sessionStorage.removeItem('recrify:draft-id');
         router.push('/home/new/success?wallet=1');
         return;
       }
@@ -616,12 +616,12 @@ export default function AddCandidatePage() {
       // Persist the draft so the success page can create the candidate + clean
       // up this draft once payment is confirmed.
       saveDraft(form);
-      if (draftId) sessionStorage.setItem('assurio:draft-id', draftId);
+      if (draftId) sessionStorage.setItem('recrify:draft-id', draftId);
 
       const aadhaarDigits = form.aadhaar.replace(/\s/g, '');
       const order = await createOrder(token, {
         amount: finalAmount,
-        description: `Assurio verification · ${form.name}`,
+        description: `Recrify verification · ${form.name}`,
         customer: {
           name: form.name,
           email: form.email || undefined,
@@ -648,7 +648,7 @@ export default function AddCandidatePage() {
           orderId: order.orderId,
           amount: order.amount,
           currency: order.currency,
-          name: 'Assurio',
+          name: 'Recrify',
           description: `Verification · ${form.name}`,
           prefill: {
             name: form.name,
@@ -1618,7 +1618,7 @@ export default function AddCandidatePage() {
             <div className="inline-flex items-center gap-1.5 text-body-sm text-text-subheading">
               <ShieldCheck className="size-3.5" />
               {payMethod === 'wallet'
-                ? 'Paid from your Assurio wallet — auto-refunded if the candidate declines consent'
+                ? 'Paid from your Recrify wallet — auto-refunded if the candidate declines consent'
                 : 'Secured by Razorpay'}
             </div>
 

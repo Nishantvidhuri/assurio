@@ -11,7 +11,7 @@ export interface ClientDraft {
   pan: string;
 }
 
-const KEY = 'assurio:client-draft';
+const KEY = 'recrify:client-draft';
 
 export function saveDraft(draft: ClientDraft): void {
   if (typeof window === 'undefined') return;

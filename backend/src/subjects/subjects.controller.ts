@@ -555,7 +555,7 @@ export class SubjectsController {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader(
       'Content-Disposition',
-      `inline; filename="assurio-report-mock-${variant}.pdf"`,
+      `inline; filename="recrify-report-mock-${variant}.pdf"`,
     );
     res.send(buffer);
   }
@@ -627,7 +627,7 @@ export class SubjectsController {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader(
       'Content-Disposition',
-      `${disposition}; filename="assurio-report-${safeName}.pdf"`,
+      `${disposition}; filename="recrify-report-${safeName}.pdf"`,
     );
     // The report is regenerated on every status update — never let the browser
     // serve a stale/ETag-revalidated (304) copy of an old render.
