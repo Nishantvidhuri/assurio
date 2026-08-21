@@ -1,0 +1,22 @@
+{
+  "language": {
+    "label": "Language",
+    "switch": "Change language"
+  },
+  "consent": {
+    "title": "Verification request",
+    "subtitle": "{client} has asked to verify your details.",
+    "whatWeCheck": "What will be checked",
+    "agree": "I agree",
+    "decline": "I do not agree",
+    "continue": "Continue"
+  },
+  "common": {
+    "back": "Back",
+    "next": "Next",
+    "submit": "Submit",
+    "cancel": "Cancel",
+    "loading": "Loading…",
+    "checksDone": "{done} of {total} checks done"
+  }
+}

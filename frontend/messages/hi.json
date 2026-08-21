@@ -1,0 +1,22 @@
+{
+  "language": {
+    "label": "भाषा",
+    "switch": "भाषा बदलें"
+  },
+  "consent": {
+    "title": "सत्यापन अनुरोध",
+    "subtitle": "{client} ने आपका विवरण सत्यापित करने का अनुरोध किया है।",
+    "whatWeCheck": "क्या जाँचा जाएगा",
+    "agree": "मैं सहमत हूँ",
+    "decline": "मैं सहमत नहीं हूँ",
+    "continue": "आगे बढ़ें"
+  },
+  "common": {
+    "back": "पीछे",
+    "next": "आगे",
+    "submit": "जमा करें",
+    "cancel": "रद्द करें",
+    "loading": "लोड हो रहा है…",
+    "checksDone": "{total} में से {done} जाँच पूरी"
+  }
+}

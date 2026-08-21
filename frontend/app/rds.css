@@ -49,7 +49,13 @@ input[type="password"]::-ms-reveal {
   --*: initial;
 
   /* ── Font Family ─────────────────────────────────────────────────────── */
-  --font-sans: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+  /* Manrope carries no Devanagari or Kannada glyphs. Listing the Noto faces
+     after it means Latin text still renders in Manrope while Hindi and Kannada
+     fall through to a face that can actually draw them — per glyph, so a mixed
+     line (a Hindi label with a ₹ amount) stays correct throughout. */
+  --font-sans:
+    var(--font-manrope), var(--font-devanagari), var(--font-kannada),
+    ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
     'Liberation Mono', 'Courier New', monospace;
 
