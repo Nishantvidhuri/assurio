@@ -1249,19 +1249,6 @@ export default function SubjectReport({
                 }
               />
             </span>
-            {/* Only shown when something actually disagreed — a "0
-                discrepancies" chip on every clean report is noise, and it
-                would dilute the one case that needs attention. */}
-            {discrepancyCount > 0 && (
-              <span className="hidden md:inline-flex">
-                <Tag
-                  variant="Failure"
-                  label={`${discrepancyCount} ${
-                    discrepancyCount === 1 ? 'discrepancy' : 'discrepancies'
-                  }`}
-                />
-              </span>
-            )}
             {/* Mobile: every report action collapses into this kebab menu. */}
             <div className="relative ml-auto md:hidden">
               <button
@@ -1436,6 +1423,32 @@ export default function SubjectReport({
                 ) : undefined
               }
             />
+            {/* Sits with the case facts rather than beside the status
+                chips: it is a finding about this candidate's data, not a
+                progress indicator. Shown only when fields were actually
+                compared — with none, "0" would read as "nothing wrong" when
+                it means "nothing checked". */}
+            {comparedCount > 0 && (
+              <HeadField
+                label="Discrepancies"
+                value={
+                  discrepancyCount === 0
+                    ? `None across ${comparedCount} compared field${
+                        comparedCount === 1 ? '' : 's'
+                      }`
+                    : `${discrepancyCount} of ${comparedCount} compared field${
+                        comparedCount === 1 ? '' : 's'
+                      }`
+                }
+                pill={
+                  discrepancyCount > 0 ? (
+                    <span className="shrink-0 whitespace-nowrap rounded-full bg-surface-error px-2 py-0.5 text-body-sm font-medium text-failure">
+                      Review
+                    </span>
+                  ) : undefined
+                }
+              />
+            )}
             {admin && <HeadField label="Overall TAT" value={overallTat} />}
           </div>
         </div>
