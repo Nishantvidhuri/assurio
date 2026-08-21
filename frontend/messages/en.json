@@ -83,5 +83,113 @@
       "title": "Aadhaar verified — you're all set",
       "body": "Thanks, {firstName}. Your verification is complete. You can close this window."
     }
+  },
+  "newCheck": {
+    "title": "Add a new candidate",
+    "subtitle": "Enter candidate details to start the background verification.",
+    "backToDashboard": "Back to dashboard",
+    "fillYourself": "Fill Details Yourself",
+    "steps": {
+      "basic": "Basic Details",
+      "additional": "Additional Details",
+      "documents": "Identity Documents",
+      "review": "Review & Confirm"
+    },
+    "basic": {
+      "heading": "Capture the candidate's contact details to get started.",
+      "name": "Full name",
+      "namePlaceholder": "e.g. Sunita Kumari",
+      "email": "Email",
+      "emailPlaceholder": "their@email.com",
+      "phone": "Phone",
+      "role": "Role",
+      "rolePlaceholder": "Select a role",
+      "roleOwnPlaceholder": "Enter the role (e.g. Gardener)"
+    },
+    "additional": {
+      "heading": "Enter additional details of the person you want to verify.",
+      "pan": "PAN number",
+      "panPlaceholder": "ABCDE1234F",
+      "aadhaar": "Aadhaar number",
+      "aadhaarPlaceholder": "XXXX XXXX XXXX",
+      "dob": "Date of birth",
+      "dobPlaceholder": "DD/MM/YYYY",
+      "gender": "Gender",
+      "genderPlaceholder": "Select candidate's gender",
+      "fatherName": "Father's name",
+      "address": "Permanent address",
+      "addressPlaceholder": "House / street, area, city, state, PIN",
+      "pincode": "Pincode",
+      "pincodePlaceholder": "6-digit pincode",
+      "drivingLicence": "Driving licence no.",
+      "drivingLicencePlaceholder": "e.g. MH0120201234567",
+      "voterId": "Voter ID",
+      "voterIdPlaceholder": "e.g. ABC1234567",
+      "passport": "Passport file no.",
+      "passportPlaceholder": "e.g. AP1234567890",
+      "uan": "UAN",
+      "uanPlaceholder": "12-digit UAN"
+    },
+    "documents": {
+      "heading": "Identity documents",
+      "browse": "Browse",
+      "hint": "JPG, PNG, or PDF up to 10MB",
+      "secure": "Encrypted and stored securely.",
+      "scanning": "Scanning & uploading…",
+      "remove": "Remove",
+      "uploadHint": "Add any identity documents you have — the more you provide, the more complete the background check."
+    },
+    "review": {
+      "heading": "Verify the details before proceeding to payment.",
+      "willPerform": "Checks we'll perform",
+      "cannotPerform": "Checks we can't perform yet",
+      "addMissing": "Add missing info",
+      "editDetails": "Edit details",
+      "paymentSummary": "Payment summary",
+      "fee": "Verification fee",
+      "discountPrompt": "Get additional discount",
+      "discountPlaceholder": "Enter discount code",
+      "total": "Total payable",
+      "taxes": "Inclusive of all taxes",
+      "acceptTerms": "I accept the Terms & Conditions",
+      "termsLink": "Terms & Conditions",
+      "additionalDetails": "Additional details"
+    },
+    "actions": {
+      "back": "Back",
+      "continue": "Continue",
+      "reviewContinue": "Review & continue"
+    },
+    "errors": {
+      "email": "Please enter a valid email.",
+      "phone": "Phone number looks too short.",
+      "pan": "PAN must match the format ABCDE1234F.",
+      "aadhaar": "Aadhaar must be 12 digits.",
+      "dobFormat": "Date of birth must be in DD-MM-YYYY format.",
+      "dobRequired": "Date of birth is required when providing a Driving Licence or Passport. Add it under Additional Details.",
+      "pincode": "Pincode must be 6 digits.",
+      "drivingLicence": "Driving licence number looks too short.",
+      "passport": "Passport file number looks too short.",
+      "uan": "UAN must be 12 digits.",
+      "voterId": "Voter ID must be in the format ABC1234567.",
+      "terms": "Please accept the Terms & Conditions to continue."
+    },
+    "checks": {
+      "pan": "PAN verification",
+      "aadhaar": "Aadhaar (DigiLocker)",
+      "dl": "Driving licence",
+      "voter": "Voter ID",
+      "passport": "Passport",
+      "employment": "Employment history",
+      "court": "Crime / court record",
+      "credit": "Credit check"
+    },
+    "eta": {
+      "Instant on consent": "Instant on consent",
+      "Within 24 hours": "Within 24 hours",
+      "Within 24-48 hours": "Within 24-48 hours",
+      "Awaiting candidate": "Awaiting candidate",
+      "After Aadhaar KYC": "After Aadhaar KYC"
+    }
   }
 }

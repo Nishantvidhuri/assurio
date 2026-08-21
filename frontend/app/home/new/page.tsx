@@ -4,6 +4,7 @@ import { BRAND } from '../../lib/brand';
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import Link from 'next/link';
 import {
   ArrowLeft,
@@ -39,6 +40,7 @@ import { openRazorpayCheckout } from '../../lib/razorpay';
 import { getToken } from '../../lib/session';
 import { doLogout } from '../../lib/logout';
 import { ONLINE_PAYMENT_ENABLED } from '../../lib/feature-flags';
+import LanguageSwitcher from '../../components/LanguageSwitcher';
 import { CLIENT_NAV } from '../../components/Sidebar';
 import AppShell from '../../components/AppShell';
 import {
@@ -117,6 +119,14 @@ const PRESET_ROLES = [
 /** Sentinel value for the "Other" entry — never stored as the actual role. */
 const ROLE_OTHER = '__other__';
 
+/**
+ * Role and gender stay in English in every locale — deliberately.
+ *
+ * The selected value is persisted to Subject.role / Subject.gender and read
+ * back by the admin table, the report PDF and every filter. Keeping the label
+ * identical to the value means what an operator sees on the candidate record
+ * is exactly what the client picked, with no lookup needed to interpret it.
+ */
 const ROLE_OPTIONS = [
   ...PRESET_ROLES.map((role) => ({ label: role, value: role })),
   { label: 'Other (type your own)', value: ROLE_OTHER },
@@ -185,6 +195,7 @@ function isDraftEmpty(f: CandidateDraft): boolean {
 
 export default function AddCandidatePage() {
   const router = useRouter();
+  const t = useTranslations('newCheck');
   const [user, setUser] = useState<AuthUser | null>(null);
   const [form, setForm] = useState<CandidateDraft>(EMPTY);
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
@@ -466,15 +477,15 @@ export default function AddCandidatePage() {
     form.email.length > 0 && !emailValid ? 'Enter a valid email.' : undefined;
   const phoneError =
     form.phone.length > 0 && !phoneValid
-      ? validatePhoneNumber(form.phone) || 'Phone number looks too short.'
+      ? validatePhoneNumber(form.phone) || t('errors.phone')
       : undefined;
   const aadhaarError =
     form.aadhaar.length > 0 && !aadhaarValid
-      ? 'Aadhaar must be 12 digits.'
+      ? t('errors.aadhaar')
       : undefined;
   const panError =
     form.pan.length > 0 && !panValid
-      ? 'PAN must match the format ABCDE1234F.'
+      ? t('errors.pan')
       : undefined;
   const dobError = !dobValid ? 'Use DD-MM-YYYY.' : undefined;
   const dlError =
@@ -483,25 +494,25 @@ export default function AddCandidatePage() {
       : undefined;
   const voterError =
     form.voterId.length > 0 && !voterValid
-      ? 'Voter ID must be in the format ABC1234567.'
+      ? t('errors.voterId')
       : undefined;
   const passportError =
     form.passportFileNo.length > 0 && !passportFileValid
       ? 'File number looks too short.'
       : undefined;
   const uanError =
-    form.uan.length > 0 && !uanValid ? 'UAN must be 12 digits.' : undefined;
+    form.uan.length > 0 && !uanValid ? t('errors.uan') : undefined;
   const pincodeError =
     form.pincode.length > 0 && !pincodeValid
-      ? 'Pincode must be 6 digits.'
+      ? t('errors.pincode')
       : undefined;
 
   /* ── step 1 → 2 ── */
   function handleNextContact() {
     setError('');
     if (!nameValid) return setError("Please enter the candidate's name.");
-    if (!emailValid) return setError('Please enter a valid email.');
-    if (!phoneValid) return setError('Phone number looks too short.');
+    if (!emailValid) return setError(t('errors.email'));
+    if (!phoneValid) return setError(t('errors.phone'));
     setStep(2);
   }
 
@@ -509,26 +520,26 @@ export default function AddCandidatePage() {
   function handleNextAdditional() {
     setError('');
     if (!dobValid)
-      return setError('Date of birth must be in DD-MM-YYYY format.');
-    if (!pincodeValid) return setError('Pincode must be 6 digits.');
+      return setError(t('errors.dobFormat'));
+    if (!pincodeValid) return setError(t('errors.pincode'));
     setStep(3);
   }
 
   /* ── step 3 → 4 ── */
   function handleNextIdentity() {
     setError('');
-    if (!aadhaarValid) return setError('Aadhaar must be 12 digits.');
-    if (!panValid) return setError('PAN must match the format ABCDE1234F.');
+    if (!aadhaarValid) return setError(t('errors.aadhaar'));
+    if (!panValid) return setError(t('errors.pan'));
     if ((form.drivingLicense || form.passportFileNo) && !form.dob)
       return setError(
-        'Date of birth is required when providing a Driving Licence or Passport. Add it under Additional Details.',
+        t('errors.dobRequired'),
       );
-    if (!dlValid) return setError('Driving licence number looks too short.');
+    if (!dlValid) return setError(t('errors.drivingLicence'));
     if (!voterValid)
-      return setError('Voter ID must be in the format ABC1234567.');
+      return setError(t('errors.voterId'));
     if (!passportFileValid)
-      return setError('Passport file number looks too short.');
-    if (!uanValid) return setError('UAN must be 12 digits.');
+      return setError(t('errors.passport'));
+    if (!uanValid) return setError(t('errors.uan'));
     setStep(4);
   }
 
@@ -595,7 +606,7 @@ export default function AddCandidatePage() {
   async function payNow() {
     setError('');
     if (!tcAgreed) {
-      setError('Please accept the Terms & Conditions to continue.');
+      setError(t('errors.terms'));
       return;
     }
     setPaying(true);
@@ -731,22 +742,22 @@ export default function AddCandidatePage() {
   const stepItems: StepperItem[] = [
     {
       id: 'contact',
-      title: 'Basic Details',
+      title: t('steps.basic'),
       status: step === 1 ? 'ongoing' : 'completed',
     },
     {
       id: 'additional',
-      title: 'Additional Details',
+      title: t('steps.additional'),
       status: step < 2 ? 'not_started' : step === 2 ? 'ongoing' : 'completed',
     },
     {
       id: 'identity',
-      title: 'Identity Documents',
+      title: t('steps.documents'),
       status: step < 3 ? 'not_started' : step === 3 ? 'ongoing' : 'completed',
     },
     {
       id: 'review',
-      title: 'Review & Confirm',
+      title: t('steps.review'),
       status: step === 4 ? 'ongoing' : 'not_started',
     },
   ];
@@ -764,19 +775,20 @@ export default function AddCandidatePage() {
         <div className="hidden items-start gap-2 lg:flex">
           <Link
             href="/home"
-            aria-label="Back to dashboard"
+            aria-label={t('backToDashboard')}
             className="group mt-1 inline-flex size-5 shrink-0 items-center justify-center text-primary"
           >
             <ArrowLeft className="size-5 transition-transform duration-300 ease-out group-hover:-translate-x-1" />
           </Link>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <h1 className="text-h4 font-semibold tracking-h3 text-text-heading md:text-h3">
-              Fill Details Yourself
+              {t('fillYourself')}
             </h1>
             <p className="mt-1 text-body-md text-text-subheading">
-              Enter candidate details to start the background verification.
+              {t('subtitle')}
             </p>
           </div>
+          <LanguageSwitcher className="mt-1 shrink-0" />
         </div>
 
         <div className="flex flex-col gap-6 lg:flex-row lg:items-stretch lg:gap-0">
@@ -794,7 +806,7 @@ export default function AddCandidatePage() {
           <div className="flex items-center gap-3 lg:hidden">
             <button
               type="button"
-              aria-label={step > 1 ? 'Previous step' : 'Back to dashboard'}
+              aria-label={step > 1 ? t('actions.back') : t('backToDashboard')}
               onClick={() => {
                 setError('');
                 if (step > 1) setStep((s) => (s - 1) as 1 | 2 | 3 | 4);
@@ -848,33 +860,33 @@ export default function AddCandidatePage() {
           <div className="flex flex-col gap-6">
             <div className="space-y-1">
               <h2 className="text-base font-semibold tracking-h4 text-text-heading md:text-h4">
-                Add a new candidate
+                {t('title')}
               </h2>
               <p className="text-body-sm text-text-subheading">
-                Capture the candidate&apos;s contact details to get started.
+                {t('basic.heading')}
               </p>
             </div>
 
             <div className="grid gap-x-5 gap-y-5 md:grid-cols-2">
-              <InputFieldWrapper label="Full name" required className="md:col-span-2">
+              <InputFieldWrapper label={t('basic.name')} required className="md:col-span-2">
                 <Input
                   value={form.name}
-                  placeholder="e.g. Sunita Kumari"
+                  placeholder={t('basic.namePlaceholder')}
                   onChange={(event) => set('name', event.target.value)}
                 />
               </InputFieldWrapper>
 
-              <InputFieldWrapper label="Email" optional error={emailError}>
+              <InputFieldWrapper label={t('basic.email')} optional error={emailError}>
                 <Input
                   type="email"
                   value={form.email}
-                  placeholder="their@email.com"
+                  placeholder={t('basic.emailPlaceholder')}
                   error={Boolean(emailError)}
                   onChange={(event) => set('email', event.target.value)}
                 />
               </InputFieldWrapper>
 
-              <InputFieldWrapper label="Phone" optional error={phoneError}>
+              <InputFieldWrapper label={t('basic.phone')} optional error={phoneError}>
                 <PhoneInput
                   defaultCountry="IN"
                   value={form.phone}
@@ -883,10 +895,10 @@ export default function AddCandidatePage() {
                 />
               </InputFieldWrapper>
 
-              <InputFieldWrapper label="Role" optional>
+              <InputFieldWrapper label={t('basic.role')} optional>
                 <SelectInput
                   value={roleIsCustom ? ROLE_OTHER : form.role}
-                  placeholder="Select a role"
+                  placeholder={t('basic.rolePlaceholder')}
                   options={ROLE_OPTIONS}
                   onChange={(next) => {
                     if (next === ROLE_OTHER) {
@@ -903,7 +915,7 @@ export default function AddCandidatePage() {
                     <Input
                       autoFocus
                       value={form.role}
-                      placeholder="Enter the role (e.g. Gardener)"
+                      placeholder={t('basic.roleOwnPlaceholder')}
                       maxLength={40}
                       onChange={(event) => set('role', event.target.value)}
                     />
@@ -939,17 +951,17 @@ export default function AddCandidatePage() {
                       {uploading ? (
                         <>
                           <Loader2 className="size-4 animate-spin" />
-                          Scanning &amp; uploading…
+                          {t('documents.scanning')}
                         </>
                       ) : (
                         <>
-                          Browse
+                          {t('documents.browse')}
                           <UploadCloud className="size-4" />
                         </>
                       )}
                     </span>
                     <span className="text-body-sm text-text-subheading">
-                      JPG, PNG, or PDF up to 10MB
+                      {t('documents.hint')}
                     </span>
                   </label>
 
@@ -1010,7 +1022,7 @@ export default function AddCandidatePage() {
             <div className="hidden flex-col-reverse items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between lg:flex">
               <div className="inline-flex items-center gap-1.5 text-body-sm text-text-subheading">
                 <Sparkles className="size-3.5" />
-                Encrypted and stored securely.
+                {t('documents.secure')}
               </div>
               <Button
                 variant="primary"
@@ -1018,7 +1030,7 @@ export default function AddCandidatePage() {
                 disabled={!nameValid || !emailValid}
                 rightIcon={<ArrowRight className="size-4" />}
               >
-                Continue
+                {t('actions.continue')}
               </Button>
             </div>
           </div>
@@ -1029,40 +1041,40 @@ export default function AddCandidatePage() {
           <div className="flex flex-col gap-6">
             <div className="space-y-1">
               <h2 className="text-base font-semibold tracking-h4 text-text-heading md:text-h4">
-                Additional details
+                {t('review.additionalDetails')}
               </h2>
               <p className="text-body-sm text-text-subheading">
-                Enter additional details of the person you want to verify.
+                {t('additional.heading')}
               </p>
             </div>
 
             <div className="grid gap-x-5 gap-y-5 md:grid-cols-2">
               <InputFieldWrapper
                 id="field-dob"
-                label="Date of birth"
+                label={t('additional.dob')}
                 optional
                 error={dobError}
               >
                 <DateInput
                   className={fieldHighlight('dob')}
                   value={dobStringToDate(form.dob)}
-                  placeholder="DD/MM/YYYY"
+                  placeholder={t('additional.dobPlaceholder')}
                   maxDate={new Date()}
                   error={Boolean(dobError)}
                   onChange={(date) => set('dob', dateToDobString(date))}
                 />
               </InputFieldWrapper>
 
-              <InputFieldWrapper label="Gender" optional>
+              <InputFieldWrapper label={t('additional.gender')} optional>
                 <SelectInput
                   value={form.gender}
-                  placeholder="Select candidate's gender"
+                  placeholder={t('additional.genderPlaceholder')}
                   options={GENDER_OPTIONS}
                   onChange={(next) => set('gender', next)}
                 />
               </InputFieldWrapper>
 
-              <InputFieldWrapper label="Father's name" optional>
+              <InputFieldWrapper label={t('additional.fatherName')} optional>
                 <Input
                   value={form.fatherName}
                   placeholder="e.g. Ramesh Kumar"
@@ -1070,10 +1082,10 @@ export default function AddCandidatePage() {
                 />
               </InputFieldWrapper>
 
-              <InputFieldWrapper label="Pincode" optional error={pincodeError}>
+              <InputFieldWrapper label={t('additional.pincode')} optional error={pincodeError}>
                 <Input
                   value={form.pincode}
-                  placeholder="6-digit pincode"
+                  placeholder={t('additional.pincodePlaceholder')}
                   maxLength={6}
                   inputMode="numeric"
                   error={Boolean(pincodeError)}
@@ -1088,7 +1100,7 @@ export default function AddCandidatePage() {
 
               <InputFieldWrapper
                 id="field-permanentAddress"
-                label="Permanent address"
+                label={t('additional.address')}
                 optional
                 className="md:col-span-2"
               >
@@ -1096,7 +1108,7 @@ export default function AddCandidatePage() {
                   className={fieldHighlight('permanentAddress')}
                   value={form.permanentAddress}
                   rows={3}
-                  placeholder="House / street, area, city, state, PIN"
+                  placeholder={t('additional.addressPlaceholder')}
                   onChange={(event) =>
                     set('permanentAddress', event.target.value)
                   }
@@ -1120,7 +1132,7 @@ export default function AddCandidatePage() {
                 }}
                 leftIcon={<ArrowLeft className="size-4" />}
               >
-                Back
+                {t('actions.back')}
               </Button>
               <Button
                 variant="primary"
@@ -1129,7 +1141,7 @@ export default function AddCandidatePage() {
                 disabled={!dobValid || !pincodeValid}
                 rightIcon={<ArrowRight className="size-4" />}
               >
-                Continue
+                {t('actions.continue')}
               </Button>
             </div>
           </div>
@@ -1140,24 +1152,23 @@ export default function AddCandidatePage() {
           <div className="flex flex-col gap-6">
             <div className="space-y-1">
               <h2 className="text-base font-semibold tracking-h4 text-text-heading md:text-h4">
-                Identity documents
+                {t('documents.heading')}
               </h2>
               <p className="text-body-sm text-text-subheading">
-                Add any identity documents you have — the more you provide, the
-                more complete the background check.
+                {t('documents.uploadHint')}
               </p>
             </div>
 
             <div className="space-y-5">
               <InputFieldWrapper
                 id="field-aadhaar"
-                label="Aadhaar number"
+                label={t('additional.aadhaar')}
                 error={aadhaarError}
               >
                 <Input
                   className={fieldHighlight('aadhaar')}
                   value={form.aadhaar}
-                  placeholder="XXXX XXXX XXXX"
+                  placeholder={t('additional.aadhaarPlaceholder')}
                   maxLength={14}
                   inputMode="numeric"
                   error={Boolean(aadhaarError)}
@@ -1174,13 +1185,13 @@ export default function AddCandidatePage() {
 
               <InputFieldWrapper
                 id="field-pan"
-                label="PAN number"
+                label={t('additional.pan')}
                 error={panError}
               >
                 <Input
                   className={fieldHighlight('pan')}
                   value={form.pan}
-                  placeholder="ABCDE1234F"
+                  placeholder={t('additional.panPlaceholder')}
                   maxLength={10}
                   error={Boolean(panError)}
                   onChange={(event) =>
@@ -1194,14 +1205,14 @@ export default function AddCandidatePage() {
 
               <InputFieldWrapper
                 id="field-drivingLicense"
-                label="Driving licence no."
+                label={t('additional.drivingLicence')}
                 optional
                 error={dlError}
               >
                 <Input
                   className={fieldHighlight('drivingLicense')}
                   value={form.drivingLicense}
-                  placeholder="e.g. MH0120201234567"
+                  placeholder={t('additional.drivingLicencePlaceholder')}
                   maxLength={20}
                   error={Boolean(dlError)}
                   onChange={(event) =>
@@ -1215,14 +1226,14 @@ export default function AddCandidatePage() {
 
               <InputFieldWrapper
                 id="field-voterId"
-                label="Voter ID"
+                label={t('additional.voterId')}
                 optional
                 error={voterError}
               >
                 <Input
                   className={fieldHighlight('voterId')}
                   value={form.voterId}
-                  placeholder="e.g. ABC1234567"
+                  placeholder={t('additional.voterIdPlaceholder')}
                   maxLength={10}
                   error={Boolean(voterError)}
                   onChange={(event) =>
@@ -1236,14 +1247,14 @@ export default function AddCandidatePage() {
 
               <InputFieldWrapper
                 id="field-passportFileNo"
-                label="Passport file no."
+                label={t('additional.passport')}
                 optional
                 error={passportError}
               >
                 <Input
                   className={fieldHighlight('passportFileNo')}
                   value={form.passportFileNo}
-                  placeholder="e.g. AP1234567890"
+                  placeholder={t('additional.passportPlaceholder')}
                   maxLength={20}
                   error={Boolean(passportError)}
                   onChange={(event) =>
@@ -1257,14 +1268,14 @@ export default function AddCandidatePage() {
 
               <InputFieldWrapper
                 id="field-uan"
-                label="UAN"
+                label={t('additional.uan')}
                 optional
                 error={uanError}
               >
                 <Input
                   className={fieldHighlight('uan')}
                   value={form.uan}
-                  placeholder="12-digit UAN"
+                  placeholder={t('additional.uanPlaceholder')}
                   maxLength={12}
                   inputMode="numeric"
                   error={Boolean(uanError)}
@@ -1289,7 +1300,7 @@ export default function AddCandidatePage() {
                 }}
                 leftIcon={<ArrowLeft className="size-4" />}
               >
-                Back
+                {t('actions.back')}
               </Button>
               <Button
                 variant="primary"
@@ -1305,7 +1316,7 @@ export default function AddCandidatePage() {
                 }
                 rightIcon={<ArrowRight className="size-4" />}
               >
-                Continue
+                {t('actions.continue')}
               </Button>
             </div>
           </div>
@@ -1316,19 +1327,19 @@ export default function AddCandidatePage() {
           <div className="flex flex-col gap-6">
             <div className="space-y-1">
               <h2 className="text-base font-semibold tracking-h4 text-text-heading md:text-h4">
-                Review &amp; continue
+                {t('actions.reviewContinue')}
               </h2>
               <p className="text-body-sm text-text-subheading">
-                Verify the details before proceeding to payment.
+                {t('review.heading')}
               </p>
             </div>
 
             <CollapsibleSection title="Contact">
               <div className="divide-y divide-border-default overflow-hidden rounded-lg border border-border-default">
                 <SummaryRow label="Name" value={form.name} />
-                {form.email && <SummaryRow label="Email" value={form.email} />}
-                {form.phone && <SummaryRow label="Phone" value={form.phone} />}
-                {form.role && <SummaryRow label="Role" value={form.role} />}
+                {form.email && <SummaryRow label={t('basic.email')} value={form.email} />}
+                {form.phone && <SummaryRow label={t('basic.phone')} value={form.phone} />}
+                {form.role && <SummaryRow label={t('basic.role')} value={form.role} />}
               </div>
             </CollapsibleSection>
 
@@ -1340,22 +1351,22 @@ export default function AddCandidatePage() {
               <CollapsibleSection title="Additional details">
                 <div className="divide-y divide-border-default overflow-hidden rounded-lg border border-border-default">
                   {form.dob && (
-                    <SummaryRow label="Date of birth" value={form.dob} />
+                    <SummaryRow label={t('additional.dob')} value={form.dob} />
                   )}
                   {form.gender && (
-                    <SummaryRow label="Gender" value={form.gender} />
+                    <SummaryRow label={t('additional.gender')} value={form.gender} />
                   )}
                   {form.fatherName && (
-                    <SummaryRow label="Father's name" value={form.fatherName} />
+                    <SummaryRow label={t('additional.fatherName')} value={form.fatherName} />
                   )}
                   {form.permanentAddress && (
                     <SummaryRow
-                      label="Permanent address"
+                      label={t('additional.address')}
                       value={form.permanentAddress}
                     />
                   )}
                   {form.pincode && (
-                    <SummaryRow label="Pincode" value={form.pincode} />
+                    <SummaryRow label={t('additional.pincode')} value={form.pincode} />
                   )}
                 </div>
               </CollapsibleSection>
@@ -1372,14 +1383,14 @@ export default function AddCandidatePage() {
                   label="Driving licence"
                   value={form.drivingLicense}
                 />
-                <SummaryRow label="Voter ID" value={form.voterId} />
+                <SummaryRow label={t('additional.voterId')} value={form.voterId} />
                 {form.passportFileNo && (
                   <SummaryRow
-                    label="Passport file no."
+                    label={t('additional.passport')}
                     value={form.passportFileNo}
                   />
                 )}
-                <SummaryRow label="UAN" value={form.uan} />
+                <SummaryRow label={t('additional.uan')} value={form.uan} />
               </div>
             </CollapsibleSection>
 
@@ -1390,7 +1401,7 @@ export default function AddCandidatePage() {
               {performable.length > 0 && (
                 <div className="space-y-3">
                   <h3 className="text-body-md font-semibold text-text-body">
-                    Checks we&apos;ll perform
+                    {t('review.willPerform')}
                   </h3>
                   <div className="grid gap-3 sm:grid-cols-2">
                     {performable.map((c, i) => {
@@ -1423,7 +1434,7 @@ export default function AddCandidatePage() {
               {blocked.length > 0 && (
                 <div className="space-y-3">
                   <h3 className="text-body-md font-semibold text-text-body">
-                    Checks we can&apos;t perform yet
+                    {t('review.cannotPerform')}
                   </h3>
                   <div className="grid gap-3 sm:grid-cols-2">
                     {blocked.map((c, i) => (
@@ -1446,7 +1457,7 @@ export default function AddCandidatePage() {
                               onClick={() => goToMissingInfo(c.missing)}
                               className="inline-flex shrink-0 items-center gap-0.5 text-body-sm font-medium text-text-link hover:underline"
                             >
-                              Add missing info
+                              {t('review.addMissing')}
                               <ArrowRight className="size-3" />
                             </button>
                           </div>
@@ -1463,13 +1474,13 @@ export default function AddCandidatePage() {
             {/* Discount code — validated against the DB discount codes. */}
             <div className="rounded-lg border border-border-default bg-white p-4">
               <div className="mb-2 text-body-md font-semibold text-text-heading">
-                Get additional discount
+                {t('review.discountPrompt')}
               </div>
               <div className="flex items-end gap-2">
                 <div className="flex-1">
                   <Input
                     value={discountInput}
-                    placeholder="Enter discount code"
+                    placeholder={t('review.discountPlaceholder')}
                     disabled={!!appliedCode}
                     onChange={(e) =>
                       setDiscountInput(e.target.value.toUpperCase())
@@ -1478,7 +1489,7 @@ export default function AddCandidatePage() {
                 </div>
                 {appliedCode ? (
                   <Button variant="secondary" onClick={clearDiscount}>
-                    Remove
+                    {t('documents.remove')}
                   </Button>
                 ) : (
                   <Button
@@ -1506,7 +1517,7 @@ export default function AddCandidatePage() {
               <div className="flex items-center gap-2 border-b border-border-default bg-neutral-50 px-4 py-3">
                 <ReceiptText className="size-4 text-icon-default" />
                 <span className="text-body-md font-semibold text-text-heading">
-                  Payment summary
+                  {t('review.paymentSummary')}
                 </span>
               </div>
 
@@ -1514,7 +1525,7 @@ export default function AddCandidatePage() {
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <div className="text-body-md text-text-body">
-                      Verification fee
+                      {t('review.fee')}
                     </div>
                     <div className="mt-0.5 text-body-sm text-text-subheading">
                       {performable.length} check
@@ -1542,10 +1553,10 @@ export default function AddCandidatePage() {
               <div className="flex items-end justify-between gap-4 border-t border-border-default bg-neutral-50 px-4 py-4">
                 <div>
                   <div className="text-body-md font-semibold text-text-heading">
-                    Total payable
+                    {t('review.total')}
                   </div>
                   <div className="mt-0.5 text-body-sm text-text-subheading">
-                    Inclusive of all taxes
+                    {t('review.taxes')}
                   </div>
                 </div>
                 <div className="shrink-0 text-right">
@@ -1578,7 +1589,7 @@ export default function AddCandidatePage() {
                   rel="noopener noreferrer"
                   className="font-medium text-text-link underline underline-offset-2 hover:text-text-link-hover"
                 >
-                  Terms &amp; Conditions
+                  {t('review.termsLink')}
                 </a>{' '}
                 and confirm you have obtained the candidate&apos;s consent.
               </p>
@@ -1703,7 +1714,7 @@ export default function AddCandidatePage() {
                 }}
                 leftIcon={<ArrowLeft className="size-4" />}
               >
-                Edit details
+                {t('review.editDetails')}
               </Button>
               <HoverTooltipAnchor
                 text={payBlockedReason}
@@ -1737,7 +1748,7 @@ export default function AddCandidatePage() {
               disabled={!nameValid || !emailValid}
               rightIcon={<ArrowRight className="size-4" />}
             >
-              Continue
+              {t('actions.continue')}
             </Button>
           )}
           {step === 2 && (
@@ -1748,7 +1759,7 @@ export default function AddCandidatePage() {
               disabled={!dobValid || !pincodeValid}
               rightIcon={<ArrowRight className="size-4" />}
             >
-              Continue
+              {t('actions.continue')}
             </Button>
           )}
           {step === 3 && (
@@ -1766,7 +1777,7 @@ export default function AddCandidatePage() {
               }
               rightIcon={<ArrowRight className="size-4" />}
             >
-              Continue
+              {t('actions.continue')}
             </Button>
           )}
           {step === 4 && (
