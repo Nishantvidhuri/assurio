@@ -1603,54 +1603,7 @@ export default function AddCandidatePage() {
               </label>
             </div>
 
-            {/* Payment. With online payment off, the wallet is the only route:
-                show the balance and the shortfall rather than a choice of one.
-                The Razorpay tile returns automatically when the flag is on. */}
-            {!ONLINE_PAYMENT_ENABLED ? (
-              <div
-                className={`rounded-lg border p-4 ${
-                  walletCovers
-                    ? 'border-border-default bg-white'
-                    : 'border-border-warning bg-surface-warning'
-                }`}
-              >
-                <div className="flex items-start gap-3">
-                  <span
-                    className={`mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full ${
-                      walletCovers
-                        ? 'bg-primary text-white'
-                        : 'bg-white text-warning'
-                    }`}
-                  >
-                    <Wallet className="size-[18px]" />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="text-body-md font-medium text-text-heading">
-                      Paying from wallet
-                    </div>
-                    <div className="mt-0.5 text-body-sm text-text-subheading">
-                      Balance ₹{(walletInr ?? 0).toLocaleString('en-IN')} ·
-                      this check costs ₹{finalAmount.toLocaleString('en-IN')}
-                    </div>
-                    {walletCovers ? (
-                      <div className="mt-1 text-body-sm text-text-placeholder">
-                        Refunded automatically if the candidate declines consent
-                      </div>
-                    ) : (
-                      <div className="mt-1 text-body-sm text-warning-900">
-                        Short by ₹
-                        {Math.max(
-                          0,
-                          finalAmount - (walletInr ?? 0),
-                        ).toLocaleString('en-IN')}
-                        . Contact us to top up your wallet, then come back to
-                        this page.
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ) : walletCovers ? (
+            {ONLINE_PAYMENT_ENABLED && walletCovers && (
               <fieldset className="rounded-lg border border-border-default bg-white p-4">
                 <legend className="px-1 text-body-md font-medium text-text-heading">
                   Pay using
@@ -1727,12 +1680,11 @@ export default function AddCandidatePage() {
                   })}
                 </div>
               </fieldset>
-            ) : null}
+            )}
 
-            {/* Only when there is no choice to make — with the tiles on screen
-                each option already states its own terms, and repeating them
-                here just says the same thing twice. */}
-            {!walletCovers && (
+            {/* Razorpay only earns a mention when it is actually the payment
+                route. With online payment off, nothing here goes through it. */}
+            {ONLINE_PAYMENT_ENABLED && !walletCovers && (
               <div className="inline-flex items-center gap-1.5 text-body-sm text-text-subheading">
                 <ShieldCheck className="size-3.5" />
                 Secured by Razorpay
