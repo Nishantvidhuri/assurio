@@ -190,6 +190,15 @@
       "Within 24-48 hours": "Within 24-48 hours",
       "Awaiting candidate": "Awaiting candidate",
       "After Aadhaar KYC": "After Aadhaar KYC"
+    },
+    "stepOf": "Step {step} of {total}",
+    "consentCalloutTitle": "Consent-based verification",
+    "consentCalloutBody": "All checks start only after the candidate accepts the consent agreement. If they decline or don't respond, the full amount is refunded to your wallet.",
+    "uploadIds": "Upload IDs",
+    "sections": {
+      "contact": "Contact",
+      "additional": "Additional details",
+      "identity": "Identity"
     }
   }
 }

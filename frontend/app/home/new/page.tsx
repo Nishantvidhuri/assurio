@@ -40,6 +40,7 @@ import { openRazorpayCheckout } from '../../lib/razorpay';
 import { getToken } from '../../lib/session';
 import { doLogout } from '../../lib/logout';
 import { ONLINE_PAYMENT_ENABLED } from '../../lib/feature-flags';
+import LanguageSwitcher from '../../components/LanguageSwitcher';
 import { CLIENT_NAV } from '../../components/Sidebar';
 import AppShell from '../../components/AppShell';
 import {
@@ -820,11 +821,15 @@ export default function AddCandidatePage() {
                   {stepItems[step - 1].title}
                 </span>
                 <span className="text-body-sm text-text-subheading">
-                  Step {step} of {stepItems.length}
+                  {t('stepOf', { step, total: stepItems.length })}
                 </span>
               </div>
               <ProgressBar value={(step / stepItems.length) * 100} />
             </div>
+            {/* The shell's top bar is suppressed on this page below lg
+                (hideMobileTopBar), so the switcher has to live here or a phone
+                user has no way to change language at all. */}
+            <LanguageSwitcher className="ml-auto shrink-0" />
           </div>
 
           <Divider
@@ -845,8 +850,8 @@ export default function AddCandidatePage() {
           <Callout
             state="Info"
             configuration="Text & Subtext"
-            title="Consent-based verification"
-            subtext="All checks start only after the candidate accepts the consent agreement. If they decline or don't respond, the full amount is refunded to your wallet."
+            title={t('consentCalloutTitle')}
+            subtext={t('consentCalloutBody')}
             showAction={false}
             showCloseIcon={false}
             multiline
@@ -922,7 +927,7 @@ export default function AddCandidatePage() {
               </InputFieldWrapper>
 
               <InputFieldWrapper
-                label="Upload IDs"
+                label={t('uploadIds')}
                 optional
                 className="md:col-span-2"
               >
@@ -1332,7 +1337,7 @@ export default function AddCandidatePage() {
               </p>
             </div>
 
-            <CollapsibleSection title="Contact">
+            <CollapsibleSection title={t('sections.contact')}>
               <div className="divide-y divide-border-default overflow-hidden rounded-lg border border-border-default">
                 <SummaryRow label="Name" value={form.name} />
                 {form.email && <SummaryRow label={t('basic.email')} value={form.email} />}
@@ -1346,7 +1351,7 @@ export default function AddCandidatePage() {
               form.fatherName ||
               form.permanentAddress ||
               form.pincode) && (
-              <CollapsibleSection title="Additional details">
+              <CollapsibleSection title={t('sections.additional')}>
                 <div className="divide-y divide-border-default overflow-hidden rounded-lg border border-border-default">
                   {form.dob && (
                     <SummaryRow label={t('additional.dob')} value={form.dob} />
@@ -1370,7 +1375,7 @@ export default function AddCandidatePage() {
               </CollapsibleSection>
             )}
 
-            <CollapsibleSection title="Identity">
+            <CollapsibleSection title={t('sections.identity')}>
               <div className="divide-y divide-border-default overflow-hidden rounded-lg border border-border-default">
                 <SummaryRow
                   label="Aadhaar"
